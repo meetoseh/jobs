@@ -1,0 +1,23 @@
+name: lint and test
+
+on: [push]
+
+jobs:
+    lint_and_test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                python_version: [3.8, 3.9, "3.10"]
+        name: lint and test
+        steps:
+            - name: git-checkout
+              uses: actions/checkout@v3
+
+            - name: install all dependencies
+              run: pip install -r requirements.txt
+
+            - name: lint
+              run: python -m black --check .
+
+            - name: run tests
+              run: python -m unittest discover -s tests
