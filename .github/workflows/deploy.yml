@@ -15,4 +15,4 @@ jobs:
         env:
           TOKEN: ${{ secrets.OSEH_DEPLOYMENT_SECRET }}
         run: |
-          curl -XPOST -H "Content-Type: application/json" https://oseh.io/api/1/continuous_deployment/update -d '{"repo":"jobs"}' -H "authorization: token $TOKEN"
+          curl -XPOST -H "Content-Type: application/json" https://oseh.io/api/1/continuous_deployment/update -d '{"repo":"jobs"}' -H "authorization: bearer $TOKEN"
