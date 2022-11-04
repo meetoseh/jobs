@@ -2,6 +2,7 @@ import multiprocessing
 import time
 from graceful_death import GracefulDeath
 import updater
+import recurring_jobs
 import asyncio
 from itgs import Itgs
 import importlib
@@ -10,6 +11,7 @@ from error_middleware import handle_error
 
 async def _main(gd: GracefulDeath):
     multiprocessing.Process(target=updater.listen_forever_sync, daemon=True).start()
+    multiprocessing.Process(target=recurring_jobs.run_forever_sync, daemon=True).start()
     async with Itgs() as itgs:
         jobs = await itgs.jobs()
         while not gd.received_term_signal:
