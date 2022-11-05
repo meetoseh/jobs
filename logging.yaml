@@ -1,0 +1,40 @@
+version: 1
+disable_existing_loggers: true
+formatters:
+  default:
+    (): 'logging_utils.DefaultFormatter'
+    fmt: '%(asctime)s %(processName)-11s %(levelprefix)-9s %(name)s -: %(message)s'
+  fallback:
+    format: '%(asctime)s %(processName)-11s %(levelname)-9s -: %(message)s'
+handlers:
+  default:
+    class: logging.StreamHandler
+    formatter: default
+    stream: ext://sys.stderr
+  fallback:
+    class: logging.StreamHandler
+    formatter: fallback
+    stream: ext://sys.stderr
+  jobs:
+    class: logging.StreamHandler
+    formatter: default
+    stream: ext://sys.stdout
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: fallback
+    filename: file.log
+    when: midnight
+    interval: 1
+    backupCount: 5
+loggers:
+  '':
+    level: DEBUG
+    handlers:
+      - fallback
+      - file
+  osehjobs:
+    level: INFO
+    handlers:
+      - default
+      - file
+    propagate: false

@@ -5,6 +5,7 @@ import subprocess
 import platform
 import os
 from graceful_death import GracefulDeath
+import logging
 
 
 async def _listen_forever():
@@ -20,7 +21,7 @@ async def _listen_forever():
             await pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
         ) is None:
             if gd.received_term_signal:
-                print("updater shutting down")
+                logging.info("updater shutting down")
                 return
     if platform.platform().lower().startswith("linux"):
         subprocess.Popen(

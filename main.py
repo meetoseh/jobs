@@ -7,6 +7,11 @@ import asyncio
 from itgs import Itgs
 import importlib
 from error_middleware import handle_error
+import yaml
+import logging.config
+import logging
+
+multiprocessing.set_start_method('spawn', force=True)
 
 
 async def _main(gd: GracefulDeath):
@@ -22,7 +27,9 @@ async def _main(gd: GracefulDeath):
                 mod = importlib.import_module(job["name"])
                 started_at = time.perf_counter()
                 await mod.execute(itgs, gd, **job["kwargs"])
-                print(f"finished in {time.perf_counter() - started_at:.3f} seconds")
+                logging.info(
+                    f"finished in {time.perf_counter() - started_at:.3f} seconds"
+                )
             except Exception as e:
                 await handle_error(e)
                 continue
@@ -30,6 +37,10 @@ async def _main(gd: GracefulDeath):
 
 def main():
     gd = GracefulDeath()
+    with open("logging.yaml") as f:
+        logging_config = yaml.safe_load(f)
+
+    logging.config.dictConfig(logging_config)
     asyncio.run(_main(gd))
 
 

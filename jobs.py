@@ -1,6 +1,7 @@
 import redis.asyncio
 import json
 import time
+import logging
 from typing import Optional, TypedDict
 
 
@@ -74,6 +75,6 @@ class Jobs:
             return None
         job_serd_and_encoded: bytes = response[1]
         job_serd = job_serd_and_encoded.decode("utf-8")
-        print(repr(job_serd))
+        logging.info(repr(job_serd))
         job = json.loads(job_serd)
         return job

@@ -1,6 +1,7 @@
 """a very simple job"""
 from itgs import Itgs
 from graceful_death import GracefulDeath
+import logging
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, message: str):
@@ -11,4 +12,4 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, message: str):
         gd (GracefulDeath): the signal tracker; provided automatically
         message (str): the only keyword argument for this job; to be printed out
     """
-    print(message)
+    logging.info(message)
