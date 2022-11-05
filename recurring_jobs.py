@@ -520,8 +520,6 @@ def _stable_hash_jobs(jobs: List[Job]) -> int:
 JOBS_HASH = _stable_hash_jobs(JOBS)
 """The hash of the jobs, used to determine if we have the latest version of the jobs"""
 
-print(f"{JOBS_HASH=}")
-
 JOBS_BY_HASH: Dict[int, Job] = dict((job.stable_hash(), job) for job in JOBS)
 
 assert len(JOBS) == len(JOBS_BY_HASH), "hash collision in jobs"
