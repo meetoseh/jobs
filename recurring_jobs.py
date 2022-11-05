@@ -790,9 +790,6 @@ async def _run_forever():
             job_hash = int(result[0])
             assert job_hash in JOBS_BY_HASH, f"unexpected {job_hash=} in rjobs"
             job = JOBS_BY_HASH[job_hash]
-            await slack.send_web_error_message(
-                f"heartbeat from {os.getpid()} - {job.name}"
-            )
             await jobs.enqueue(job.name, **dict(job.kwargs))
             await move_from_purgatory(
                 redis,
