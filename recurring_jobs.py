@@ -769,7 +769,6 @@ async def _run_forever():
         jobs = await itgs.jobs()
         slack = await itgs.slack()
         while True:
-            await slack.send_web_error_message(f"heartbeat from {os.getpid()}")
             result = await conditionally_zpopmin(
                 redis, "rjobs", time.time(), "rjobs:hash", "rjobs:purgatory"
             )
@@ -791,6 +790,9 @@ async def _run_forever():
             job_hash = int(result[0])
             assert job_hash in JOBS_BY_HASH, f"unexpected {job_hash=} in rjobs"
             job = JOBS_BY_HASH[job_hash]
+            await slack.send_web_error_message(
+                f"heartbeat from {os.getpid()} - {job.name}"
+            )
             await jobs.enqueue(job.name, **dict(job.kwargs))
             await move_from_purgatory(
                 redis,
