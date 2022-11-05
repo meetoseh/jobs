@@ -46,6 +46,7 @@ import calendar
 import pytz
 import time
 import hashlib
+import os
 
 WeekDay = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 """The days of the week as a type"""
@@ -766,7 +767,9 @@ async def _run_forever():
 
         redis = await itgs.redis()
         jobs = await itgs.jobs()
+        slack = await itgs.slack()
         while True:
+            await slack.send_web_error_message(f"heartbeat from {os.getpid()}")
             result = await conditionally_zpopmin(
                 redis, "rjobs", time.time(), "rjobs:hash", "rjobs:purgatory"
             )
