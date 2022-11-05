@@ -601,6 +601,9 @@ async def clean_purgatory(itgs: Itgs) -> None:
             job = JOBS_BY_HASH[int(job_hash)]
             new_scores[job_hash] = job.interval.next_runtime_after(time.time())
 
+        if not new_scores:
+            return
+
         pipe.multi()
         await pipe.zadd("rjobs", mapping=new_scores)
         await pipe.delete("rjobs:purgatory")
