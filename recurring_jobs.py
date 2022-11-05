@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import importlib
 import inspect
-
+import json
 from redis import ResponseError
 from error_middleware import handle_error
 from redis.asyncio.client import Redis, Pipeline
@@ -367,17 +367,35 @@ class JobInterval:
         )
 
     def __hash__(self) -> int:
-        return hash(
-            (
-                self.seconds,
-                self.minutes,
-                self.hours,
-                self.days_of_week,
-                self.days_of_month,
-                self.months,
-                self.tz,
-            )
+        def clip(x):
+            return x % (2**64)
+
+        result = 31
+
+        result = 17 * result + int(
+            self.tz.utcoffset(datetime.datetime.now()).total_seconds()
         )
+        for val in (
+            self.seconds,
+            self.minutes,
+            self.hours,
+            self.days_of_week,
+            self.days_of_month,
+            self.months,
+        ):
+            if val is None:
+                result = clip(17 * result + 100002961)
+            else:
+                result = clip(17 * result + len(val))
+                for v in val:
+                    if isinstance(v, int):
+                        result = clip(17 * result + v)
+                    elif isinstance(v, str):
+                        result = clip(17 * result + len(v))
+                        for c in v:
+                            result = clip(17 * result + ord(c))
+
+        return result
 
     def __repr__(self) -> str:
         result = [self.__class__.__name__, "(", repr(self.tz)]
@@ -396,6 +414,9 @@ class JobInterval:
                 result.append(repr(getattr(self, attr)))
         result.append(")")
         return "".join(result)
+
+    def stable_hash(self) -> int:
+        return self.__hash__()
 
 
 @dataclass(frozen=True)
@@ -447,6 +468,31 @@ class Job:
                     f"Module {self.name=} has an argument {name=} that is not a keyword only argument, yet it is present in {self.kwargs=}"
                 )
 
+    def stable_hash(self) -> int:
+        """A hash that is stable across runs"""
+
+        def clip(x):
+            return x % (2**64)
+
+        result = 31
+        result = clip(17 * result + len(self.name))
+        for c in self.name:
+            result = clip(17 * result + ord(c))
+
+        result = clip(17 * result + len(self.kwargs))
+        for k, v in self.kwargs:
+            result = clip(17 * result + len(k))
+            for c in k:
+                result = clip(17 * result + ord(c))
+
+            json_val = json.dumps(v)
+            result = clip(17 * result + len(json_val))
+            for c in json_val:
+                result = clip(17 * result + ord(c))
+
+        result = clip(17 * result + self.interval.stable_hash())
+        return result
+
 
 pst = pytz.timezone("US/Pacific")
 JOBS: List[Job] = (
@@ -458,8 +504,23 @@ JOBS: List[Job] = (
 )
 """The jobs that should be run."""
 
-JOBS_HASH = hash(JOBS)
+
+def _stable_hash_jobs(jobs: List[Job]) -> int:
+    """Returns a hash of the jobs that is stable across runs"""
+
+    def clip(x):
+        return x % (2**64)
+
+    result = 31
+    for job in jobs:
+        result = clip(17 * result + job.stable_hash())
+    return result
+
+
+JOBS_HASH = _stable_hash_jobs(JOBS)
 """The hash of the jobs, used to determine if we have the latest version of the jobs"""
+
+print(f"{JOBS_HASH=}")
 
 JOBS_BY_HASH: Dict[int, Job] = dict((hash(job), job) for job in JOBS)
 
