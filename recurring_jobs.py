@@ -595,6 +595,9 @@ async def clean_purgatory(itgs: Itgs) -> None:
 
         new_scores: Dict[bytes, float] = {}
         for job_hash in resp:
+            if int(job_hash) not in JOBS_BY_HASH:
+                continue
+
             job = JOBS_BY_HASH[int(job_hash)]
             new_scores[job_hash] = job.interval.next_runtime_after(time.time())
 
