@@ -522,7 +522,7 @@ JOBS_HASH = _stable_hash_jobs(JOBS)
 
 print(f"{JOBS_HASH=}")
 
-JOBS_BY_HASH: Dict[int, Job] = dict((hash(job), job) for job in JOBS)
+JOBS_BY_HASH: Dict[int, Job] = dict((job.stable_hash(), job) for job in JOBS)
 
 assert len(JOBS) == len(JOBS_BY_HASH), "hash collision in jobs"
 
@@ -552,7 +552,7 @@ async def update_jobs(itgs: Itgs) -> None:
         now = time.time()
 
         new_scores_by_hash: Dict[int, float] = dict(
-            (hash(job), job.interval.next_runtime_after(now)) for job in JOBS
+            (job.stable_hash(), job.interval.next_runtime_after(now)) for job in JOBS
         )
 
         resp = await pipe.zrange("rjobs", "0", "-1", withscores=True)
