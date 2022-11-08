@@ -105,7 +105,8 @@ class S3:
 
     async def __aenter__(self) -> "S3":
         self._session = aioboto3.Session()
-        logging.info(f"{self._session.get_credentials()=}")
+        credentials = await self._session.get_credentials()
+        logging.info(f"{credentials=}")
         self.__s3_creator = self._session.client("s3")
         self._s3 = await self.__s3_creator.__aenter__()
         return self
