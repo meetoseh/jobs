@@ -506,7 +506,7 @@ JOBS: List[Job] = (
         name="runners.sweep_partial_file_uploads",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(0,), minutes=(0,), seconds=(0,)),
-    )
+    ),
 )
 """The jobs that should be run."""
 
