@@ -196,7 +196,18 @@ async def execute(
         if response.rows_affected is None or response.rows_affected < 1:
             await handle_warning(
                 f"{__name__}:update_failed",
-                f"Failed to update {user_sub=} (changed during processing)",
+                (
+                    f"Failed to update {user_sub=} (changed during processing)\n\n"
+                    "```\n"
+                    f"{old_picture_url=}\n"
+                    f"{old_picture_image_file_uid=}\n"
+                    f"{old_picture_image_file_updated_at=}\n"
+                    f"{picture_url=}\n"
+                    f"{jwt_iat=}\n"
+                    f"{user_sub=}\n"
+                    f"{image.uid=}\n"
+                    "```\n"
+                ),
             )
             await jobs.enqueue("runners.delete_image_file", uid=image.uid)
             return
