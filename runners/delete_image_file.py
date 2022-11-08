@@ -49,4 +49,4 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
 
     for s3_file in s3_files_to_delete:
         await files.delete(bucket=s3_file.bucket, key=s3_file.key)
-        await cursor.execute("DELETE FROM s3_files WHERE uid=?", (s3_file.key,))
+        await cursor.execute("DELETE FROM s3_files WHERE uid=?", (s3_file.uid,))
