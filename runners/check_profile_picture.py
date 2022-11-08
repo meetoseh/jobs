@@ -160,6 +160,9 @@ async def execute(
             await _bounce()
             return
 
+        if image.uid == old_picture_image_file_uid:
+            return
+
         response = await cursor.execute(
             """
             UPDATE users
