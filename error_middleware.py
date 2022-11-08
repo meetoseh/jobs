@@ -61,6 +61,6 @@ async def handle_warning(
     async with Itgs() as itgs:
         slack = await itgs.slack()
         await slack.send_web_error_message(
-            f"WARNING: {identifier}",
             f"WARNING: `{identifier}` (warning {total_warnings}/{MAX_WARNINGS_PER_INTERVAL} per {WARNING_RATELIMIT_INTERVAL} seconds for {os.getpid()})\n\n{text}",
+            preview=f"WARNING: {identifier}",
         )
