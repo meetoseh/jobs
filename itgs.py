@@ -135,7 +135,9 @@ class Itgs:
 
         if os.environ.get("ENVIRONMENT", default="production") == "dev":
             root = os.environ["OSEH_S3_LOCAL_BUCKET_PATH"]
-            self._file_service = file_service.LocalFiles(root, default_bucket=default_bucket)
+            self._file_service = file_service.LocalFiles(
+                root, default_bucket=default_bucket
+            )
         else:
             self._file_service = file_service.S3(default_bucket=default_bucket)
 
