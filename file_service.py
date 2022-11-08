@@ -97,19 +97,23 @@ class S3:
         self._session = None
         """The session object, if we have one, i.e., if we have been aenter'd"""
 
+        self.__s3_creator = None
+        """The s3 client creator, if we have one, i.e., if we have been aenter'd"""
+
         self._s3 = None
-        """The s3 client, if we have one, i.e., if we have been aenter'd"""
+        """The result from __aenter__ on the client creator"""
 
     async def __aenter__(self) -> "S3":
         self._session = aioboto3.Session()
-        self._s3 = self._session.client("s3")
-        self._s3.__aenter__()
+        self.__s3_creator = self._session.client("s3")
+        self._s3 = self.__s3_creator.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        self._s3.__aexit__(exc_type, exc, tb)
-        self._s3 = None
+        self.__s3_creator.__aexit__(exc_type, exc, tb)
         self._session = None
+        self.__s3_creator = None
+        self._s3 = None
 
     async def upload(
         self,
