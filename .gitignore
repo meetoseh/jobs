@@ -3,3 +3,5 @@ __pycache__
 updater.lock
 dev.bat
 *.log
+/tmp
+*.log.*

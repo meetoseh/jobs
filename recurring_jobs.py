@@ -500,8 +500,13 @@ JOBS: List[Job] = (
     Job(
         name="runners.example",
         kwargs=(("message", "Ping from recurring_jobs"),),
-        interval=JobInterval(pst, seconds=(0, 10, 20, 30, 40, 50)),
+        interval=JobInterval(pst, seconds=(0,)),
     ),
+    Job(
+        name="runners.sweep_partial_file_uploads",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(0,), seconds=(0,)),
+    )
 )
 """The jobs that should be run."""
 

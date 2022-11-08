@@ -8,6 +8,7 @@ import redis.asyncio
 import os
 import slack
 import jobs
+import file_service
 
 
 class Itgs:
@@ -33,6 +34,9 @@ class Itgs:
 
         self._jobs: Optional[jobs.Jobs] = None
         """the jobs connection if it had been opened"""
+
+        self._file_service: Optional[file_service.FileService] = None
+        """the file service connection if it had been opened"""
 
         self._closures: List[Callable[["Itgs"], Coroutine]] = []
         """functions to run on __aexit__ to cleanup opened resources"""
@@ -121,3 +125,25 @@ class Itgs:
 
         self._closures.append(cleanup)
         return self._jobs
+
+    async def files(self) -> file_service.FileService:
+        """gets or creates the file service for large binary blobs"""
+        if self._file_service is not None:
+            return self._file_service
+
+        default_bucket = os.environ["OSEH_S3_BUCKET_NAME"]
+
+        if os.environ.get("ENVIRONMENT", default="production") == "dev":
+            root = os.environ["OSEH_S3_LOCAL_BUCKET_PATH"]
+            self._file_service = file_service.LocalFiles(root, default_bucket=default_bucket)
+        else:
+            self._file_service = file_service.S3(default_bucket=default_bucket)
+
+        await self._file_service.__aenter__()
+
+        async def cleanup(me: "Itgs") -> None:
+            await me._file_service.__aexit__(None, None, None)
+            me._file_service = None
+
+        self._closures.append(cleanup)
+        return self._file_service
