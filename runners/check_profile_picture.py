@@ -174,7 +174,10 @@ async def execute(
             WHERE
                 users.sub = ?
                 AND image_files.uid = ?
-                AND users.picture_image_file_updated_at < ?
+                AND (
+                    users.picture_image_file_updated_at IS NULL
+                    OR users.picture_image_file_updated_at < ?
+                )
                 AND (? IS NULL OR EXISTS (
                     SELECT 1 FROM image_files AS old_image_files
                     WHERE
