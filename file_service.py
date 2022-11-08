@@ -129,10 +129,10 @@ class S3:
                         data = await f.read(8192)
 
                 with open(tmp, "rb") as f2:
-                    await self._s3.upload_fileobj(f2, bucket, key)
+                    await self._s3.put_object(Bucket=bucket, Key=key, Body=f2)
             return
 
-        await self._s3.upload_fileobj(f, bucket, key)
+        await self._s3.put_object(Bucket=bucket, Key=key, Body=f)
 
     async def download(
         self,
