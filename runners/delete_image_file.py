@@ -42,11 +42,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
         return
 
     files = await itgs.files()
-    s3_files_uids_to_delete = [
-        image_file.original_s3_file.uid,
-        *(export.s3_file.uid for export in image_file.exports),
+    s3_files_to_delete = [
+        image_file.original_s3_file,
+        *(export.s3_file for export in image_file.exports),
     ]
 
-    for s3_file_uid in s3_files_uids_to_delete:
-        await files.delete(s3_file_uid)
-        await cursor.execute("DELETE FROM s3_files WHERE uid=?", (s3_file_uid,))
+    for s3_file in s3_files_to_delete:
+        await files.delete(bucket=s3_file.bucket, key=s3_file.key)
+        await cursor.execute("DELETE FROM s3_files WHERE uid=?", (s3_file.key,))
