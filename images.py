@@ -251,6 +251,10 @@ async def _add_missing_targets(
             json.dumps(target.quality_settings, sort_keys=True),
         )
         not in exports_lookup
+        and (
+            target.width <= image_file.original_width
+            and target.height <= image_file.original_height
+        )
     ]
 
     if not missing_targets:
