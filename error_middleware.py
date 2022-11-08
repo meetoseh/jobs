@@ -19,7 +19,7 @@ async def handle_error(exc: Exception) -> None:
         await slack.send_web_error_message(message, "an error occurred in jobs")
 
 
-RECENT_WARNINGS: Dict[str, deque[float]] = dict()
+RECENT_WARNINGS: Dict[str, deque] = dict()  # deque[float] is not available on prod
 """Maps from a warning identifier to a deque of timestamps of when the warning was sent."""
 
 WARNING_RATELIMIT_INTERVAL = 60 * 60
@@ -47,7 +47,13 @@ async def handle_warning(
         return
 
     if exc is not None:
-        text += "\n\n```" + "\n".join(traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]) + "```"
+        text += (
+            "\n\n```"
+            + "\n".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
+            )
+            + "```"
+        )
 
     recent_warnings.append(now)
     total_warnings = len(recent_warnings)
