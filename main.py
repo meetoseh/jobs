@@ -11,12 +11,22 @@ import yaml
 import logging.config
 import logging
 
-multiprocessing.set_start_method('spawn', force=True)
+multiprocessing.set_start_method("spawn", force=True)
 
 
 async def _main(gd: GracefulDeath):
     multiprocessing.Process(target=updater.listen_forever_sync, daemon=True).start()
     multiprocessing.Process(target=recurring_jobs.run_forever_sync, daemon=True).start()
+
+    async with Itgs() as itgs:
+        files = await itgs.files()  # testing
+        from io import BytesIO
+
+        content = BytesIO(b"this is a test")
+        await files.upload(
+            content, bucket=files.default_bucket, key="test.txt", sync=True
+        )
+
     async with Itgs() as itgs:
         jobs = await itgs.jobs()
         while not gd.received_term_signal:
