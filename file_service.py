@@ -106,11 +106,11 @@ class S3:
     async def __aenter__(self) -> "S3":
         self._session = aioboto3.Session()
         self.__s3_creator = self._session.client("s3")
-        self._s3 = self.__s3_creator.__aenter__()
+        self._s3 = await self.__s3_creator.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        self.__s3_creator.__aexit__(exc_type, exc, tb)
+        await self.__s3_creator.__aexit__(exc_type, exc, tb)
         self._session = None
         self.__s3_creator = None
         self._s3 = None
