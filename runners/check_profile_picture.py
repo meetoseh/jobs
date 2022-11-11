@@ -17,13 +17,6 @@ TARGETS = [
         required=True,
         width=60,
         height=60,
-        format="jpeg",
-        quality_settings={"quality": 95, "optimize": True, "progressive": False},
-    ),
-    ImageTarget(
-        required=False,
-        width=60,
-        height=60,
         format="png",
         quality_settings={"optimize": True},
     ),
@@ -38,15 +31,15 @@ TARGETS = [
         required=False,
         width=120,
         height=120,
-        format="jpeg",
-        quality_settings={"quality": 95, "optimize": True, "progressive": False},
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
     ),
     ImageTarget(
         required=False,
         width=120,
         height=120,
-        format="webp",
-        quality_settings={"lossless": True, "quality": 100, "method": 6},
+        format="png",
+        quality_settings={"optimize": True},
     ),
     ImageTarget(
         required=False,
@@ -106,7 +99,7 @@ async def execute(
 
     old_picture_url: Optional[str] = response.results[0][0]
     old_picture_image_file_uid: Optional[str] = response.results[0][1]
-    old_picture_image_file_updated_at: Optional[float] = response.results[0][1]
+    old_picture_image_file_updated_at: Optional[float] = response.results[0][2]
 
     if old_picture_url == picture_url:
         return

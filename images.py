@@ -1,19 +1,25 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
-from error_middleware import handle_warning
+from typing import AsyncGenerator, Any, Dict, List, Optional, Set, Tuple
+from error_middleware import handle_error, handle_warning
 from graceful_death import GracefulDeath
 from PIL import Image
 from itgs import Itgs
 import multiprocessing
 import multiprocessing.pool
+import contextlib
+import cairosvg
 import aiofiles
 import secrets
 import hashlib
 import shutil
+import string
 import time
 import json
 import os
+import re
+
+from temp_files import temp_file
 
 
 @dataclass
@@ -180,24 +186,27 @@ async def process_image(
         Exception: when something else goes wrong, such as the image not being in a known
             format (or not being an image at all)
     """
-    _sanity_check_image(local_filepath, max_width, max_height, max_area, max_file_size)
-    _verify_required_targets_possible(local_filepath, targets)
-    name = _name_from_name_hint(name_hint)
-    sha512 = await _hash_image(local_filepath)
+    async with _rasterize(
+        local_filepath, max_file_size=min(max_file_size, 1024 * 1024), targets=targets
+    ) as rasterized:
+        _sanity_check_image(rasterized, max_width, max_height, max_area, max_file_size)
+        _verify_required_targets_possible(rasterized, targets)
+        name = _name_from_name_hint(name_hint)
+        sha512 = await _hash_image(rasterized)
 
-    conn = await itgs.conn()
-    cursor = conn.cursor()
-    response = await cursor.execute(
-        "SELECT uid FROM image_files WHERE original_sha512 = ?", (sha512,)
-    )
-    if response.results:
-        return await _add_missing_targets(
-            local_filepath, targets, uid=response.results[0][0], itgs=itgs, gd=gd
+        conn = await itgs.conn()
+        cursor = conn.cursor()
+        response = await cursor.execute(
+            "SELECT uid FROM image_files WHERE original_sha512 = ?", (sha512,)
         )
+        if response.results:
+            return await _add_missing_targets(
+                rasterized, targets, uid=response.results[0][0], itgs=itgs, gd=gd
+            )
 
-    return await _make_new_image(
-        local_filepath, targets, name=name, sha512=sha512, itgs=itgs, gd=gd
-    )
+        return await _make_new_image(
+            rasterized, targets, name=name, sha512=sha512, itgs=itgs, gd=gd
+        )
 
 
 async def _add_missing_targets(
@@ -801,7 +810,7 @@ async def _make_targets(
     with multiprocessing.Pool(processes=nprocesses) as pool:
         # we use apply_async instead of starmap_async because we want to not queue
         # all the jobs if we're terminated (esp if there are a lot of jobs)
-        running: List[multiprocessing.pool.ApplyResult] = []
+        running: Set[asyncio.Future] = set()
         remaining: List[int] = list(range(len(targets)))
 
         while True:
@@ -812,52 +821,62 @@ async def _make_targets(
             ):
                 target_idx = remaining.pop()
                 target = targets[target_idx]
-                running.append(
-                    pool.apply_async(
-                        _make_target_with_idx,
-                        args=(
-                            local_filepath,
-                            target,
-                            os.path.join(tmp_folder, f"{target_idx}.{target.format}"),
-                            target_idx,
-                        ),
+
+                running.add(
+                    _make_target_with_idx_as_future_from_pool(
+                        pool, local_filepath, target, tmp_folder, target_idx
                     )
                 )
 
             if not running:
                 break
 
-            done: List[multiprocessing.pool.ApplyResult] = []
-            while not done:
-                new_running = []
-                failed = False
-                for result in running:
-                    if result.ready():
-                        if not result.successful():
-                            failed = True
-                            break
-                        done.append(result)
-                    else:
-                        new_running.append(result)
+            done, running = await asyncio.wait(
+                running, return_when=asyncio.FIRST_COMPLETED
+            )
 
-                if failed:
-                    for result in running:
-                        result.wait()
-
-                    for result in running:
-                        if not result.successful():
-                            raise result.get()
-
-                running = new_running
-
-                if not done:
-                    running[0].wait(1)
+            if any(task.exception() is not None for task in done):
+                for task in running:
+                    task.cancel()
+                raise next(
+                    task.exception() for task in done if task.exception() is not None
+                )
 
             for task in done:
-                idx, local_image_file_export = task.get()
+                idx, local_image_file_export = task.result()
                 mapped_targets[idx] = local_image_file_export
 
     return list(v for v in mapped_targets.values() if v is not None)
+
+
+def _make_target_with_idx_as_future_from_pool(
+    pool: multiprocessing.pool.Pool,
+    local_filepath: str,
+    target: ImageTarget,
+    tmp_folder: str,
+    idx: int,
+) -> asyncio.Future:
+    loop = asyncio.get_event_loop()
+    future = loop.create_future()
+
+    def _on_done(result):
+        loop.call_soon_threadsafe(future.set_result, result)
+
+    def _on_error(error):
+        loop.call_soon_threadsafe(future.set_exception, error)
+
+    pool.apply_async(
+        _make_target_with_idx,
+        args=(
+            local_filepath,
+            target,
+            os.path.join(tmp_folder, f"{idx}.{target.format}"),
+            idx,
+        ),
+        callback=_on_done,
+        error_callback=_on_error,
+    )
+    return future
 
 
 def _make_target_with_idx(
@@ -919,6 +938,239 @@ def _make_target(
             quality_settings=target.quality_settings,
             file_size=file_size,
         )
+
+
+def split_unit(value: str) -> Tuple[float, str]:
+    """Splits an svg value into its numeric and unit components"""
+    match = re.match(r"(?P<numeric>([0-9]*)\.?([0-9]*))(?P<unit>[a-z%]*)", value)
+    if match is None:
+        raise ValueError(f"Invalid value: {value}")
+    numeric = match.group("numeric")
+    if numeric == "":
+        raise ValueError(f"Invalid value: {value}")
+    return float(numeric), match.group("unit")
+
+
+async def _get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
+    """Attempts to load the given filepath as an svg and get its natural aspect
+    ratio (width / height). Returns None if the file could not be interpreted as
+    an svg with this relatively simple method.
+    """
+    # this is cursed
+    async with aiofiles.open(local_filepath, "rb") as f:
+        magic = await f.read(5)
+        if magic not in (b"<?xml", b"<svg "):
+            return None
+
+    try:
+        async with aiofiles.open(
+            local_filepath, "r", encoding="utf-8", buffering=8192, errors="strict"
+        ) as f:
+
+            async def seek_back():
+                await f.seek((await f.tell()) - 1)
+
+            async def skip_whitespace() -> bool:
+                while True:
+                    c = await f.read(1)
+                    if not c:
+                        return False
+                    if c in string.whitespace:
+                        continue
+                    await seek_back()
+                    return True
+
+            async def parse_attribute_name() -> Optional[str]:
+                result: str = ""
+                while True:
+                    c = await f.read(1)
+                    if not c:
+                        return None
+                    if c in string.ascii_letters or c == ":":
+                        result += c
+                        continue
+                    await seek_back()
+                    if result == "":
+                        return None
+                    return result
+
+            async def parse_attribute_value() -> Optional[str]:
+                result: str = ""
+                saw_quote = False
+                while True:
+                    c = await f.read(1)
+                    if not c:
+                        return None
+
+                    if not saw_quote:
+                        if c == '"':
+                            saw_quote = True
+                            continue
+
+                        await seek_back()
+                        return None
+
+                    if c == '"':
+                        return result
+
+                    result += c
+
+            width: Optional[str] = None
+            height: Optional[str] = None
+            while True:
+                for exp in "<svg":
+                    peek = await f.read(1)
+                    if not peek:
+                        return None
+                    if peek != exp:
+                        break
+                else:
+                    while width is None or height is None:
+                        if not await skip_whitespace():
+                            return None
+                        name = await parse_attribute_name()
+                        if name is None:
+                            return None
+                        if not await skip_whitespace():
+                            return None
+                        c = await f.read(1)
+                        if not c:
+                            return None
+                        if c != "=":
+                            await seek_back()
+                            continue
+                        if not await skip_whitespace():
+                            return None
+                        value = await parse_attribute_value()
+                        if value is None:
+                            return None
+
+                        if name == "viewBox":
+                            parts = value.split()
+                            if len(parts) == 4:
+                                try:
+                                    sx, sx_unit = split_unit(parts[0])
+                                    sy, sy_unit = split_unit(parts[1])
+                                    ex, ex_unit = split_unit(parts[2])
+                                    ey, ey_unit = split_unit(parts[3])
+                                except ValueError:
+                                    return None
+
+                                if any(
+                                    unit != sx_unit
+                                    for unit in (sx_unit, sy_unit, ex_unit, ey_unit)
+                                ):
+                                    return None
+
+                                width = f"{ex - sx}{sx_unit}"
+                                height = f"{ey - sy}{sy_unit}"
+                            elif len(parts) == 2:
+                                width, height = parts
+                            break
+
+                        if name == "width":
+                            width = value
+                        elif name == "height":
+                            height = value
+                    break
+
+            if width is None or height is None:
+                return None
+
+            try:
+                width_value, width_unit = split_unit(width)
+                height_value, height_unit = split_unit(height)
+            except ValueError:
+                return None
+
+            if width_unit != height_unit:
+                return None
+
+            return width_value / height_value
+    except ValueError:
+        # encoding issue
+        return None
+
+
+@contextlib.asynccontextmanager
+async def _rasterize(
+    local_filepath: str, *, max_file_size: int, targets: List[ImageTarget]
+) -> AsyncGenerator[str, None]:
+    """Returns the filepath to the rasterized version of the given file. If it's
+    not in a known vector-format, returns the original path and does not delete it
+    when exited. If it's in a known vector-format, returns the path to the rasterized
+    version and deletes it when exited.
+
+    When rasterizing, chooses a size that is sufficient for all the given targets.
+
+    Args:
+        local_filepath (str): The path to the file which may be in a vector-format
+        max_file_size (int): The maximum file size of the vectorized version prior
+            to rasterization. If the file is larger, we will not attempt to rasterize
+        targets (List[ImageTarget]): The targets to rasterize for
+
+    Yields:
+        str: The path to the rasterized version of the file. This path cannot be trusted
+            without further validation.
+    """
+    file_size = os.path.getsize(local_filepath)
+    if file_size > max_file_size:
+        yield local_filepath
+        return
+
+    svg_natural_aspect_ratio = await _get_svg_natural_aspect_ratio(local_filepath)
+    if svg_natural_aspect_ratio is None:
+        yield local_filepath
+        return
+
+    min_final_width = max(target.width for target in targets)
+    min_final_height = max(target.height for target in targets)
+
+    target_width: int
+    target_height: int
+
+    height_at_min_width = min_final_width / svg_natural_aspect_ratio
+    if height_at_min_width >= min_final_height:
+        target_width = min_final_width
+        target_height = height_at_min_width
+    else:
+        target_width = min_final_height * svg_natural_aspect_ratio
+        target_height = min_final_height
+
+    loop = asyncio.get_event_loop()
+    with temp_file() as rasterized_path:
+        with multiprocessing.Pool(processes=1) as pool:
+            fut = loop.create_future()
+
+            def _on_done(result):
+                loop.call_soon_threadsafe(fut.set_result, result)
+
+            def _on_error(err):
+                loop.call_soon_threadsafe(fut.set_exception, err)
+
+            pool.apply_async(
+                cairosvg.svg2png,
+                kwds={
+                    "url": local_filepath,
+                    "write_to": rasterized_path,
+                    "output_width": target_width,
+                    "output_height": target_height,
+                },
+                callback=_on_done,
+                error_callback=_on_error,
+            )
+            try:
+                await fut
+                rast_succeeded = True
+            except Exception as e:
+                handle_error(e)
+                rast_succeeded = False
+
+        if rast_succeeded:
+            yield rasterized_path
+            return
+
+    yield local_filepath
 
 
 def _sanity_check_image(
