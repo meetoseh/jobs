@@ -3,11 +3,8 @@ import secrets
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
-import logging
 from images import process_image, ImageTarget, ProcessImageAbortedException
 from temp_files import temp_file
-import time
-import os
 
 RESOLUTIONS = [
     # MOBILE
@@ -24,10 +21,29 @@ RESOLUTIONS = [
     (393, 873),
     (412, 892),
     (428, 926),
+    # MOBILE 2X
+    (720, 1600),
+    (828, 1792),
+    (720, 1280),
+    (780, 1688),
+    (824, 1830),
+    (720, 1560),
+    (750, 1624),
+    (750, 1334),
+    (720, 1520),
+    (786, 1702),
+    (786, 1746),
+    (824, 1784),
+    (856, 1852),
+    # FROM TESTING WITH STATUS BARS
+    (360, 736),
+    (1472, 720),
     # DESKTOP
     (1920, 1080),
     (1366, 768),
     (1536, 864),
+    # SHARE TO INSTAGRAM
+    (1080, 1920),
 ]
 
 
@@ -93,7 +109,7 @@ async def execute(
             "runners.process_journey_background_image", file_upload_uid=file_upload_uid
         )
 
-    async with temp_file() as stitched_path:
+    with temp_file() as stitched_path:
         try:
             await stitch_file_upload(file_upload_uid, stitched_path, itgs=itgs, gd=gd)
         except StitchFileAbortedException:
@@ -109,7 +125,7 @@ async def execute(
                 max_height=8192,
                 max_area=4096 * 8192,
                 max_file_size=1024 * 1024 * 512,
-                name_hint="profile_picture",
+                name_hint="journey_background_image",
             )
         except ProcessImageAbortedException:
             return await bounce()
@@ -133,6 +149,10 @@ async def execute(
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             image_files.uid = ?
+            AND NOT EXISTS (
+                SELECT 1 FROM journey_background_images
+                WHERE journey_background_images.image_file_id = image_files.id
+            )
         """,
         (
             jbi_uid,

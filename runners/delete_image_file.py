@@ -15,7 +15,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
     """
     image_file = await get_image_file(itgs, uid)
     if image_file is None:
-        handle_warning(f"{__name__}:image_file_not_found", f"{uid=} not found")
+        await handle_warning(f"{__name__}:image_file_not_found", f"{uid=} not found")
         return
 
     conn = await itgs.conn()
@@ -38,7 +38,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
         (uid,),
     )
     if response.rows_affected is None or response.rows_affected < 1:
-        handle_warning(f"{__name__}:image_file_in_use", f"{uid=} is in use")
+        await handle_warning(f"{__name__}:image_file_in_use", f"{uid=} is in use")
         return
 
     files = await itgs.files()

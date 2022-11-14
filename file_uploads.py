@@ -114,7 +114,7 @@ async def _stitch_file_upload(
             ):
                 if gd.received_term_signal:
                     asyncio.wait(
-                        (
+                        [
                             t
                             for t in [
                                 get_s3_keys_task,
@@ -122,7 +122,7 @@ async def _stitch_file_upload(
                                 *download_part_tasks,
                             ]
                             if t is not None
-                        ),
+                        ],
                         return_when=asyncio.ALL_COMPLETED,
                     )
                     raise StitchFileAbortedException()
@@ -172,7 +172,7 @@ async def _stitch_file_upload(
                     next_write_part_number += 1
 
                 done, _ = await asyncio.wait(
-                    (
+                    [
                         t
                         for t in [
                             get_s3_keys_task,
@@ -180,18 +180,18 @@ async def _stitch_file_upload(
                             *download_part_tasks,
                         ]
                         if t is not None
-                    ),
+                    ],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
                 if get_s3_keys_task in done:
                     if get_s3_keys_task.exception() is not None:
                         await asyncio.wait(
-                            (
+                            [
                                 t
                                 for t in [upload_part_task, *download_part_tasks]
                                 if t is not None
-                            ),
+                            ],
                             return_when=asyncio.ALL_COMPLETED,
                         )
                         raise get_s3_keys_task.exception()

@@ -555,7 +555,7 @@ async def _make_new_image(
         )
 
         if response[0].rows_affected is None or response[0].rows_affected <= 0:
-            handle_warning(
+            await handle_warning(
                 f"{__name__}:optimistic_insert_failed",
                 f"optimistic insert for {sha512=} failed - inserted during create",
             )
@@ -904,12 +904,12 @@ def _make_target(
         if too_widedness > 0:
             # equivalent to target.width / target.height > img.width / img.height
             # but without floating point math
-            # implies the target is too wide, so we need to crop some from the left
-            # and right
-
-            cropped_width = (img.height * target.width) // target.height
-        elif too_widedness < 0:
+            # implies the target is too wide, so we need to crop some from the top and
+            # and bottom
             cropped_height = (img.width * target.height) // target.width
+
+        elif too_widedness < 0:
+            cropped_width = (img.height * target.width) // target.height
 
         required_x_crop = img.width - cropped_width
         required_y_crop = img.height - cropped_height
