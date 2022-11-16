@@ -1,10 +1,33 @@
 #!/usr/bin/env bash
+install_python_packages() {
+    if [ ! -d venv ]
+    then
+        python3 -m venv venv
+    fi
+    . venv/bin/activate
+    python -m pip install -U pip
+    pip install -r requirements.txt
+    deactivate
+}
 
-if [ ! -d venv ]
-then
-    python3 -m venv venv
-fi
-. venv/bin/activate
-python -m pip install -U pip
-pip install -r requirements.txt
-deactivate
+install_ffmpeg_if_necessary() {
+    if command -v ffmpeg >/dev/null 2>&1
+    then
+        return
+    fi
+
+    local OLD_PWD=$(pwd)
+
+    rm -rf /usr/local/src/ffmpeg
+    mkdir -p /usr/local/src/ffmpeg
+    cd /usr/local/src/ffmpeg
+    wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
+    tar -xf ffmpeg-release-arm64-static.tar.xz
+    find . -maxdepth 2 -type f -name "ffmpeg" -print -quit | xargs cp -t /usr/local/bin
+    find . -maxdepth 2 -type f -name "ffprobe" -print -quit | xargs cp -t /usr/local/bin
+    cp ffmpeg-release-
+    cd $OLD_PWD
+}
+
+install_python_packages
+install_ffmpeg_if_necessary

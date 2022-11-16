@@ -1,8 +1,10 @@
 import asyncio
 from dataclasses import dataclass
 from typing import AsyncGenerator, Any, Dict, List, Optional, Set, Tuple
+from content import hash_content
 from error_middleware import handle_error, handle_warning
 from graceful_death import GracefulDeath
+from content import S3File
 from PIL import Image
 from itgs import Itgs
 import multiprocessing
@@ -20,18 +22,6 @@ import os
 import re
 
 from temp_files import temp_file
-
-
-@dataclass
-class S3File:
-    """An s3 file, see backend/docs/db/s3_files.md for more info"""
-
-    uid: str
-    bucket: str
-    key: str
-    file_size: int
-    content_type: str
-    created_at: float
 
 
 @dataclass
@@ -648,7 +638,7 @@ async def _upload_original(
         bucket=files.default_bucket,
         key=f"s3_files/images/originals/{image_file_uid}/{secrets.token_urlsafe(8)}",
         file_size=os.path.getsize(local_filepath),
-        content_type="octet-stream",
+        content_type="application/octet-stream",
         created_at=now,
     )
 
@@ -1229,11 +1219,4 @@ def _name_from_name_hint(name_hint: str) -> str:
 
 async def _hash_image(local_filepath: str) -> str:
     """Hashes the image at the given filepath using sha512"""
-    sha512 = hashlib.sha512()
-    async with aiofiles.open(local_filepath, mode="rb") as f:
-        while True:
-            chunk = await f.read(8192)
-            if not chunk:
-                break
-            sha512.update(chunk)
-    return sha512.hexdigest()
+    return await hash_content(local_filepath)
