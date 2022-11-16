@@ -53,10 +53,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             bucket = item["bucket"]
             key = item["key"]
 
-            logging.debug(f"Deleting timed out file upload @ {item=} - {success=}")
+            logging.debug(f"Deleting timed out file upload @ {item=}")
             # doing the sql delete first ensures that if we have a ON DELETE RESTRICT,
             # it can be used to prevent this behavior - though it will cause errors to
             # be sent to slack
             await cursor.execute("DELETE FROM s3_files WHERE key = ?", (key,))
             success = await files.delete(bucket=bucket, key=key)
             await redis.zrem("files:purgatory", json_item)
+            logging.info(f"Deleted timed out file upload @ {item=}: {success=}")

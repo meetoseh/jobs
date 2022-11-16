@@ -496,6 +496,7 @@ class Job:
 
 
 pst = pytz.timezone("US/Pacific")
+is_dev = os.environ.get("ENVIRONMENT") == "dev"
 JOBS: List[Job] = (
     Job(
         name="runners.example",
@@ -505,7 +506,11 @@ JOBS: List[Job] = (
     Job(
         name="runners.sweep_partial_file_uploads",
         kwargs=tuple(),
-        interval=JobInterval(pst, hours=(0,), minutes=(0,), seconds=(0,)),
+        interval=(
+            JobInterval(pst, hours=(0,), minutes=(0,), seconds=(0,))
+            if not is_dev
+            else JobInterval(pst, seconds=(0, 20, 40))
+        ),
     ),
 )
 """The jobs that should be run."""

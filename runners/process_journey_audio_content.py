@@ -36,7 +36,7 @@ async def execute(
                 stitched_path,
                 itgs=itgs,
                 gd=gd,
-                max_file_size=1024 * 1024 * 512,
+                max_file_size=1024 * 1024 * 1024,
                 name_hint="journey_audio_content",
             )
         except ProcessAudioAbortedException:
