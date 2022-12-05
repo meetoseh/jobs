@@ -512,6 +512,11 @@ JOBS: List[Job] = (
             else JobInterval(pst, seconds=(0, 20, 40))
         ),
     ),
+    Job(
+        name="runners.revenue_cat.sweep_open_stripe_checkout_sessions",
+        kwargs=tuple(),
+        interval=(JobInterval(pst, seconds=(0, 30))),
+    ),
 )
 """The jobs that should be run."""
 

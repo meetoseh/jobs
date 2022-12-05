@@ -5,10 +5,23 @@ from typing import Callable, Coroutine, List, Optional
 import rqdb
 import rqdb.async_connection
 import redis.asyncio
+import diskcache
 import os
 import slack
 import jobs
 import file_service
+import revenue_cat
+
+
+our_diskcache: diskcache.Cache = diskcache.Cache(
+    "tmp/diskcache", eviction_policy="least-recently-stored"
+)
+"""diskcache does a particularly good job ensuring it's safe to reuse a single Cache object
+without having to worry, and doing so offers significant performance gains. In particular,
+it's fine if:
+- this is built before we are forked
+- this is used in different threads
+"""
 
 
 class Itgs:
@@ -37,6 +50,9 @@ class Itgs:
 
         self._file_service: Optional[file_service.FileService] = None
         """the file service connection if it had been opened"""
+
+        self._revenue_cat: Optional[revenue_cat.RevenueCat] = None
+        """the revenue cat connection if it had been opened"""
 
         self._closures: List[Callable[["Itgs"], Coroutine]] = []
         """functions to run on __aexit__ to cleanup opened resources"""
@@ -149,3 +165,26 @@ class Itgs:
 
         self._closures.append(cleanup)
         return self._file_service
+
+    async def local_cache(self) -> diskcache.Cache:
+        """gets or creates the local cache for storing files transiently on this instance"""
+        return our_diskcache
+
+    async def revenue_cat(self) -> revenue_cat.RevenueCat:
+        """gets or creates the revenue cat connection"""
+        if self._revenue_cat is not None:
+            return self._revenue_cat
+
+        sk = os.environ["OSEH_REVENUE_CAT_SECRET_KEY"]
+        stripe_pk = os.environ["OSEH_REVENUE_CAT_STRIPE_PUBLIC_KEY"]
+
+        self._revenue_cat = revenue_cat.RevenueCat(sk=sk, stripe_pk=stripe_pk)
+
+        await self._revenue_cat.__aenter__()
+
+        async def cleanup(me: "Itgs") -> None:
+            await me._revenue_cat.__aexit__(None, None, None)
+            me._revenue_cat = None
+
+        self._closures.append(cleanup)
+        return self._revenue_cat
