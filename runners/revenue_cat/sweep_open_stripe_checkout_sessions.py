@@ -46,16 +46,22 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         oscs.last_checked_at - oscs.created_at < 3600
                         AND ? - oscs.created_at >= 3600
                     )
-                    OR oscs.expires_at < ?
+                    OR (
+                        oscs.expires_at < ?
+                        AND ? - oscs.last_checked_at >= 300
+                    )
                 LIMIT 100
                 """,
-                (now, now, now),
+                (now, now, now, now),
             )
 
             if not response.results:
                 break
 
             for row in response.results:
+                if gd.received_term_signal:
+                    return
+
                 oscs_uid: str = row[0]
                 stripe_checkout_session_id: str = row[1]
                 user_sub: str = row[2]

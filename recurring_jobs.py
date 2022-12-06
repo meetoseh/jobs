@@ -515,7 +515,37 @@ JOBS: List[Job] = (
     Job(
         name="runners.revenue_cat.sweep_open_stripe_checkout_sessions",
         kwargs=tuple(),
-        interval=(JobInterval(pst, seconds=(0, 30))),
+        interval=JobInterval(pst, seconds=(0, 30)),
+    ),
+    Job(
+        name="runners.stats.daily_active_users",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_new_users",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.journey_sessions_daily_subcategory_counts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.journey_session_monthly_counts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.monthly_active_users",
+        kwargs=tuple(),
+        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.users_retention",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
 )
 """The jobs that should be run."""

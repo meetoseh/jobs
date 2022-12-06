@@ -34,6 +34,17 @@ async def handle_warning(
 ) -> None:
     """Sends a warning to slack, with basic ratelimiting"""
 
+    if exc is not None:
+        text += (
+            "\n\n```"
+            + "\n".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
+            )
+            + "```"
+        )
+
+    logging.warning(f"{identifier}: {text}")
+
     if identifier not in RECENT_WARNINGS:
         RECENT_WARNINGS[identifier] = deque()
 
@@ -45,15 +56,6 @@ async def handle_warning(
 
     if len(recent_warnings) >= MAX_WARNINGS_PER_INTERVAL:
         return
-
-    if exc is not None:
-        text += (
-            "\n\n```"
-            + "\n".join(
-                traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
-            )
-            + "```"
-        )
 
     recent_warnings.append(now)
     total_warnings = len(recent_warnings)
