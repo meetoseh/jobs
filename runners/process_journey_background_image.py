@@ -106,7 +106,9 @@ async def execute(
     async def bounce():
         jobs = await itgs.jobs()
         await jobs.enqueue(
-            "runners.process_journey_background_image", file_upload_uid=file_upload_uid
+            "runners.process_journey_background_image",
+            file_upload_uid=file_upload_uid,
+            uploaded_by_user_sub=uploaded_by_user_sub,
         )
 
     with temp_file() as stitched_path:
