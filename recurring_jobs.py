@@ -528,6 +528,16 @@ JOBS: List[Job] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
+        name="runners.stats.instructors_monthly_counts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.journey_monthly_counts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.stats.journey_sessions_daily_subcategory_counts",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
@@ -535,12 +545,16 @@ JOBS: List[Job] = (
     Job(
         name="runners.stats.journey_session_monthly_counts",
         kwargs=tuple(),
-        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+        interval=JobInterval(
+            pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)
+        ),
     ),
     Job(
         name="runners.stats.monthly_active_users",
         kwargs=tuple(),
-        interval=JobInterval(pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)),
+        interval=JobInterval(
+            pst, days_of_month=(1,), hours=(2,), minutes=(0,), seconds=(0,)
+        ),
     ),
     Job(
         name="runners.stats.users_retention",

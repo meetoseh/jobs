@@ -1,5 +1,6 @@
 """Processes a raw image intended to be used as a journey background image"""
 import secrets
+import time
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -136,30 +137,33 @@ async def execute(
     cursor = conn.cursor()
 
     jbi_uid = f"oseh_jbi_{secrets.token_urlsafe(16)}"
+    last_uploaded_at = time.time()
     await cursor.execute(
         """
         INSERT INTO journey_background_images (
             uid,
             image_file_id,
-            uploaded_by_user_id
+            uploaded_by_user_id,
+            last_uploaded_at
         )
         SELECT
             ?,
             image_files.id,
-            users.id
+            users.id,
+            ?
         FROM image_files
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             image_files.uid = ?
-            AND NOT EXISTS (
-                SELECT 1 FROM journey_background_images
-                WHERE journey_background_images.image_file_id = image_files.id
-            )
+        ON CONFLICT journey_background_images(image_file_id)
+        DO UPDATE SET last_uploaded_at = ?
         """,
         (
             jbi_uid,
+            last_uploaded_at,
             uploaded_by_user_sub,
             image.uid,
+            last_uploaded_at,
         ),
     )
 
