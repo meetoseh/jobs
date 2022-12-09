@@ -543,6 +543,11 @@ JOBS: List[Job] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
+        name="runners.stats.journey_sessions_daily_subcategory_totals",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.stats.journey_session_monthly_counts",
         kwargs=tuple(),
         interval=JobInterval(

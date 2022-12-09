@@ -11,7 +11,7 @@ import asyncio
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
     """Moves completed unique users who participated in a journey session data from
-    redis to rqlite.
+    redis to rqlite
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
