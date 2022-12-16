@@ -67,7 +67,7 @@ async def execute(
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             content_files.uid = ?
-        ON CONFLICT journey_audio_contents(content_file_id)
+        ON CONFLICT(content_file_id)
         DO UPDATE SET last_uploaded_at = ?
         """,
         (

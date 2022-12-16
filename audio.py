@@ -322,7 +322,7 @@ async def process_audio_into(
                                 uid=f"oseh_s3f_{secrets.token_urlsafe(16)}",
                                 bucket=files.default_bucket,
                                 key=f"s3_files/audio/{content_file_uid}/mp4/{bitrate}/{secrets.token_urlsafe(8)}.mp4",
-                                file_size=os.path.getsize(target_filepath),
+                                file_size=os.path.getsize(local_filepath),
                                 content_type="audio/mp4",
                                 created_at=now,
                             ),
@@ -558,25 +558,25 @@ async def _upsert_prepared(
             (
                 (
                     """
-                INSERT INTO content_file_exports (
-                    uid, content_file_id, format, bandwidth,
-                    codecs, target_duration, quality_parameters,
-                    created_at
-                )
-                SELECT
-                    ?, content_files.id, ?, ?,
-                    ?, ?, ?,
-                    ?
-                FROM content_files
-                WHERE
-                    content_files.uid = ?
-                    AND NOT EXISTS (
-                        SELECT 1 FROM content_file_exports AS cfe
-                        WHERE cfe.content_file_id = content_files.id
-                          AND cfe.format = ?
-                          AND cfe.quality_parameters = ?
+                    INSERT INTO content_file_exports (
+                        uid, content_file_id, format, bandwidth,
+                        codecs, target_duration, quality_parameters,
+                        created_at
                     )
-                """,
+                    SELECT
+                        ?, content_files.id, ?, ?,
+                        ?, ?, ?,
+                        ?
+                    FROM content_files
+                    WHERE
+                        content_files.uid = ?
+                        AND NOT EXISTS (
+                            SELECT 1 FROM content_file_exports AS cfe
+                            WHERE cfe.content_file_id = content_files.id
+                            AND cfe.format = ?
+                            AND cfe.quality_parameters = ?
+                        )
+                    """,
                     (
                         mp4.export.uid,
                         mp4.export.format,
@@ -592,18 +592,18 @@ async def _upsert_prepared(
                 ),
                 (
                     """
-                INSERT INTO content_file_export_parts (
-                    uid, content_file_export_id, s3_file_id,
-                    position, duration_seconds, created_at
-                )
-                SELECT
-                    ?, content_file_exports.id, s3_files.id,
-                    ?, ?, ?
-                FROM content_file_exports, s3_files
-                WHERE
-                    content_file_exports.uid = ?
-                    AND s3_files.uid = ?
-                """,
+                    INSERT INTO content_file_export_parts (
+                        uid, content_file_export_id, s3_file_id,
+                        position, duration_seconds, created_at
+                    )
+                    SELECT
+                        ?, content_file_exports.id, s3_files.id,
+                        ?, ?, ?
+                    FROM content_file_exports, s3_files
+                    WHERE
+                        content_file_exports.uid = ?
+                        AND s3_files.uid = ?
+                    """,
                     (
                         mp4.export.parts[0].uid,
                         mp4.export.parts[0].position,

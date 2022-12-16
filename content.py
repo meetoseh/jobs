@@ -107,11 +107,13 @@ async def get_content_file(
     if not response.results:
         return None
 
+    files = await itgs.files()
     content_file = ContentFile(
         uid=uid,
         name=response.results[0][0],
         original=S3File(
             uid=response.results[0][1],
+            bucket=files.default_bucket,
             key=response.results[0][2],
             file_size=response.results[0][3],
             content_type=response.results[0][4],
@@ -132,7 +134,7 @@ async def get_content_file(
             content_file_exports.codecs,
             content_file_exports.target_duration,
             content_file_exports.quality_parameters,
-            content_file_exports.created_at,
+            content_file_exports.created_at
         FROM content_file_exports
         WHERE
             EXISTS (
@@ -188,6 +190,7 @@ async def get_content_file(
                     uid=row[0],
                     s3_file=S3File(
                         uid=row[1],
+                        bucket=files.default_bucket,
                         key=row[2],
                         file_size=row[3],
                         content_type=row[4],
