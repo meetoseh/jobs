@@ -45,6 +45,12 @@ RESOLUTIONS = [
     (1536, 864),
     # SHARE TO INSTAGRAM
     (1080, 1920),
+    # ADMIN PREVIEW
+    (180, 368),  # preview mobile (2x already handled)
+    (270, 480),  # preview desktop
+    (540, 960),  # preview desktop 2x
+    (480, 270),  # preview share to instagram
+    (960, 540),  # preview share to instagram 2x
 ]
 
 
@@ -155,7 +161,7 @@ async def execute(
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             image_files.uid = ?
-        ON CONFLICT journey_background_images(image_file_id)
+        ON CONFLICT (image_file_id)
         DO UPDATE SET last_uploaded_at = ?
         """,
         (
