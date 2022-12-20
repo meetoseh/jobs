@@ -60,5 +60,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 )
             )
 
-        logging.debug(f"redis delete {key=}")
-        await redis.delete(key)
+        async with redis.pipeline() as pipe:
+            pipe.multi()
+
+            logging.debug(f"redis delete {key=}")
+            await pipe.delete(key)
+
+            logging.debug(f"redis set {earliest_key=} {unix_date + 1}")
+            await pipe.set(earliest_key, bytes(str(unix_date + 1), "ascii"))
+
+            await pipe.execute()
