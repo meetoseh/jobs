@@ -29,7 +29,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     earliest_stored_date = await redis.get(earliest_key)
     if earliest_stored_date is None:
         return
-
+    earliest_stored_date = int(earliest_stored_date)
     if earliest_stored_date >= curr_unix_date:
         return
 
@@ -39,7 +39,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     cursor = conn.cursor("weak")
 
     never_seen_subcategories = set(subcategories)
-    for unix_date in range(int(earliest_stored_date), curr_unix_date):
+    for unix_date in range(earliest_stored_date, curr_unix_date):
         for subcategory in subcategories:
             if gd.received_term_signal:
                 return
