@@ -29,5 +29,15 @@ install_ffmpeg_if_necessary() {
     cd $OLD_PWD
 }
 
-install_python_packages
+install_cairo_if_necessary() {
+    if [ -f /usr/lib64/libcairo.so.2 ]
+    then
+        return
+    fi
+
+    yum -y install cairo
+}
+
 install_ffmpeg_if_necessary
+install_cairo_if_necessary
+install_python_packages
