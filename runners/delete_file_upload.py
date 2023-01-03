@@ -58,7 +58,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, file_upload_uid: str):
         keys_to_delete = [row[0] for row in response.results]
         await asyncio.wait(
             [
-                files.delete(bucket=files.default_bucket, key=key)
+                asyncio.create_task(files.delete(bucket=files.default_bucket, key=key))
                 for key in keys_to_delete
             ]
         )

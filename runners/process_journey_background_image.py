@@ -43,6 +43,8 @@ RESOLUTIONS = [
     (1920, 1080),
     (1366, 768),
     (1536, 864),
+    # DESKTOP SELECT SCREEN
+    (264, 446),
     # SHARE TO INSTAGRAM
     (1080, 1920),
     # ADMIN PREVIEW
