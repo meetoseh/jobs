@@ -15,6 +15,20 @@ import logging
 TARGETS = [
     ImageTarget(
         required=True,
+        width=38,  # journey screen on web
+        height=38,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=38,
+        height=38,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
         width=60,
         height=60,
         format="png",
@@ -56,6 +70,8 @@ TARGETS = [
         quality_settings={"lossless": False, "quality": 95, "method": 4},
     ),
 ]
+
+LAST_TARGETS_CHANGED_AT = 1672953669
 
 
 async def execute(
@@ -101,7 +117,11 @@ async def execute(
     old_picture_image_file_uid: Optional[str] = response.results[0][1]
     old_picture_image_file_updated_at: Optional[float] = response.results[0][2]
 
-    if old_picture_url == picture_url:
+    if (
+        old_picture_url == picture_url
+        and old_picture_image_file_updated_at is not None
+        and old_picture_image_file_updated_at >= LAST_TARGETS_CHANGED_AT
+    ):
         return
 
     if (
