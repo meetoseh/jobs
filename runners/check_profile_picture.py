@@ -29,6 +29,20 @@ TARGETS = [
     ),
     ImageTarget(
         required=True,
+        width=45,  # journey screen on web, in the chat area
+        height=45,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=45,
+        height=45,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
         width=60,
         height=60,
         format="png",
@@ -38,6 +52,34 @@ TARGETS = [
         required=False,
         width=60,
         height=60,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=76,  # journey screen on web, 2x
+        height=76,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=76,
+        height=76,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=90,  # journey screen on web, in the chat area, 2x
+        height=90,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=90,
+        height=90,
         format="webp",
         quality_settings={"lossless": True, "quality": 100, "method": 6},
     ),
