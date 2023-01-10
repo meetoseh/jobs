@@ -100,9 +100,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
                 TARGETS,
                 itgs=itgs,
                 gd=gd,
-                max_width=8192,
-                max_height=8192,
-                max_area=4096 * 8192,
+                max_width=16384,
+                max_height=16384,
+                max_area=8192 * 8192,
                 max_file_size=1024 * 1024 * 512,
                 name_hint="journey_background_image",
             )
