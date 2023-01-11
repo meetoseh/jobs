@@ -23,9 +23,8 @@ install_ffmpeg_if_necessary() {
     cd /usr/local/src/ffmpeg
     wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
     tar -xf ffmpeg-release-arm64-static.tar.xz
-    find . -maxdepth 2 -type f -name "ffmpeg" -print -quit | xargs cp -t /usr/local/bin
-    find . -maxdepth 2 -type f -name "ffprobe" -print -quit | xargs cp -t /usr/local/bin
-    cp ffmpeg-release-
+    find . -maxdepth 2 -type f -name "ffmpeg" -print -quit | xargs cp -t /usr/bin
+    find . -maxdepth 2 -type f -name "ffprobe" -print -quit | xargs cp -t /usr/bin
     cd $OLD_PWD
 }
 
