@@ -139,13 +139,21 @@ class S3:
 
         if not isinstance(f, io.IOBase) and hasattr(f, "read"):
             # Typically this is from e.g., SpooledTemporaryFile, which is nearly an io-like
-            # file since introduced, but not actually one until python 3.11
+            # file since introduced, but not actually one until python 3.11. We take a pretty
+            # big performance hit for converting spooled files this way, but since it goes
+            # away once our python version is higher, we can live with it.
 
-            # we wrap the file in a buffered reader; this doesn't really help anything most
-            # of the time, but critically it will isinstance as an io.IOBase, which is
-            # what the boto3 library expects, rather than ducktyping
+            with temp_file() as tmp:
+                async with aiofiles.open(tmp, "wb") as f2:
+                    data = f.read(8192)
+                    while data:
+                        await f2.write(data)
+                        data = f.read(8192)
 
-            f = io.BufferedReader(f, buffer_size=16384)
+                with open(tmp, "rb") as f2:
+                    await self._s3.put_object(Bucket=bucket, Key=key, Body=f2)
+
+            return
 
         await self._s3.put_object(Bucket=bucket, Key=key, Body=f)
 
