@@ -781,6 +781,10 @@ def produce_mp4(
         f"{bitrate_kbps}k",
         "-movflags",
         "faststart",
+        "-map_metadata",
+        "-1",
+        "-map_chapters",
+        "-1",
         target_filepath,
     ]
 
@@ -828,6 +832,8 @@ def produce_mp4(
 
     if bit_rate is None:
         raise Exception(f"ffprobe did not report bitrate: {decoded_out}")
+
+    logging.info(f"Produced mp4 file: {target_filepath=} with {duration=}, {bit_rate=}")
 
     with open(f"{target_filepath}.json", "w") as f:
         json.dump(
