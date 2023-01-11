@@ -2,11 +2,12 @@ from abc import ABC
 from io import BytesIO
 from typing import Union
 import aioboto3
-import botocore.errorfactory
+import botocore.exceptions
 import aiofiles
 import os
 import logging
 from temp_files import temp_file
+import io
 
 
 class AsyncReadableBytesIO(ABC):
@@ -136,6 +137,16 @@ class S3:
                     await self._s3.put_object(Bucket=bucket, Key=key, Body=f2)
             return
 
+        if not isinstance(f, io.IOBase) and hasattr(f, "read"):
+            # Typically this is from e.g., SpooledTemporaryFile, which is nearly an io-like
+            # file since introduced, but not actually one until python 3.11
+
+            # we wrap the file in a buffered reader; this doesn't really help anything most
+            # of the time, but critically it will isinstance as an io.IOBase, which is
+            # what the boto3 library expects, rather than ducktyping
+
+            f = io.BufferedReader(f, buffer_size=16384)
+
         await self._s3.put_object(Bucket=bucket, Key=key, Body=f)
 
     async def download(
@@ -150,7 +161,9 @@ class S3:
         try:
             s3_ob = await self._s3.get_object(Bucket=bucket, Key=key)
 
-            async with s3_ob["Body"] as stream:
+            # https://github.com/terrycain/aioboto3/issues/266
+            stream = s3_ob["Body"]
+            try:
                 data = await stream.read(8192)
                 if sync:
                     while data:
@@ -160,18 +173,24 @@ class S3:
                     while data:
                         await f.write(data)
                         data = await stream.read(8192)
+            finally:
+                stream.close()
 
             return True
-        except botocore.errorfactory.NoSuchKey:
-            return False
+        except botocore.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                return False
+            raise
 
     async def delete(self, *, bucket: str, key: str) -> bool:
         logging.info(f"[file_service/s3]: delete {bucket=}, {key=}")
         try:
             await self._s3.delete_object(Bucket=bucket, Key=key)
             return True
-        except botocore.errorfactory.NoSuchKey:
-            return False
+        except botocore.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                return False
+            raise
 
 
 class LocalFiles:
