@@ -157,7 +157,9 @@ async def parse_m3u_vod(local_filepath: str) -> M3UVod:
             content_header_claims = None
 
     if "EXT-X-TARGETDURATION" not in claims:
-        raise ValueError(f"EXT-X-TARGETDURATION not found; {local_filepath=}, {claims=}")
+        raise ValueError(
+            f"EXT-X-TARGETDURATION not found; {local_filepath=}, {claims=}"
+        )
 
     try:
         target_duration = int(claims["EXT-X-TARGETDURATION"])
