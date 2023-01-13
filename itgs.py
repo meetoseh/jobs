@@ -11,6 +11,7 @@ import slack
 import jobs
 import file_service
 import revenue_cat
+import asyncio
 
 
 our_diskcache: diskcache.Cache = diskcache.Cache(
@@ -33,6 +34,9 @@ class Itgs:
         """Initializes a new integrations with nothing loaded.
         Must be __aenter__ 'd and __aexit__'d.
         """
+        self._lock: asyncio.Lock = asyncio.Lock()
+        """A lock for when mutating our state"""
+
         self._conn: Optional[rqdb.async_connection.AsyncConnection] = None
         """the rqlite connection, if it has been opened"""
 
@@ -63,9 +67,10 @@ class Itgs:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         """closes any managed resources"""
-        for closure in self._closures:
-            await closure(self)
-        self._closures = []
+        async with self._lock:
+            for closure in self._closures:
+                await closure(self)
+            self._closures = []
 
     async def conn(self) -> rqdb.async_connection.AsyncConnection:
         """Gets or creates and initializes the rqdb connection.
@@ -74,18 +79,23 @@ class Itgs:
         if self._conn is not None:
             return self._conn
 
-        rqlite_ips = os.environ.get("RQLITE_IPS").split(",")
-        if not rqlite_ips:
-            raise ValueError("RQLITE_IPS not set -> cannot connect to rqlite")
+        async with self._lock:
+            if self._conn is not None:
+                return self._conn
 
-        async def cleanup(me: "Itgs") -> None:
-            if me._conn is not None:
-                await me._conn.__aexit__(None, None, None)
-                me._conn = None
+            rqlite_ips = os.environ.get("RQLITE_IPS").split(",")
+            if not rqlite_ips:
+                raise ValueError("RQLITE_IPS not set -> cannot connect to rqlite")
 
-        self._closures.append(cleanup)
-        self._conn = rqdb.connect_async(hosts=rqlite_ips)
-        await self._conn.__aenter__()
+            async def cleanup(me: "Itgs") -> None:
+                if me._conn is not None:
+                    await me._conn.__aexit__(None, None, None)
+                    me._conn = None
+
+            self._closures.append(cleanup)
+            self._conn = rqdb.connect_async(hosts=rqlite_ips)
+            await self._conn.__aenter__()
+
         return self._conn
 
     async def redis(self) -> redis.asyncio.Redis:
@@ -93,53 +103,69 @@ class Itgs:
         if self._redis_main is not None:
             return self._redis_main
 
-        redis_ips = os.environ.get("REDIS_IPS").split(",")
-        if not redis_ips:
-            raise ValueError(
-                "REDIS_IPs is not set and so a redis connection cannot be established"
+        async with self._lock:
+            if self._redis_main is not None:
+                return self._redis_main
+
+            redis_ips = os.environ.get("REDIS_IPS").split(",")
+            if not redis_ips:
+                raise ValueError(
+                    "REDIS_IPs is not set and so a redis connection cannot be established"
+                )
+
+            async def cleanup(me: "Itgs") -> None:
+                if me._redis_main is not None:
+                    await me._redis_main.close()
+                    me._redis_main = None
+
+                me._sentinel = None
+
+            self._closures.append(cleanup)
+            self._sentinel = redis.asyncio.Sentinel(
+                sentinels=[(ip, 26379) for ip in redis_ips],
+                min_other_sentinels=len(redis_ips) // 2,
             )
-
-        async def cleanup(me: "Itgs") -> None:
-            if me._redis_main is not None:
-                await me._redis_main.close()
-                me._redis_main = None
-
-            me._sentinel = None
-
-        self._closures.append(cleanup)
-        self._sentinel = redis.asyncio.Sentinel(
-            sentinels=[(ip, 26379) for ip in redis_ips],
-            min_other_sentinels=len(redis_ips) // 2,
-        )
-        self._redis_main = self._sentinel.master_for("mymaster")
+            self._redis_main = self._sentinel.master_for("mymaster")
         return self._redis_main
 
     async def slack(self) -> slack.Slack:
         """gets or creates and gets the slack connection"""
         if self._slack is not None:
             return self._slack
-        self._slack = slack.Slack()
-        await self._slack.__aenter__()
 
-        async def cleanup(me: "Itgs") -> None:
-            await me._slack.__aexit__(None, None, None)
-            me._slack = None
+        async with self._lock:
+            if self._slack is not None:
+                return self._slack
 
-        self._closures.append(cleanup)
+            self._slack = slack.Slack()
+            await self._slack.__aenter__()
+
+            async def cleanup(me: "Itgs") -> None:
+                await me._slack.__aexit__(None, None, None)
+                me._slack = None
+
+            self._closures.append(cleanup)
+
         return self._slack
 
     async def jobs(self) -> jobs.Jobs:
         """gets or creates the jobs connection"""
         if self._jobs is not None:
             return self._jobs
-        self._jobs = jobs.Jobs(await self.redis())
-        await self._jobs.__aenter__()
 
-        async def cleanup(me: "Itgs") -> None:
-            await me._jobs.__aexit__(None, None, None)
-            me._jobs = None
+        async with self._lock:
+            if self._jobs is not None:
+                return self._jobs
 
-        self._closures.append(cleanup)
+            self._jobs = jobs.Jobs(await self.redis())
+            await self._jobs.__aenter__()
+
+            async def cleanup(me: "Itgs") -> None:
+                await me._jobs.__aexit__(None, None, None)
+                me._jobs = None
+
+            self._closures.append(cleanup)
+
         return self._jobs
 
     async def files(self) -> file_service.FileService:
@@ -147,23 +173,28 @@ class Itgs:
         if self._file_service is not None:
             return self._file_service
 
-        default_bucket = os.environ["OSEH_S3_BUCKET_NAME"]
+        async with self._lock:
+            if self._file_service is not None:
+                return self._file_service
 
-        if os.environ.get("ENVIRONMENT", default="production") == "dev":
-            root = os.environ["OSEH_S3_LOCAL_BUCKET_PATH"]
-            self._file_service = file_service.LocalFiles(
-                root, default_bucket=default_bucket
-            )
-        else:
-            self._file_service = file_service.S3(default_bucket=default_bucket)
+            default_bucket = os.environ["OSEH_S3_BUCKET_NAME"]
 
-        await self._file_service.__aenter__()
+            if os.environ.get("ENVIRONMENT", default="production") == "dev":
+                root = os.environ["OSEH_S3_LOCAL_BUCKET_PATH"]
+                self._file_service = file_service.LocalFiles(
+                    root, default_bucket=default_bucket
+                )
+            else:
+                self._file_service = file_service.S3(default_bucket=default_bucket)
 
-        async def cleanup(me: "Itgs") -> None:
-            await me._file_service.__aexit__(None, None, None)
-            me._file_service = None
+            await self._file_service.__aenter__()
 
-        self._closures.append(cleanup)
+            async def cleanup(me: "Itgs") -> None:
+                await me._file_service.__aexit__(None, None, None)
+                me._file_service = None
+
+            self._closures.append(cleanup)
+
         return self._file_service
 
     async def local_cache(self) -> diskcache.Cache:
@@ -175,16 +206,21 @@ class Itgs:
         if self._revenue_cat is not None:
             return self._revenue_cat
 
-        sk = os.environ["OSEH_REVENUE_CAT_SECRET_KEY"]
-        stripe_pk = os.environ["OSEH_REVENUE_CAT_STRIPE_PUBLIC_KEY"]
+        async with self._lock:
+            if self._revenue_cat is not None:
+                return self._revenue_cat
 
-        self._revenue_cat = revenue_cat.RevenueCat(sk=sk, stripe_pk=stripe_pk)
+            sk = os.environ["OSEH_REVENUE_CAT_SECRET_KEY"]
+            stripe_pk = os.environ["OSEH_REVENUE_CAT_STRIPE_PUBLIC_KEY"]
 
-        await self._revenue_cat.__aenter__()
+            self._revenue_cat = revenue_cat.RevenueCat(sk=sk, stripe_pk=stripe_pk)
 
-        async def cleanup(me: "Itgs") -> None:
-            await me._revenue_cat.__aexit__(None, None, None)
-            me._revenue_cat = None
+            await self._revenue_cat.__aenter__()
 
-        self._closures.append(cleanup)
+            async def cleanup(me: "Itgs") -> None:
+                await me._revenue_cat.__aexit__(None, None, None)
+                me._revenue_cat = None
+
+            self._closures.append(cleanup)
+
         return self._revenue_cat
