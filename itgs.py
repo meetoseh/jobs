@@ -153,11 +153,12 @@ class Itgs:
         if self._jobs is not None:
             return self._jobs
 
+        _redis = await self.redis()
         async with self._lock:
             if self._jobs is not None:
                 return self._jobs
 
-            self._jobs = jobs.Jobs(await self.redis())
+            self._jobs = jobs.Jobs(_redis)
             await self._jobs.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
