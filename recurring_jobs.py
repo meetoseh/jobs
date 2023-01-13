@@ -39,6 +39,7 @@ from redis import ResponseError
 from error_middleware import handle_error
 from redis.asyncio.client import Redis, Pipeline
 from redis.exceptions import NoScriptError
+import threading
 import datetime
 from itgs import Itgs
 import bisect
@@ -47,6 +48,8 @@ import pytz
 import time
 import hashlib
 import os
+
+from mp_helper import adapt_threading_event_to_asyncio
 
 WeekDay = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 """The days of the week as a type"""
@@ -869,19 +872,27 @@ async def _run_forever():
             )
 
 
-async def run_forever():
+async def run_forever(stop_event: threading.Event):
+    asyncio_event = adapt_threading_event_to_asyncio(stop_event)
+
     try:
-        await _run_forever()
+        _, pending = await asyncio.wait(
+            [
+                asyncio.create_task(_run_forever()),
+                asyncio.create_task(asyncio_event.wait()),
+            ],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
     except Exception as e:
         await handle_error(e)
+    finally:
+        stop_event.set()
 
 
-def run_forever_sync():
+def run_forever_sync(stop_event: threading.Event):
     """Handles recurring jobs, queuing them to the hot queue as it's time for
     them to run.
     """
-    asyncio.run(run_forever())
-
-
-if __name__ == "__main__":
-    run_forever_sync()
+    asyncio.run(run_forever(stop_event))

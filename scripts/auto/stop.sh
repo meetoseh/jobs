@@ -12,7 +12,22 @@ main() {
             break
         fi
     done
-    rm -f updater.lock
+
+    if [ -f updater.lock ]
+    then
+        echo "Updater is still running, attempting sigquit"
+        screen -S webapp -X quit
+
+        sleep 3
+
+        if [ -f updater.lock ]
+        then
+            echo "Updater is still running, using sigkill"
+            kill -9 $(cat updater.lock)
+        fi
+
+        rm -f updater.lock
+    fi
 }
 
 main

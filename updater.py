@@ -6,6 +6,9 @@ import subprocess
 import platform
 import secrets
 import os
+import threading
+
+from mp_helper import adapt_threading_event_to_asyncio
 
 
 async def _listen_forever():
@@ -92,7 +95,7 @@ def do_update():
         )
 
 
-async def listen_forever():
+async def listen_forever(stop_event: threading.Event):
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
@@ -101,19 +104,26 @@ async def listen_forever():
     with open("updater.lock", "w") as f:
         f.write(str(os.getpid()))
 
+    asyncio_stop_event = adapt_threading_event_to_asyncio(stop_event)
+
     try:
-        await _listen_forever()
+        _, running = await asyncio.wait(
+            [
+                asyncio.create_task(_listen_forever()),
+                asyncio.create_task(asyncio_stop_event.wait()),
+            ],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in running:
+            t.cancel()
     finally:
+        stop_event.set()  # ensures the thread shuts down
         os.unlink("updater.lock")
         print("updater shutdown")
 
 
-def listen_forever_sync():
+def listen_forever_sync(stop_event: threading.Event):
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
-    asyncio.run(listen_forever())
-
-
-if __name__ == "__main__":
-    listen_forever_sync()
+    asyncio.run(listen_forever(stop_event))
