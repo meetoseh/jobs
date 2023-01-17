@@ -125,6 +125,7 @@ async def process_image(
     max_area: int,
     max_file_size: int,
     name_hint: str,
+    force_uid: Optional[str] = None,
 ) -> ImageFile:
     """Processes the user-provided image which we have available at the given filepath
     and generates the given targets.
@@ -162,6 +163,8 @@ async def process_image(
             that file size should be restricted, since the image has already been downloaded,
             however it's a good sanity check when the image comes from a trusted party.
         name_hint (str): A hint for the name of the image file.
+        force_uid (str): If specified, we will use this uid for the image file if there is
+            no collision on the hash of the file
 
     Returns:
         ImageFile: The image file that was processed
@@ -195,7 +198,7 @@ async def process_image(
             )
 
         return await _make_new_image(
-            rasterized, targets, name=name, sha512=sha512, itgs=itgs, gd=gd
+            rasterized, targets, name=name, sha512=sha512, itgs=itgs, gd=gd, force_uid=force_uid
         )
 
 
@@ -451,11 +454,12 @@ async def _make_new_image(
     sha512: str,
     itgs: Itgs,
     gd: GracefulDeath,
+    force_uid: Optional[str] = None
 ) -> ImageFile:
     with Image.open(local_filepath) as img:
         original_width, original_height = img.size
 
-    image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}"
+    image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}" if force_uid is None else force_uid
     now = time.time()
     tmp_folder = os.path.join("tmp", secrets.token_hex(8))
     os.makedirs(tmp_folder)
