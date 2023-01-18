@@ -44,7 +44,10 @@ RESOLUTIONS = [
     (1366, 768),
     (1536, 864),
     # DESKTOP SELECT SCREEN
-    (264, 446),
+    (198, 334),  # X-SMALL 1x
+    (264, 446),  # NORMAL 1x
+    (396, 668),  # X-SMALL 2x
+    (528, 892),  # NORMAL 2x
     # SHARE TO INSTAGRAM
     (1080, 1920),
     # ADMIN PREVIEW
