@@ -1,4 +1,5 @@
 """Processes a raw image intended to be used as a journey background image"""
+import os
 import secrets
 import time
 from file_uploads import StitchFileAbortedException, stitch_file_upload
@@ -6,6 +7,9 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 from images import process_image, ImageTarget, ProcessImageAbortedException
 from temp_files import temp_file
+from PIL import Image, ImageFilter, ImageEnhance
+import threading
+import asyncio
 
 RESOLUTIONS = [
     # MOBILE
@@ -123,7 +127,7 @@ async def execute(
             uploaded_by_user_sub=uploaded_by_user_sub,
         )
 
-    with temp_file() as stitched_path:
+    with temp_file() as stitched_path, temp_file() as blurred_path:
         try:
             await stitch_file_upload(file_upload_uid, stitched_path, itgs=itgs, gd=gd)
         except StitchFileAbortedException:
@@ -144,6 +148,27 @@ async def execute(
         except ProcessImageAbortedException:
             return await bounce()
 
+        # by blurring second we know the image meets requirements
+        try:
+            await blur_image(stitched_path, blurred_path)
+        except ProcessImageAbortedException:
+            return await bounce()
+
+        try:
+            blurred_image = await process_image(
+                blurred_path,
+                TARGETS,
+                itgs=itgs,
+                gd=gd,
+                max_width=16384,
+                max_height=16384,
+                max_area=8192 * 8192,
+                max_file_size=1024 * 1024 * 512,
+                name_hint="blurred_journey_background_image",
+            )
+        except ProcessImageAbortedException:
+            return await bounce()
+
     conn = await itgs.conn()
     cursor = conn.cursor()
 
@@ -154,24 +179,30 @@ async def execute(
         INSERT INTO journey_background_images (
             uid,
             image_file_id,
+            blurred_image_file_id,
             uploaded_by_user_id,
             last_uploaded_at
         )
         SELECT
             ?,
             image_files.id,
+            blurred_image_files.id,
             users.id,
             ?
         FROM image_files
+        JOIN image_files AS blurred_image_files ON blurred_image_files.uid = ?
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             image_files.uid = ?
         ON CONFLICT (image_file_id)
         DO UPDATE SET last_uploaded_at = ?
+        ON CONFLICT (blurred_image_file_id)
+        DO UPDATE SET last_uploaded_at = ?
         """,
         (
             jbi_uid,
             last_uploaded_at,
+            blurred_image.uid,
             uploaded_by_user_sub,
             image.uid,
             last_uploaded_at,
@@ -180,3 +211,67 @@ async def execute(
 
     jobs = await itgs.jobs()
     await jobs.enqueue("runners.delete_file_upload", file_upload_uid=file_upload_uid)
+
+
+async def blur_image(source_path: str, dest_path: str):
+    """Blurs and darkens the image at the given path, as intended for blurred journey
+    background images. The description of this blur is canonically at journeys.md
+    in the backend database docs.
+
+    Args:
+        source_path (str): the path to the source image
+        dest_path (str): the path to the destination image
+
+    Raises:
+        ProcessImageAbortedException: if a term signal was received while blurring the
+            image, or we otherwise would like to retry the job on a different instance
+    """
+    loop = asyncio.get_running_loop()
+    event = asyncio.Event()
+    bknd_thread = threading.Thread(
+        target=blur_image_blocking,
+        kwargs={
+            "source_path": source_path,
+            "dest_path": dest_path,
+            "loop": loop,
+            "event": event,
+        },
+        daemon=True,
+    )
+    bknd_thread.start()
+
+    await event.wait()
+    if not os.path.exists(dest_path):
+        raise Exception(f"blur image failed to produce output at {dest_path}")
+
+
+def blur_image_blocking(
+    source_path: str,
+    dest_path: str,
+    loop: asyncio.AbstractEventLoop,
+    event: asyncio.Event,
+):
+    """Blurs and darkens the image at the given path, as intended for blurred journey
+    background images. The description of this blur is canonically at journeys.md
+    in the backend database docs.
+
+    This is the synchronous version, which should be run on a different thread or process
+    to allow weaving jobs
+
+    Args:
+        source_path (str): the path to the source image
+        dest_path (str): the path to the destination image
+        loop (asyncio.AbstractEventLoop): the event loop to use for setting the event
+        event (asyncio.Event): the event to set when the image is done processing
+    """
+    try:
+        im = Image.open(source_path)
+        blur_radius = max(0.09 * min(im.width, im.height), 12)
+
+        blurred_image = im.filter(ImageFilter.GaussianBlur(blur_radius))
+        darkened_image = ImageEnhance.Brightness(blurred_image).enhance(0.7)
+        darkened_image.save(
+            dest_path, format="webp", lossless=True, quality=100, method=6
+        )
+    finally:
+        loop.call_soon_threadsafe(event.set)

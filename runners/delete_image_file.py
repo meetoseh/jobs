@@ -38,6 +38,10 @@ async def execute(
                 SELECT 1 FROM journeys
                 WHERE journeys.background_image_file_id = image_files.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM journeys
+                WHERE journeys.blurred_background_image_file_id = image_files.id
+            )
         """,
         (uid,),
     )

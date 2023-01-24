@@ -13,7 +13,6 @@ import contextlib
 import cairosvg
 import aiofiles
 import secrets
-import hashlib
 import shutil
 import string
 import time
@@ -198,7 +197,13 @@ async def process_image(
             )
 
         return await _make_new_image(
-            rasterized, targets, name=name, sha512=sha512, itgs=itgs, gd=gd, force_uid=force_uid
+            rasterized,
+            targets,
+            name=name,
+            sha512=sha512,
+            itgs=itgs,
+            gd=gd,
+            force_uid=force_uid,
         )
 
 
@@ -454,12 +459,14 @@ async def _make_new_image(
     sha512: str,
     itgs: Itgs,
     gd: GracefulDeath,
-    force_uid: Optional[str] = None
+    force_uid: Optional[str] = None,
 ) -> ImageFile:
     with Image.open(local_filepath) as img:
         original_width, original_height = img.size
 
-    image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}" if force_uid is None else force_uid
+    image_file_uid = (
+        f"oseh_if_{secrets.token_urlsafe(16)}" if force_uid is None else force_uid
+    )
     now = time.time()
     tmp_folder = os.path.join("tmp", secrets.token_hex(8))
     os.makedirs(tmp_folder)

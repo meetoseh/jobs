@@ -90,3 +90,28 @@ class Slack:
         await self.send_message(
             os.environ.get("SLACK_WEB_ERRORS_URL"), message, preview, markdown
         )
+
+    async def send_ops_blocks(self, blocks: list, preview: str) -> None:
+        """sends the given blocks to the ops channel
+
+        Args:
+            blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
+            preview (str): the text for notifications
+        """
+
+        await self.send_blocks(os.environ.get("SLACK_OPS_URL"), blocks, preview)
+
+    async def send_ops_message(
+        self, message: str, preview: Optional[str] = None, markdown: bool = True
+    ) -> None:
+        """sends the given markdown text to the ops channel
+
+        Args:
+            message (str): the markdown formatted message to send
+            preview (str, None): the text for notifications or None to use the message
+            markdown (bool): True for markdown format, False for raw text
+        """
+
+        await self.send_message(
+            os.environ.get("SLACK_OPS_URL"), message, preview, markdown
+        )

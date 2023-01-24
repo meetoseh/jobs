@@ -7,6 +7,7 @@ import platform
 import secrets
 import os
 import threading
+import socket
 
 from mp_helper import adapt_threading_event_to_asyncio
 
@@ -17,6 +18,10 @@ async def _listen_forever():
     """
     async with Itgs() as itgs:
         await release_update_lock_if_held(itgs)
+
+        if os.environ.get("ENVIRONMENT") != "dev":
+            slack = await itgs.slack()
+            await slack.send_ops_message(f"jobs {socket.gethostname()} ready")
 
     while True:
         try:

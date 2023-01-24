@@ -7,7 +7,7 @@ from graceful_death import GracefulDeath
 from error_middleware import handle_warning
 from temp_files import temp_file
 from content import hash_content
-from .process_journey_background_image import TARGETS
+from .process_journey_background_image import TARGETS, blur_image
 from images import process_image, ProcessImageAbortedException
 import logging
 import aiofiles
@@ -15,6 +15,9 @@ import aiofiles
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid: str):
     """Completes any missing exports for the journey background image with the given uid.
+    This will reblur the original image with current settings and use that as the source
+    for the blurred image file; updating any journeys using the base image file to use the
+    new blurred image file for its blurred version.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
@@ -62,7 +65,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
 
     file_service = await itgs.files()
 
-    with temp_file() as tmp_filepath:
+    with temp_file() as tmp_filepath, temp_file() as blurred_filepath:
         async with aiofiles.open(tmp_filepath, "wb") as tmp_file:
             success = await file_service.download(
                 tmp_file, bucket=file_service.default_bucket, key=s3_key, sync=False
@@ -95,7 +98,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
             return
 
         try:
-            await process_image(
+            image = await process_image(
                 tmp_filepath,
                 TARGETS,
                 itgs=itgs,
@@ -109,6 +112,60 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
         except ProcessImageAbortedException:
             return await bounce()
 
+        try:
+            await blur_image(tmp_filepath, blurred_filepath)
+        except ProcessImageAbortedException:
+            return await bounce()
+
+        if gd.received_term_signal:
+            await bounce()
+            return
+
+        try:
+            blurred_image = await process_image(
+                blurred_filepath,
+                TARGETS,
+                itgs=itgs,
+                gd=gd,
+                max_width=16384,
+                max_height=16384,
+                max_area=8192 * 8192,
+                max_file_size=1024 * 1024 * 512,
+                name_hint="journey_background_image",
+            )
+        except ProcessImageAbortedException:
+            return await bounce()
+
+        await cursor.executemany3(
+            (
+                (
+                    """
+                    UPDATE journey_background_images 
+                    SET blurred_image_file_id = blurred_image_files.id
+                    FROM image_files AS blurred_image_files
+                    WHERE
+                        journey_background_images.uid = ?
+                        AND blurred_image_files.uid = ?
+                    """,
+                    (journey_background_image_uid, blurred_image.uid),
+                ),
+                (
+                    """
+                    UPDATE journeys
+                    SET blurred_background_image_file_id = blurred_image_files.id
+                    FROM image_files, image_files AS blurred_image_files
+                    WHERE
+                        journeys.background_image_file_id = image_files.id
+                        AND image_files.uid = ?
+                        AND blurred_image_files.uid = ?
+                    """,
+                    (
+                        image.uid,
+                        blurred_image.uid,
+                    ),
+                ),
+            )
+        )
         logging.info(
             f"Redid journey background image with uid {journey_background_image_uid}"
         )
