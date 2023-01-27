@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 install_python_packages() {
-    yum -y install build-essential libssl-dev
-    
+    yum -y install gcc gcc-c++ make
+
     if [ ! -d venv ]
     then
         python3 -m venv venv
