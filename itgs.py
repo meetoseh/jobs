@@ -12,6 +12,7 @@ import jobs
 import file_service
 import revenue_cat
 import asyncio
+import importlib
 
 
 our_diskcache: diskcache.Cache = diskcache.Cache(
@@ -158,7 +159,15 @@ class Itgs:
             if self._jobs is not None:
                 return self._jobs
 
-            self._jobs = jobs.Jobs(_redis)
+            allowed_job_categories = list(
+                jobs.JobCategory(int(s.strip()))
+                for s in os.environ["OSEH_JOB_CATEGORIES"].split(",")
+            )
+            self._jobs = jobs.Jobs(
+                _redis,
+                allowed_job_categories=allowed_job_categories,
+                get_job_category=get_job_category,
+            )
             await self._jobs.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
@@ -225,3 +234,7 @@ class Itgs:
             self._closures.append(cleanup)
 
         return self._revenue_cat
+
+
+def get_job_category(name: str) -> jobs.JobCategory:
+    return importlib.import_module(name).category

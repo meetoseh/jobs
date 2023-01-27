@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor, Future as ConcFuture
 import stripe
 import os
 import asyncio
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):

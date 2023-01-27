@@ -10,6 +10,9 @@ import aiohttp
 from temp_files import temp_file
 from images import process_image, ImageTarget, ProcessImageAbortedException
 import logging
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 TARGETS = [

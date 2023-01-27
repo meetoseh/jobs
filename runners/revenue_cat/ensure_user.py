@@ -5,6 +5,9 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 import os
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):

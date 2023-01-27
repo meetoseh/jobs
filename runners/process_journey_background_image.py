@@ -10,6 +10,9 @@ from temp_files import temp_file
 from PIL import Image, ImageFilter, ImageEnhance
 import threading
 import asyncio
+from jobs import JobCategory
+
+category = JobCategory.HIGH_RESOURCE_COST
 
 RESOLUTIONS = [
     # MOBILE

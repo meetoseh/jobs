@@ -4,6 +4,9 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 from error_middleware import handle_warning
 from images import get_image_file
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(

@@ -1,3 +1,4 @@
+import mpfix  # noqa
 import threading
 import time
 from typing import List

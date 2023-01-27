@@ -3,6 +3,12 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
+"""The category of the job; used to determine which instances can run this job.
+"""
+
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, message: str):
     """an example job execute - this is invoked when 'runners.example' is the name of the job

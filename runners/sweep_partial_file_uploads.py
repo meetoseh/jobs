@@ -6,6 +6,9 @@ from error_middleware import handle_warning
 import logging
 import time
 import json
+from jobs import JobCategory
+
+category = JobCategory.HIGH_RESOURCE_COST
 
 
 class PartialFileItem(TypedDict):

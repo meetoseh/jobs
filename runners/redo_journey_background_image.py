@@ -11,6 +11,9 @@ from .process_journey_background_image import TARGETS, blur_image
 from images import process_image, ProcessImageAbortedException
 import logging
 import aiofiles
+from jobs import JobCategory
+
+category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid: str):

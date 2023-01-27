@@ -7,6 +7,9 @@ import logging
 import unix_dates
 import time
 import pytz
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 RETENTION_PERIOD_DAYS = [0, 1, 7, 30, 90]

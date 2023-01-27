@@ -7,6 +7,9 @@ from graceful_death import GracefulDeath
 from content import get_content_file
 import logging
 import time
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):

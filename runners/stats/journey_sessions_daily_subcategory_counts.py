@@ -7,6 +7,9 @@ import unix_dates
 import time
 import pytz
 import asyncio
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):

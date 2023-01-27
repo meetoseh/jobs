@@ -6,6 +6,9 @@ from graceful_death import GracefulDeath
 import logging
 import unix_dates
 import time
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):

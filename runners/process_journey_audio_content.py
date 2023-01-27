@@ -6,6 +6,9 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 from temp_files import temp_file
 import time
+from jobs import JobCategory
+
+category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(

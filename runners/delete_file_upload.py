@@ -2,6 +2,9 @@
 import asyncio
 from itgs import Itgs
 from graceful_death import GracefulDeath
+from jobs import JobCategory
+
+category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, file_upload_uid: str):

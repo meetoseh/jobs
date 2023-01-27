@@ -8,6 +8,9 @@ from graceful_death import GracefulDeath
 from images import process_image, ProcessImageAbortedException
 from temp_files import temp_file
 from runners.check_profile_picture import TARGETS
+from jobs import JobCategory
+
+category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(
