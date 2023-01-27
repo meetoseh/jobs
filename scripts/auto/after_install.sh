@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 install_python_packages() {
-    yum -y install gcc gcc-c++ make
+    yum -y install gcc gcc-c++ make python3-devel
 
     if [ ! -d venv ]
     then
