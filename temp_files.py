@@ -2,6 +2,7 @@ from typing import Generator
 from contextlib import contextmanager
 import os
 import secrets
+import shutil
 
 
 @contextmanager
@@ -22,3 +23,20 @@ def temp_file(ext: str = "") -> Generator[str, None, None]:
             os.remove(tmp_file_loc)
         except FileNotFoundError:
             pass
+
+
+@contextmanager
+def temp_dir() -> Generator[str, None, None]:
+    """Creates a directory and deletes it when done; yields the path to the directory.
+
+    This is lighter weight than the tempfile module, and is less secure, but it
+    is generally easier for debugging, especially cross-platform.
+
+    Stores the folder in the `tmp` folder, and creates it if it doesn't exist
+    """
+    tmp_dir_loc = os.path.join("tmp", secrets.token_hex(16))
+    os.makedirs(tmp_dir_loc, exist_ok=True)
+    try:
+        yield tmp_dir_loc
+    finally:
+        shutil.rmtree(tmp_dir_loc)

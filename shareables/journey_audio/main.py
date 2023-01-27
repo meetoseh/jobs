@@ -15,6 +15,7 @@ from shareables.journey_audio.p04_partition_frequency import partition_frequency
 from shareables.journey_audio.p05_bin_frames import bin_frames
 from shareables.journey_audio.p06_render_video import render_video
 from shareables.journey_audio.p07_add_audio import add_audio
+from dataclasses import dataclass
 
 
 def main():
@@ -60,23 +61,32 @@ def main():
     run_pipeline(args.source, args.bknd, args.title, args.instructor, args.duration)
 
 
+@dataclass
+class RunPipelineResult:
+    output_path: str
+    """Where the output file was written to"""
+
+
 def run_pipeline(
     source: str,
     background_image_path: str,
     title: str,
     instructor: str,
     duration: Optional[int],
-):
+    dest_folder: str = os.path.join("tmp", "shareables", "journey_audio"),
+) -> RunPipelineResult:
     """Runs the pipeline on the source audio file at the given location,
-    storing the result in tmp/shareables/journey_audio
+    storing the result in the given folder.
+
+    This is intended to be suitable both for testing (via the main function)
+    and for use in jobs.
     """
-    logging.info(f"run_pipeline({source=})")
+    logging.info(f"shareables.journey_audio.main.run_pipeline({source=})")
 
     if not os.path.exists(source):
         logging.error(f"Source audio file not found at {source}")
-        return
+        raise FileNotFoundError(f"Source audio file not found at {source}")
 
-    dest_folder = os.path.join("tmp", "shareables", "journey_audio")
     os.makedirs(dest_folder, exist_ok=True)
 
     cropped_and_normalized_path = os.path.join(
@@ -158,6 +168,7 @@ def run_pipeline(
 
     add_audio(video_only_path, source, final_path, duration)
     logging.debug("Done adding audio to video")
+    return RunPipelineResult(output_path=final_path)
 
 
 def for_filepath(s: str) -> str:

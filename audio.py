@@ -156,7 +156,7 @@ class _PreparedAudioContent:
     mp4s: List[_PreparedMP4]
     """The mp4s we've decided to export"""
 
-    hls: _PreparedM3UPlaylist
+    hls: Optional[_PreparedM3UPlaylist]
     """The hls playlist we've decided to export"""
 
 
@@ -401,16 +401,20 @@ async def _upload_all(
     remaining: List[Tuple[str, S3File]] = [
         (prepared.original_filepath, prepared.original),
         *[(mp4.local_filepath, mp4.export.parts[0].s3_file) for mp4 in prepared.mp4s],
-        *[
-            (
-                get_m3u_local_filepath(
-                    prepared.hls.master_file_path, vod.vod_ref, part.m3u_content
-                ),
-                part.s3_file,
-            )
-            for vod in prepared.hls.vods
-            for part in vod.parts
-        ],
+        *(
+            [
+                (
+                    get_m3u_local_filepath(
+                        prepared.hls.master_file_path, vod.vod_ref, part.m3u_content
+                    ),
+                    part.s3_file,
+                )
+                for vod in prepared.hls.vods
+                for part in vod.parts
+            ]
+            if prepared.hls is not None
+            else []
+        ),
     ]
 
     pending: Set[asyncio.Task] = set()
@@ -641,7 +645,7 @@ async def _upsert_prepared(
         )
         exports.append(mp4.export)
 
-    for vod in prepared.hls.vods:
+    for vod in prepared.hls.vods if prepared.hls is not None else []:
         response = await cursor.executemany3(
             (
                 (
