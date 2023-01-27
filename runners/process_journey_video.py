@@ -15,13 +15,13 @@ category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
-    """Produces a new video sample for the journey with the given uid, uploads
+    """Produces a new video for the journey with the given uid, uploads
     it to S3, then queues process_finished_journey_video_sample to re-encode and
     store in the database.
 
-    The result is a 15s vertical video clip containing the journey title,
-    instructor name, the first 15s of the journey audio, the journey background
-    image, and a visualization of the journey audio.
+    The result is a vertical video clip containing the journey title, instructor
+    name, the journey audio, the journey background image, and a visualization
+    of the journey audio.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
@@ -31,9 +31,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
 
     async def bounce():
         jobs = await itgs.jobs()
-        await jobs.enqueue(
-            "runners.process_journey_video_sample", journey_uid=journey_uid
-        )
+        await jobs.enqueue("runners.process_journey_video", journey_uid=journey_uid)
 
     conn = await itgs.conn()
     cursor = conn.cursor("strong")
@@ -177,7 +175,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
 
         slack = await itgs.slack()
         await slack.send_ops_message(
-            f"Producing journey video sample for {journey_uid=}, {journey_title=}, {instructor_name=} on {socket.gethostname()}"
+            f"Producing full journey video for {journey_uid=}, {journey_title=}, {instructor_name=} on {socket.gethostname()}"
         )
         started_at = time.time()
         with temp_dir() as destination_dir:
@@ -186,13 +184,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                 background_source_path,
                 journey_title,
                 instructor_name,
-                duration=15,
+                duration=None,
                 dest_folder=destination_dir,
             )
 
             finished_at = time.time()
             await slack.send_ops_message(
-                f"Finished producing journey video sample for {journey_uid=}, {journey_title=}, {instructor_name=} on {socket.gethostname()} in {finished_at - started_at:.2f}s; queueing job to finalize"
+                f"Finished producing full journey video for {journey_uid=}, {journey_title=}, {instructor_name=} on {socket.gethostname()} in {finished_at - started_at:.2f}s; queueing job to finalize"
             )
 
             sha512 = hash_content_sync(result.output_path)
@@ -201,7 +199,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             s3_file = S3File(
                 uid=f"oseh_s3f_{secrets.token_urlsafe(16)}",
                 bucket=files.default_bucket,
-                key=f"s3_files/videos/journey_video_samples/{secrets.token_urlsafe(16)}.mp4",
+                key=f"s3_files/videos/journey_videos/{secrets.token_urlsafe(16)}.mp4",
                 file_size=file_size,
                 content_type="video/mp4",
                 created_at=finished_at,
@@ -212,7 +210,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             )
             jobs = await itgs.jobs()
             await jobs.enqueue(
-                "runners.process_finished_journey_video_sample",
+                "runners.process_finished_journey_video",
                 journey_uid=journey_uid,
                 s3_file_key=s3_file.key,
                 sha512=sha512,

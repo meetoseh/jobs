@@ -2,11 +2,23 @@ import json
 import subprocess
 import time
 from typing import Dict, List, Tuple
-from content import ContentFile, ContentFileExport, ContentFileExportPart, S3File, hash_content_sync
+from content import (
+    ContentFile,
+    ContentFileExport,
+    ContentFileExportPart,
+    S3File,
+    hash_content_sync,
+)
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from temp_files import temp_dir
-from audio import _Mp4Info, _PreparedAudioContent, _PreparedMP4, _upload_all, _upsert_prepared
+from audio import (
+    _Mp4Info,
+    _PreparedAudioContent,
+    _PreparedMP4,
+    _upload_all,
+    _upsert_prepared,
+)
 from dataclasses import dataclass
 import os
 import shutil
@@ -35,7 +47,7 @@ class VideoQuality:
     """The video bitrate, in kbps"""
 
 
-INSTAGRAM_VERTICAL_VIDEO_BITRATES: List[VideoQuality] = (
+INSTAGRAM_VERTICAL: List[VideoQuality] = (
     VideoQuality(width=1080, height=1920, audio_bitrate=384, video_bitrate=10486),
 )
 """The bitrates we encode at"""
@@ -144,8 +156,7 @@ async def process_video_into(
         )
         if gd.received_term_signal:
             raise ProcessVideoAbortedException()
-    
-    
+
     now = time.time()
     files = await itgs.files()
     content_file_uid = f"oseh_cf_{secrets.token_urlsafe(16)}"
@@ -174,9 +185,9 @@ async def process_video_into(
                     codecs=["aac"],
                     target_duration=int(mp4.duration),
                     quality_parameters={
-                        "bitrate_kbps": mp4.bit_rate, 
+                        "bitrate_bps": mp4.bit_rate,
                         "faststart": True,
-                        "width": settings.width, 
+                        "width": settings.width,
                         "height": settings.height,
                         "target_audio_bitrate_kbps": settings.audio_bitrate,
                         "target_video_bitrate_kbps": settings.video_bitrate,
@@ -202,7 +213,7 @@ async def process_video_into(
             )
             for settings, (mp4_path, mp4) in zip(exports, mp4s)
         ],
-        hls=None
+        hls=None,
     )
 
     await _upload_all(
