@@ -70,11 +70,7 @@ def render_video(
             settings=pmaw.PerformanceSettings(
                 # pmaw doesn't expect less than 3 cpus, so we're using the default but ensuring
                 # it uses at least 1 worker
-                # num_workers=max(psutil.cpu_count(logical=False) // 3, 1),
-                # decrease memory usage to max 1gb on buffered frames
-                # ooo_balance=50,
-                # ooo_cap=75,
-                # ooo_error=100,
+                num_workers=max(psutil.cpu_count(logical=False) // 3, 1),
             ),
         )
 
