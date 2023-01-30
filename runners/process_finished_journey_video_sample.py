@@ -1,4 +1,5 @@
 import asyncio
+import json
 import random
 from typing import Optional
 from itgs import Itgs
@@ -145,6 +146,18 @@ async def execute(
             await jobs.enqueue(
                 "runners.delete_content_file", uid=old_sample_content_file_uid
             )
+
+        redis = await itgs.redis()
+        purgatory_key = json.dumps(
+            {"key": s3_file_key, "bucket": files.default_bucket}, sort_keys=True
+        )
+        await files.delete(bucket=files.default_bucket, key=s3_file_key)
+        await redis.zrem("files:purgatory", purgatory_key)
+
+        await cursor.execute(
+            "DELETE FROM s3_files WHERE key=?",
+            (s3_file_key,),
+        )
 
         await slack.send_ops_message(
             f"Finalized video sample for {journey_uid=} on {socket.gethostname()} in {time.time() - started_at:.2f}s"

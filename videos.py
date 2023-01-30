@@ -200,7 +200,7 @@ async def process_video_into(
                                 uid=f"oseh_s3f_{secrets.token_urlsafe(16)}",
                                 bucket=files.default_bucket,
                                 key=f"s3_files/videos/{content_file_uid}/mp4/{mp4.bit_rate}/{secrets.token_urlsafe(8)}.mp4",
-                                file_size=os.path.getsize(local_filepath),
+                                file_size=os.path.getsize(mp4_path),
                                 content_type="video/mp4",
                                 created_at=now,
                             ),

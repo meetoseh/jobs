@@ -209,6 +209,7 @@ async def execute(
             uploaded_by_user_sub,
             image.uid,
             last_uploaded_at,
+            last_uploaded_at,
         ),
     )
 
