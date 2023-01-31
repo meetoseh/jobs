@@ -70,6 +70,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         nx=True,
     )
 
+    response = await cursor.execute("SELECT COUNT(*) FROM users")
+    await redis.set(b"stats:users:count", str(response.results[0][0]).encode("utf-8"))
+
     response = await cursor.execute(
         "SELECT COUNT(*) FROM users WHERE created_at >= ?",
         (start_of_current_month_datetime.timestamp(),),
