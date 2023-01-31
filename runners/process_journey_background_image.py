@@ -56,6 +56,8 @@ RESOLUTIONS = [
     (396, 668),  # X-SMALL 2x
     (528, 892),  # NORMAL 2x
     # SHARE TO INSTAGRAM
+    (270, 470),  # PREVIEW 1x
+    (540, 940),  # PREVIEW 2x
     (1080, 1920),
     # ADMIN PREVIEW
     (180, 368),  # preview mobile (2x already handled)
