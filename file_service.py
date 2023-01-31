@@ -104,25 +104,29 @@ class S3:
         self._s3 = None
         """The result from __aenter__ on the client creator"""
 
-        self._state: Literal["unentered", "entered", "exited"] = "unentered"
+        self._state: Literal[
+            "unentered", "entering", "entered", "exiting", "exited"
+        ] = "unentered"
         """The current state of this instance, for debugging purposes"""
 
     async def __aenter__(self) -> "S3":
         assert self._state in ("unentered", "exited"), self._state
-        self._state = "entered"
+        self._state = "entering"
         self._session = aioboto3.Session()
         self.__s3_creator = self._session.client("s3")
         self._s3 = await self.__s3_creator.__aenter__()
         assert self._s3 is not None, self._s3
+        self._state = "entered"
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         assert self._state == "entered", self._state
-        self._state = "exited"
+        self._state = "exiting"
         await self.__s3_creator.__aexit__(exc_type, exc, tb)
         self._session = None
         self.__s3_creator = None
         self._s3 = None
+        self._state = "exited"
 
     async def upload(
         self,
