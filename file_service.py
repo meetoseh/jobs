@@ -134,6 +134,7 @@ class S3:
     ) -> None:
         logging.info(f"[file_service/s3]: upload {bucket=}, {key=}")
         assert self._state == "entered", self._state
+        assert self._s3 is not None, "_s3 lost despite being entered?"
         if not sync:
             with temp_file() as tmp:
                 async with aiofiles.open(tmp, "wb") as f2:
@@ -176,6 +177,7 @@ class S3:
     ) -> bool:
         logging.info(f"[file_service/s3]: download {bucket=}, {key=}")
         assert self._state == "entered", self._state
+        assert self._s3 is not None, "_s3 lost despite being entered?"
         try:
             s3_ob = await self._s3.get_object(Bucket=bucket, Key=key)
 
@@ -203,6 +205,7 @@ class S3:
     async def delete(self, *, bucket: str, key: str) -> bool:
         logging.info(f"[file_service/s3]: delete {bucket=}, {key=}")
         assert self._state == "entered", self._state
+        assert self._s3 is not None, "_s3 lost despite being entered?"
         try:
             await self._s3.delete_object(Bucket=bucket, Key=key)
             return True
