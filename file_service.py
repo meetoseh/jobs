@@ -1,6 +1,6 @@
 from abc import ABC
 from io import BytesIO
-from typing import Union
+from typing import Literal, Union
 import aioboto3
 import botocore.exceptions
 import aiofiles
@@ -104,13 +104,21 @@ class S3:
         self._s3 = None
         """The result from __aenter__ on the client creator"""
 
+        self._state: Literal["unentered", "entered", "exited"] = "unentered"
+        """The current state of this instance, for debugging purposes"""
+
     async def __aenter__(self) -> "S3":
+        assert self._state in ("unentered", "exited"), self._state
+        self._state = "entered"
         self._session = aioboto3.Session()
         self.__s3_creator = self._session.client("s3")
         self._s3 = await self.__s3_creator.__aenter__()
+        assert self._s3 is not None, self._s3
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        assert self._state == "entered", self._state
+        self._state = "exited"
         await self.__s3_creator.__aexit__(exc_type, exc, tb)
         self._session = None
         self.__s3_creator = None
@@ -125,6 +133,7 @@ class S3:
         sync: bool,
     ) -> None:
         logging.info(f"[file_service/s3]: upload {bucket=}, {key=}")
+        assert self._state == "entered", self._state
         if not sync:
             with temp_file() as tmp:
                 async with aiofiles.open(tmp, "wb") as f2:
@@ -166,6 +175,7 @@ class S3:
         sync: bool,
     ) -> bool:
         logging.info(f"[file_service/s3]: download {bucket=}, {key=}")
+        assert self._state == "entered", self._state
         try:
             s3_ob = await self._s3.get_object(Bucket=bucket, Key=key)
 
@@ -192,6 +202,7 @@ class S3:
 
     async def delete(self, *, bucket: str, key: str) -> bool:
         logging.info(f"[file_service/s3]: delete {bucket=}, {key=}")
+        assert self._state == "entered", self._state
         try:
             await self._s3.delete_object(Bucket=bucket, Key=key)
             return True
