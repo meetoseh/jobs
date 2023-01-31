@@ -225,15 +225,16 @@ class Itgs:
             sk = os.environ["OSEH_REVENUE_CAT_SECRET_KEY"]
             stripe_pk = os.environ["OSEH_REVENUE_CAT_STRIPE_PUBLIC_KEY"]
 
-            self._revenue_cat = revenue_cat.RevenueCat(sk=sk, stripe_pk=stripe_pk)
+            rc = revenue_cat.RevenueCat(sk=sk, stripe_pk=stripe_pk)
 
-            await self._revenue_cat.__aenter__()
+            await rc.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
                 await me._revenue_cat.__aexit__(None, None, None)
                 me._revenue_cat = None
 
             self._closures.append(cleanup)
+            self._revenue_cat = rc
 
         return self._revenue_cat
 
