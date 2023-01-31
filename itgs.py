@@ -94,8 +94,9 @@ class Itgs:
                     me._conn = None
 
             self._closures.append(cleanup)
-            self._conn = rqdb.connect_async(hosts=rqlite_ips)
-            await self._conn.__aenter__()
+            c = rqdb.connect_async(hosts=rqlite_ips)
+            await c.__aenter__()
+            self._conn = c
 
         return self._conn
 
@@ -138,14 +139,15 @@ class Itgs:
             if self._slack is not None:
                 return self._slack
 
-            self._slack = slack.Slack()
-            await self._slack.__aenter__()
+            s = slack.Slack()
+            await s.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
                 await me._slack.__aexit__(None, None, None)
                 me._slack = None
 
             self._closures.append(cleanup)
+            self._slack = s
 
         return self._slack
 
@@ -163,18 +165,19 @@ class Itgs:
                 jobs.JobCategory(int(s.strip()))
                 for s in os.environ["OSEH_JOB_CATEGORIES"].split(",")
             )
-            self._jobs = jobs.Jobs(
+            j = jobs.Jobs(
                 _redis,
                 allowed_job_categories=allowed_job_categories,
                 get_job_category=get_job_category,
             )
-            await self._jobs.__aenter__()
+            await j.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
                 await me._jobs.__aexit__(None, None, None)
                 me._jobs = None
 
             self._closures.append(cleanup)
+            self._jobs = j
 
         return self._jobs
 
@@ -191,19 +194,18 @@ class Itgs:
 
             if os.environ.get("ENVIRONMENT", default="production") == "dev":
                 root = os.environ["OSEH_S3_LOCAL_BUCKET_PATH"]
-                self._file_service = file_service.LocalFiles(
-                    root, default_bucket=default_bucket
-                )
+                fs = file_service.LocalFiles(root, default_bucket=default_bucket)
             else:
-                self._file_service = file_service.S3(default_bucket=default_bucket)
+                fs = file_service.S3(default_bucket=default_bucket)
 
-            await self._file_service.__aenter__()
+            await fs.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
                 await me._file_service.__aexit__(None, None, None)
                 me._file_service = None
 
             self._closures.append(cleanup)
+            self._file_service = fs
 
         return self._file_service
 
