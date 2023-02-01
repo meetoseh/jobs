@@ -43,6 +43,7 @@ async def _main(gd: GracefulDeath):
                 job = await jobs.retrieve(timeout=5)
             except Exception as e:
                 await handle_error(e)
+                await asyncio.sleep(10)
                 continue
             if job is None:
                 continue

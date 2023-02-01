@@ -161,7 +161,6 @@ class Jobs:
                         f"get_job_category must return a JobCategory, not {type(category)=}, {category=}"
                     )
             except Exception:
-                await self.conn.rpush(self.queue_key, job_serd_and_encoded)
                 raise
 
             if category not in self.allowed_job_categories:
