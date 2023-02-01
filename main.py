@@ -39,7 +39,11 @@ async def _main(gd: GracefulDeath):
     async with Itgs() as itgs:
         jobs = await itgs.jobs()
         while not gd.received_term_signal and not stop_event.is_set():
-            job = await jobs.retrieve(timeout=5)
+            try:
+                job = await jobs.retrieve(timeout=5)
+            except Exception as e:
+                await handle_error(e)
+                continue
             if job is None:
                 continue
             try:
