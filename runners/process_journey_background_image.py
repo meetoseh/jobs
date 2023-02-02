@@ -43,6 +43,9 @@ RESOLUTIONS = [
     (786, 1746),
     (824, 1784),
     (856, 1852),
+    # MOBILE 3X; chose a few key ones
+    (1080, 2400),
+    (1242, 2745),
     # FROM TESTING WITH STATUS BARS
     (360, 736),
     (1472, 720),
@@ -55,6 +58,8 @@ RESOLUTIONS = [
     (264, 446),  # NORMAL 1x
     (396, 668),  # X-SMALL 2x
     (528, 892),  # NORMAL 2x
+    (594, 1002),  # X-SMALL 3x
+    (792, 1338),  # NORMAL 3x
     # SHARE TO INSTAGRAM
     (270, 470),  # PREVIEW 1x
     (540, 940),  # PREVIEW 2x
