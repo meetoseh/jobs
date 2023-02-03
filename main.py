@@ -2,7 +2,7 @@ import mpfix  # noqa
 import threading
 import time
 from typing import List
-from graceful_death import GracefulDeath
+from graceful_death import GracefulDeath, graceful_sleep
 import updater
 import recurring_jobs
 import asyncio
@@ -36,27 +36,32 @@ async def _main(gd: GracefulDeath):
     for t in threads:
         t.start()
 
-    async with Itgs() as itgs:
-        jobs = await itgs.jobs()
-        while not gd.received_term_signal and not stop_event.is_set():
-            try:
-                job = await jobs.retrieve(timeout=5)
-            except Exception as e:
-                await handle_error(e)
-                await asyncio.sleep(10)
-                continue
-            if job is None:
-                continue
-            try:
-                mod = importlib.import_module(job["name"])
-                started_at = time.perf_counter()
-                await mod.execute(itgs, gd, **job["kwargs"])
-                logging.info(
-                    f"finished in {time.perf_counter() - started_at:.3f} seconds"
-                )
-            except Exception as e:
-                await handle_error(e)
-                continue
+    while not gd.received_term_signal and not stop_event.is_set():
+        try:
+            async with Itgs() as itgs:
+                jobs = await itgs.jobs()
+                while not gd.received_term_signal and not stop_event.is_set():
+                    try:
+                        job = await jobs.retrieve(timeout=5)
+                    except Exception as e:
+                        await handle_error(e)
+                        await graceful_sleep(gd, 10)
+                        break
+                    if job is None:
+                        continue
+                    try:
+                        mod = importlib.import_module(job["name"])
+                        started_at = time.perf_counter()
+                        await mod.execute(itgs, gd, **job["kwargs"])
+                        logging.info(
+                            f"finished in {time.perf_counter() - started_at:.3f} seconds"
+                        )
+                    except Exception as e:
+                        await handle_error(e)
+                        break
+        except Exception as e:
+            await handle_error(e)
+            await graceful_sleep(gd, 30)
 
     stop_event.set()
 
