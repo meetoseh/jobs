@@ -14,63 +14,84 @@ from jobs import JobCategory
 
 category = JobCategory.HIGH_RESOURCE_COST
 
-RESOLUTIONS = [
-    # MOBILE
-    (360, 800),
-    (414, 896),
-    (360, 640),
-    (390, 844),
-    (412, 915),
-    (360, 780),
-    (375, 812),
-    (375, 667),
-    (360, 760),
-    (393, 851),
-    (393, 873),
-    (412, 892),
-    (428, 926),
-    # MOBILE 2X
-    (720, 1600),
-    (828, 1792),
-    (720, 1280),
-    (780, 1688),
-    (824, 1830),
-    (720, 1560),
-    (750, 1624),
-    (750, 1334),
-    (720, 1520),
-    (786, 1702),
-    (786, 1746),
-    (824, 1784),
-    (856, 1852),
-    # MOBILE 3X; chose a few key ones
-    (1080, 2400),
-    (1242, 2745),
-    # FROM TESTING WITH STATUS BARS
-    (360, 736),
-    (1472, 720),
-    # DESKTOP
-    (1920, 1080),
-    (1366, 768),
-    (1536, 864),
-    # DESKTOP SELECT SCREEN
-    (198, 334),  # X-SMALL 1x
-    (264, 446),  # NORMAL 1x
-    (396, 668),  # X-SMALL 2x
-    (528, 892),  # NORMAL 2x
-    (594, 1002),  # X-SMALL 3x
-    (792, 1338),  # NORMAL 3x
-    # SHARE TO INSTAGRAM
-    (270, 470),  # PREVIEW 1x
-    (540, 940),  # PREVIEW 2x
-    (1080, 1920),
-    # ADMIN PREVIEW
-    (180, 368),  # preview mobile (2x already handled)
-    (270, 480),  # preview desktop
-    (540, 960),  # preview desktop 2x
-    (480, 270),  # preview share to instagram
-    (960, 540),  # preview share to instagram 2x
-]
+RESOLUTIONS = list(
+    dict.fromkeys(
+        [
+            # MOBILE
+            (360, 800),
+            (414, 896),
+            (360, 640),
+            (390, 844),
+            (412, 915),
+            (360, 780),
+            (375, 812),
+            (375, 667),
+            (360, 760),
+            (393, 851),
+            (393, 873),
+            (412, 892),
+            (428, 926),
+            # MOBILE 2X
+            (720, 1600),
+            (828, 1792),
+            (720, 1280),
+            (780, 1688),
+            (824, 1830),
+            (720, 1560),
+            (750, 1624),
+            (750, 1334),
+            (720, 1520),
+            (786, 1702),
+            (786, 1746),
+            (824, 1784),
+            (856, 1852),
+            # MOBILE 3X; chose a few key ones
+            (1080, 2400),
+            (1242, 2745),
+            # FROM TESTING WITH STATUS BARS
+            (360, 736),
+            (1472, 720),
+            # DESKTOP
+            (1920, 1080),
+            (1366, 768),
+            (1536, 864),
+            # DESKTOP SELECT SCREEN
+            (300, 500),  # LARGE 1x
+            (600, 1000),  # LARGE 2x
+            (900, 1500),  # LARGE 3x
+            (287, 500),  # SKINNY LARGE 1x
+            (574, 1000),  # SKINNY LARGE 2x
+            (861, 1500),  # SKINNY LARGE 3x
+            (275, 457),  # MEDIUM 1x
+            (550, 914),  # MEDIUM 2x
+            (825, 1371),  # MEDIUM 3x
+            (275, 419),  # SMALL 1x
+            (550, 838),  # SMALL 2x
+            (825, 1257),  # SMALL 3x
+            (256, 500),  # ULTRA SKINNY LARGE 1x
+            (512, 1000),  # ULTRA SKINNY LARGE 2x
+            (768, 1500),  # ULTRA SKINNY LARGE 3x
+            (256, 457),  # ULTRA SKINNY MEDIUM 1x
+            (512, 914),  # ULTRA SKINNY MEDIUM 2x
+            (768, 1371),  # ULTRA SKINNY MEDIUM 3x
+            (256, 419),  # ULTRA SKINNY SMALL 1x
+            (512, 838),  # ULTRA SKINNY SMALL 2x
+            (768, 1257),  # ULTRA SKINNY SMALL 3x
+            # SHARE TO INSTAGRAM
+            (270, 470),  # PREVIEW 1x
+            (540, 940),  # PREVIEW 2x
+            (810, 1410),  # PREVIEW 3x
+            (1080, 1920),
+            # ADMIN PREVIEW
+            (180, 368),  # preview mobile
+            (360, 736),  # preview mobile 2x
+            (270, 480),  # preview desktop
+            (540, 960),  # preview desktop 2x
+            (480, 270),  # preview share to instagram
+            (960, 540),  # preview share to instagram 2x
+        ]
+    )
+)
 
 
 def get_jpg_settings(width: int, height: int) -> dict:
