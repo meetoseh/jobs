@@ -1,7 +1,6 @@
 """Checks if a given users profile picture matches the given url, and if it does not,
 downloads the image, modifies it appropriately, and updates our database
 """
-import time
 from typing import Optional
 from error_middleware import handle_warning
 from itgs import Itgs

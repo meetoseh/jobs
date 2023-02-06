@@ -5,6 +5,7 @@ from typing import Dict, Optional
 from collections import deque
 import time
 import os
+import socket
 
 
 async def handle_error(exc: Exception) -> None:
@@ -13,7 +14,7 @@ async def handle_error(exc: Exception) -> None:
     message = "\n".join(
         traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
     )
-    message = f"```\n{message}\n```"
+    message = f"{socket.gethostname()}\n\n```\n{message}\n```"
     async with Itgs() as itgs:
         slack = await itgs.slack()
         await slack.send_web_error_message(message, "an error occurred in jobs")
@@ -63,6 +64,6 @@ async def handle_warning(
     async with Itgs() as itgs:
         slack = await itgs.slack()
         await slack.send_web_error_message(
-            f"WARNING: `{identifier}` (warning {total_warnings}/{MAX_WARNINGS_PER_INTERVAL} per {WARNING_RATELIMIT_INTERVAL} seconds for {os.getpid()})\n\n{text}",
+            f"WARNING: `{identifier}` (warning {total_warnings}/{MAX_WARNINGS_PER_INTERVAL} per {WARNING_RATELIMIT_INTERVAL} seconds for {socket.gethostname()} - pid {os.getpid()})\n\n{text}",
             preview=f"WARNING: {identifier}",
         )
