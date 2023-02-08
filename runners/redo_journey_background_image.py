@@ -7,7 +7,7 @@ from graceful_death import GracefulDeath
 from error_middleware import handle_warning
 from temp_files import temp_file
 from content import hash_content
-from .process_journey_background_image import TARGETS, blur_image
+from .process_journey_background_image import TARGETS, blur_image, darken_image
 from images import process_image, ProcessImageAbortedException
 import logging
 import aiofiles
@@ -68,7 +68,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
 
     file_service = await itgs.files()
 
-    with temp_file() as tmp_filepath, temp_file() as blurred_filepath:
+    with temp_file() as tmp_filepath, temp_file() as blurred_filepath, temp_file() as darkened_path:
         async with aiofiles.open(tmp_filepath, "wb") as tmp_file:
             success = await file_service.download(
                 tmp_file, bucket=file_service.default_bucket, key=s3_key, sync=False
@@ -139,32 +139,63 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_background_image_uid
         except ProcessImageAbortedException:
             return await bounce()
 
+        try:
+            await darken_image(tmp_filepath, darkened_path)
+        except ProcessImageAbortedException:
+            return await bounce()
+
+        try:
+            darkened_image = await process_image(
+                darkened_path,
+                TARGETS,
+                itgs=itgs,
+                gd=gd,
+                max_width=16384,
+                max_height=16384,
+                max_area=8192 * 8192,
+                max_file_size=1024 * 1024 * 512,
+                name_hint="darkened_journey_background_image",
+            )
+        except ProcessImageAbortedException:
+            return await bounce()
+
         await cursor.executemany3(
             (
                 (
                     """
                     UPDATE journey_background_images 
-                    SET blurred_image_file_id = blurred_image_files.id
-                    FROM image_files AS blurred_image_files
+                    SET 
+                        blurred_image_file_id = blurred_image_files.id,
+                        darkened_image_file_id = darkened_image_files.id
+                    FROM image_files AS blurred_image_files, image_files AS darkened_image_files
                     WHERE
                         journey_background_images.uid = ?
                         AND blurred_image_files.uid = ?
+                        AND darkened_image_files.uid = ?
                     """,
-                    (journey_background_image_uid, blurred_image.uid),
+                    (
+                        journey_background_image_uid,
+                        blurred_image.uid,
+                        darkened_image.uid,
+                    ),
                 ),
                 (
                     """
                     UPDATE journeys
-                    SET blurred_background_image_file_id = blurred_image_files.id
-                    FROM image_files, image_files AS blurred_image_files
+                    SET 
+                        blurred_background_image_file_id = blurred_image_files.id,
+                        darkened_background_image_file_id = darkened_image_files.id
+                    FROM image_files, image_files AS blurred_image_files, image_files AS darkened_image_files
                     WHERE
                         journeys.background_image_file_id = image_files.id
                         AND image_files.uid = ?
                         AND blurred_image_files.uid = ?
+                        AND darkened_image_files.uid = ?
                     """,
                     (
                         image.uid,
                         blurred_image.uid,
+                        darkened_image.uid,
                     ),
                 ),
             )

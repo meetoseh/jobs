@@ -158,7 +158,7 @@ async def execute(
             uploaded_by_user_sub=uploaded_by_user_sub,
         )
 
-    with temp_file() as stitched_path, temp_file() as blurred_path:
+    with temp_file() as stitched_path, temp_file() as blurred_path, temp_file() as darkened_path:
         try:
             await stitch_file_upload(file_upload_uid, stitched_path, itgs=itgs, gd=gd)
         except StitchFileAbortedException:
@@ -200,6 +200,26 @@ async def execute(
         except ProcessImageAbortedException:
             return await bounce()
 
+        try:
+            await darken_image(stitched_path, darkened_path)
+        except ProcessImageAbortedException:
+            return await bounce()
+
+        try:
+            darkened_image = await process_image(
+                darkened_path,
+                TARGETS,
+                itgs=itgs,
+                gd=gd,
+                max_width=16384,
+                max_height=16384,
+                max_area=8192 * 8192,
+                max_file_size=1024 * 1024 * 512,
+                name_hint="darkened_journey_background_image",
+            )
+        except ProcessImageAbortedException:
+            return await bounce()
+
     conn = await itgs.conn()
     cursor = conn.cursor()
 
@@ -211,6 +231,7 @@ async def execute(
             uid,
             image_file_id,
             blurred_image_file_id,
+            darkened_image_file_id,
             uploaded_by_user_id,
             last_uploaded_at
         )
@@ -218,10 +239,12 @@ async def execute(
             ?,
             image_files.id,
             blurred_image_files.id,
+            darkened_image_files.id,
             users.id,
             ?
         FROM image_files
         JOIN image_files AS blurred_image_files ON blurred_image_files.uid = ?
+        JOIN image_files AS darkened_image_files ON darkened_image_files.uid = ?
         LEFT OUTER JOIN users ON users.sub = ?
         WHERE
             image_files.uid = ?
@@ -229,13 +252,17 @@ async def execute(
         DO UPDATE SET last_uploaded_at = ?
         ON CONFLICT (blurred_image_file_id)
         DO UPDATE SET last_uploaded_at = ?
+        ON CONFLICT (darkened_image_file_id)
+        DO UPDATE SET last_uploaded_at = ?
         """,
         (
             jbi_uid,
             last_uploaded_at,
             blurred_image.uid,
+            darkened_image.uid,
             uploaded_by_user_sub,
             image.uid,
+            last_uploaded_at,
             last_uploaded_at,
             last_uploaded_at,
         ),
@@ -302,6 +329,67 @@ def blur_image_blocking(
 
         blurred_image = im.filter(ImageFilter.GaussianBlur(blur_radius))
         darkened_image = ImageEnhance.Brightness(blurred_image).enhance(0.7)
+        darkened_image.save(
+            dest_path, format="webp", lossless=True, quality=100, method=6
+        )
+    finally:
+        loop.call_soon_threadsafe(event.set)
+
+
+async def darken_image(source_path: str, dest_path: str):
+    """Darkens the image at the given path, as intended for darkened journey
+    background images. The description of this blur is canonically at journeys.md
+    in the backend database docs.
+
+    Args:
+        source_path (str): the path to the source image
+        dest_path (str): the path to the destination image
+
+    Raises:
+        ProcessImageAbortedException: if a term signal was received while darkening the
+            image, or we otherwise would like to retry the job on a different instance
+    """
+    loop = asyncio.get_running_loop()
+    event = asyncio.Event()
+    bknd_thread = threading.Thread(
+        target=darken_image_blocking,
+        kwargs={
+            "source_path": source_path,
+            "dest_path": dest_path,
+            "loop": loop,
+            "event": event,
+        },
+        daemon=True,
+    )
+    bknd_thread.start()
+
+    await event.wait()
+    if not os.path.exists(dest_path):
+        raise Exception(f"darken image failed to produce output at {dest_path}")
+
+
+def darken_image_blocking(
+    source_path: str,
+    dest_path: str,
+    loop: asyncio.AbstractEventLoop,
+    event: asyncio.Event,
+):
+    """Darkens the image at the given path, as intended for darkened journey
+    background images. The description of this blur is canonically at journeys.md
+    in the backend database docs.
+
+    This is the synchronous version, which should be run on a different thread or process
+    to allow weaving jobs
+
+    Args:
+        source_path (str): the path to the source image
+        dest_path (str): the path to the destination image
+        loop (asyncio.AbstractEventLoop): the event loop to use for setting the event
+        event (asyncio.Event): the event to set when the image is done processing
+    """
+    try:
+        im = Image.open(source_path)
+        darkened_image = ImageEnhance.Brightness(im).enhance(0.8)
         darkened_image.save(
             dest_path, format="webp", lossless=True, quality=100, method=6
         )
