@@ -1,6 +1,7 @@
 import signal
 import time
 import logging
+import asyncio
 
 
 class GracefulDeath:
@@ -37,7 +38,7 @@ class GracefulDeath:
                 raise SystemExit(0)
 
 
-def graceful_sleep(
+async def graceful_sleep(
     gd: GracefulDeath, seconds: float, max_increment: float = 0.1
 ) -> bool:
     """Attempts to sleep for the given number of fractional seconds, stopping
@@ -59,7 +60,7 @@ def graceful_sleep(
         if remaining_sleep_time < 0.01:
             return True
         try:
-            time.sleep(min(max_increment, remaining_sleep_time))
+            await asyncio.sleep(min(max_increment, remaining_sleep_time))
         except (InterruptedError, KeyboardInterrupt):
             gd.received_term_signal = True
             return False
