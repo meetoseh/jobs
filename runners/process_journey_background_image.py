@@ -89,6 +89,10 @@ RESOLUTIONS = list(
             (540, 960),  # preview desktop 2x
             (480, 270),  # preview share to instagram
             (960, 540),  # preview share to instagram 2x
+            # ADMIN ICON
+            (45, 90),  # icon 1x
+            (90, 180),  # icon 2x
+            (135, 270),  # icon 3x
         ]
     )
 )
