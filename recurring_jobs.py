@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import importlib
 import inspect
 import json
-from redis import ResponseError
+from graceful_death import graceful_sleep
 from error_middleware import handle_error
 from redis.asyncio.client import Redis, Pipeline
 from redis.exceptions import NoScriptError
@@ -832,44 +832,48 @@ async def _run_forever():
     if not JOBS:
         return  # nothing to do
 
-    async with Itgs() as itgs:
-        await update_jobs(itgs)
-        await clean_purgatory(itgs)
+    while True:
+        try:
+            async with Itgs() as itgs:
+                await update_jobs(itgs)
+                await clean_purgatory(itgs)
 
-        redis = await itgs.redis()
-        jobs = await itgs.jobs()
-        slack = await itgs.slack()
-        while True:
-            result = await conditionally_zpopmin(
-                redis, "rjobs", time.time(), "rjobs:hash", "rjobs:purgatory"
-            )
-            if result is None:
-                # peek the next one
-                next_jobs: List[Tuple[bytes, float]] = await redis.zrange(
-                    "rjobs", 0, 0, withscores=True
-                )
-                if not next_jobs:
-                    # all of them are running!
-                    await asyncio.sleep(1)
-                    continue
-                now = time.time()
-                next_score = next_jobs[0][1]
-                if next_score > now:
-                    await asyncio.sleep(next_score - now)
-                continue
+                redis = await itgs.redis()
+                jobs = await itgs.jobs()
+                while True:
+                    result = await conditionally_zpopmin(
+                        redis, "rjobs", time.time(), "rjobs:hash", "rjobs:purgatory"
+                    )
+                    if result is None:
+                        # peek the next one
+                        next_jobs: List[Tuple[bytes, float]] = await redis.zrange(
+                            "rjobs", 0, 0, withscores=True
+                        )
+                        if not next_jobs:
+                            # all of them are running!
+                            await asyncio.sleep(1)
+                            continue
+                        now = time.time()
+                        next_score = next_jobs[0][1]
+                        if next_score > now:
+                            await asyncio.sleep(next_score - now)
+                        continue
 
-            job_hash = int(result[0])
-            assert job_hash in JOBS_BY_HASH, f"unexpected {job_hash=} in rjobs"
-            job = JOBS_BY_HASH[job_hash]
-            await jobs.enqueue(job.name, **dict(job.kwargs))
-            await move_from_purgatory(
-                redis,
-                "rjobs:purgatory",
-                "rjobs",
-                "rjobs:hash",
-                job_hash,
-                job.interval.next_runtime_after(time.time()),
-            )
+                    job_hash = int(result[0])
+                    assert job_hash in JOBS_BY_HASH, f"unexpected {job_hash=} in rjobs"
+                    job = JOBS_BY_HASH[job_hash]
+                    await jobs.enqueue(job.name, **dict(job.kwargs))
+                    await move_from_purgatory(
+                        redis,
+                        "rjobs:purgatory",
+                        "rjobs",
+                        "rjobs:hash",
+                        job_hash,
+                        job.interval.next_runtime_after(time.time()),
+                    )
+        except Exception as e:
+            await handle_error(e)
+            await asyncio.sleep(10)
 
 
 async def run_forever(stop_event: threading.Event):
