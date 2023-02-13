@@ -81,6 +81,9 @@ RESOLUTIONS = list(
             (270, 470),  # PREVIEW 1x
             (540, 940),  # PREVIEW 2x
             (810, 1410),  # PREVIEW 3x
+            (208, 357),  # PREVIEW X-SMALL 1x
+            (416, 714),  # PREVIEW X-SMALL 2x
+            (624, 1071),  # PREVIEW X-SMALL 3x
             (1080, 1920),
             # ADMIN PREVIEW
             (180, 368),  # preview mobile

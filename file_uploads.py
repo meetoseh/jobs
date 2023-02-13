@@ -15,7 +15,8 @@ from si_prefix import si_format
 
 
 class StitchFileAbortedException(Exception):
-    ...
+    def __init__(self, *args, **kwargs):
+        super(*args, **kwargs)
 
 
 async def stitch_file_upload(
