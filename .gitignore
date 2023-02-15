@@ -1,7 +1,8 @@
 venv
 __pycache__
 updater.lock
-dev.bat
+/dev.bat
+/start.bat
 *.log
 /tmp
 *.log.*

@@ -8,13 +8,18 @@ import os
 import socket
 
 
-async def handle_error(exc: Exception) -> None:
+async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> None:
     """Handles a generic error"""
     logging.error("Posting error to slack", exc_info=exc)
+
     message = "\n".join(
         traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
     )
     message = f"{socket.gethostname()}\n\n```\n{message}\n```"
+
+    if extra_info is not None:
+        message += f"\n\n{extra_info}"
+
     async with Itgs() as itgs:
         slack = await itgs.slack()
         await slack.send_web_error_message(message, "an error occurred in jobs")

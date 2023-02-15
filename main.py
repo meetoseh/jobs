@@ -49,6 +49,9 @@ async def _main(gd: GracefulDeath):
                         break
                     if job is None:
                         continue
+
+                    logging.info(f"starting {job['name']}")
+                    logging.debug(f"{job=}")
                     try:
                         mod = importlib.import_module(job["name"])
                         started_at = time.perf_counter()

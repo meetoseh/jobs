@@ -13,6 +13,7 @@ import file_service
 import revenue_cat
 import asyncio
 import importlib
+import twilio.rest
 
 
 our_diskcache: diskcache.Cache = diskcache.Cache(
@@ -58,6 +59,9 @@ class Itgs:
 
         self._revenue_cat: Optional[revenue_cat.RevenueCat] = None
         """the revenue cat connection if it had been opened"""
+
+        self._twilio: Optional[twilio.rest.Client] = None
+        """the twilio connection if it had been opened"""
 
         self._closures: List[Callable[["Itgs"], Coroutine]] = []
         """functions to run on __aexit__ to cleanup opened resources"""
@@ -237,6 +241,28 @@ class Itgs:
             self._revenue_cat = rc
 
         return self._revenue_cat
+
+    async def twilio(self) -> twilio.rest.Client:
+        """gets or creates the twilio connection"""
+        if self._twilio is not None:
+            return self._twilio
+
+        async with self._lock:
+            if self._twilio is not None:
+                return self._twilio
+
+            sid = os.environ["OSEH_TWILIO_ACCOUNT_SID"]
+            token = os.environ["OSEH_TWILIO_AUTH_TOKEN"]
+
+            tw = twilio.rest.Client(sid, token)
+
+            async def cleanup(me: "Itgs") -> None:
+                me._twilio = None
+
+            self._closures.append(cleanup)
+            self._twilio = tw
+
+        return self._twilio
 
 
 def get_job_category(name: str) -> jobs.JobCategory:
