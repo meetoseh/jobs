@@ -573,6 +573,12 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
+    # BLOCKED UNTIL APPROVED BY TWILIO
+    # Job(
+    #     name="runners.notifications.send_daily_event_notifications",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(pst, seconds=(0,)),
+    # ),
 )
 """The jobs that should be run."""
 
