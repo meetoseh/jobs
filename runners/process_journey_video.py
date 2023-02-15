@@ -50,7 +50,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         JOIN instructors ON instructors.id = journeys.instructor_id
         JOIN content_files AS audio_contents ON audio_contents.id = journeys.audio_content_file_id
         LEFT OUTER JOIN s3_files AS audio_s3_files ON audio_s3_files.id = audio_contents.original_s3_file_id
-        JOIN image_files AS background_images ON background_images.id = journeys.background_image_file_id
+        JOIN image_files AS background_images ON background_images.id = journeys.darkened_background_image_file_id
         LEFT OUTER JOIN s3_files AS background_s3_files ON (
             EXISTS (
                 SELECT 1 FROM image_file_exports
