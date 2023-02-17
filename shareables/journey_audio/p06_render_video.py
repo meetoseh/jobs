@@ -1,14 +1,13 @@
 """Renders the final video"""
 import io
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import pympanim.frame_gen as fg
 import pympanim.worker as pmaw
 from temp_files import temp_file
 import psutil
-import logging
-import os
+import textwrap
 
 
 def render_video(
@@ -103,6 +102,9 @@ class MyFrameGenerator(fg.FrameGenerator):
         self.title: str = title
         """The title of the journey the video is for"""
 
+        self.titleLines: List[str] = textwrap.wrap(self.title, width=28)
+        """The title of the journey broken into lines"""
+
         self.instructor_name: str = instructor_name
         """The name of the instructor"""
 
@@ -190,19 +192,28 @@ class MyFrameGenerator(fg.FrameGenerator):
 
         result = self.background_image.copy()
         draw = ImageDraw.Draw(result)
+
+        y = 160
+        for idx, line in enumerate(self.titleLines):
+            if idx > 0:
+                y += 80
+
+            draw.text(
+                (104, y),
+                line,
+                fill=(255, 255, 255),
+                font=self.fonts["300 72px Open Sans"],
+            )
+
+        y += 114
         draw.text(
-            (104, 160),
-            self.title,
-            fill=(255, 255, 255),
-            font=self.fonts["300 72px Open Sans"],
-        )
-        draw.text(
-            (104, 274),
+            (104, y),
             f"with {self.instructor_name}",
             fill=(255, 255, 255),
             font=self.fonts["300 44px italic Open Sans"],
         )
-        draw.line((80, 391, 1000, 391), fill=(255, 255, 255, 125), width=1)
+        y += 391 - 274
+        draw.line((80, 391, 1000, y), fill=(255, 255, 255, 125), width=1)
 
         num_lines = self.audio_visualization.shape[1]
         total_width = (num_lines * BAR_WIDTH) + ((num_lines - 1) * BAR_SPACING)
