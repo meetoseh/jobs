@@ -155,6 +155,24 @@ class RevenueCat:
         ) as resp:
             resp.raise_for_status()
 
+    async def refund_and_revoke_google_play_subscription(
+        self, *, revenue_cat_id: str, product_id: str
+    ) -> None:
+        """Immediately revokes access to a Google Subscription and issues a refund for the last purchase.
+
+        Args:
+            revenue_cat_id (str): The RevenueCat ID of the user
+            product_id (str): The product id within revenue cat of the subscription to cancel
+        """
+        async with self.session.post(
+            f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}/subscriptions/{product_id}/revoke",
+            headers={
+                "Authorization": f"Bearer {self.sk}",
+                "Accept": "application/json",
+            },
+        ) as resp:
+            resp.raise_for_status()
+
     async def create_stripe_purchase(
         self, *, revenue_cat_id: str, stripe_checkout_session_id: str
     ) -> None:
@@ -183,3 +201,42 @@ class RevenueCat:
                     f"create_stripe_purchase failed; {revenue_cat_id=}, stripe_checkout_session_id={stripe_checkout_session_id}, {resp.status=}, {text=}"
                 )
             resp.raise_for_status()
+
+    async def grant_promotional_entitlement(
+        self,
+        *,
+        revenue_cat_id: str,
+        entitlement_identifier: str,
+        duration: Literal[
+            "daily",
+            "three_day",
+            "weekly",
+            "monthly",
+            "two_month",
+            "three_month",
+            "six_month",
+            "yearly",
+            "lifetime",
+        ],
+    ):
+        """Grants the user with the given revenue cat id a promotional entitlement for the given duration.
+        See https://www.revenuecat.com/reference/grant-a-promotional-entitlement
+
+        Args:
+            revenue_cat_id (str): The RevenueCat ID of the user
+            entitlement_identifier (str): The identifier of the entitlement to grant
+            duration ("daily", "three_day", "weekly", "monthly", "two_month", "three_month", "six_month", "yearly", "lifetime"):
+                The duration of the entitlement
+        """
+        async with self.session.post(
+            f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}/entitlements/{entitlement_identifier}/promotional",
+            headers={
+                "Authorization": f"Bearer {self.sk}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json={
+                "duration": duration,
+            },
+        ) as response:
+            response.raise_for_status()

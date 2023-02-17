@@ -1,4 +1,5 @@
 """Ensures a users revenue cat customer actually exists"""
+import json
 from typing import Dict
 from error_middleware import handle_warning
 from itgs import Itgs
@@ -6,13 +7,18 @@ from graceful_death import GracefulDeath
 import logging
 import os
 from jobs import JobCategory
+import time
+import datetime
+import socket
 
 category = JobCategory.LOW_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
     """Ensures the given user exists in RevenueCat and sets their attributes,
-    to ease the burden of customer support.
+    to ease the burden of customer support. Furthermore, if we are in a special
+    period (e.g., the beta test), this may also be used to grant an initial
+    entitlement to the user.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
@@ -71,4 +77,36 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
     await rcat.set_customer_attributes(
         revenue_cat_id=revenue_cat_id, attributes=to_update
     )
+
     logging.debug(f"Updated {revenue_cat_id=} with {to_update=}")
+
+    dnow = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc)
+    pro = customer_info.subscriber.entitlements.get("pro")
+    if pro is None or (pro.expires_date is not None and pro.expires_date < dnow):
+        # 1 month no-credit-card trial for now
+        logging.debug(
+            f"Granting 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})"
+        )
+        await rcat.grant_promotional_entitlement(
+            revenue_cat_id=revenue_cat_id,
+            entitlement_identifier="pro",
+            duration="monthly",
+        )
+
+        now = time.time()
+        redis = await itgs.redis()
+        await redis.delete(f"entitlements:{user_sub}".encode("utf-8"))
+        await redis.publish(
+            b"ps:entitlements:purge",
+            json.dumps({"user_sub": user_sub, "min_checked_at": now}).encode("utf-8"),
+        )
+
+        logging.info(
+            f"Granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})"
+        )
+
+        slack = await itgs.slack()
+        await slack.send_ops_message(
+            f"{socket.gethostname()} granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})",
+            preview=f"Oseh+ given to {name}",
+        )
