@@ -106,7 +106,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         )
 
         slack = await itgs.slack()
-        await slack.send_ops_message(
+        await slack.send_oseh_bot_message(
             f"{socket.gethostname()} granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})",
             preview=f"Oseh+ given to {name}",
         )
