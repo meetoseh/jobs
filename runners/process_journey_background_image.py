@@ -52,6 +52,7 @@ RESOLUTIONS = list(
             (360, 736),
             (1472, 720),
             # DESKTOP
+            (2560, 1600),
             (1920, 1080),
             (1366, 768),
             (1536, 864),
@@ -200,7 +201,7 @@ async def execute(
                 gd=gd,
                 max_width=16384,
                 max_height=16384,
-                max_area=8192 * 8192,
+                max_area=16384 * 16384,
                 max_file_size=1024 * 1024 * 512,
                 name_hint="blurred_journey_background_image",
             )
@@ -220,7 +221,7 @@ async def execute(
                 gd=gd,
                 max_width=16384,
                 max_height=16384,
-                max_area=8192 * 8192,
+                max_area=16384 * 16384,
                 max_file_size=1024 * 1024 * 512,
                 name_hint="darkened_journey_background_image",
             )
