@@ -66,3 +66,5 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         logging.debug(f"redis delete {key=}")
         await redis.delete(key)
+        logging.debug(f"redis set {earliest_key=} {unix_month + 1=}")
+        await redis.set(earliest_key, unix_month + 1)
