@@ -13,6 +13,8 @@ import socket
 
 category = JobCategory.LOW_RESOURCE_COST
 
+GIVING_BETA_ACCESS = os.environ.get("ENVIRONMENT") != "dev"
+
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
     """Ensures the given user exists in RevenueCat and sets their attributes,
@@ -82,10 +84,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
 
     dnow = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc)
     pro = customer_info.subscriber.entitlements.get("pro")
-    if pro is None or (pro.expires_date is not None and pro.expires_date < dnow):
+    if (
+        pro is None or (pro.expires_date is not None and pro.expires_date < dnow)
+    ) and GIVING_BETA_ACCESS:
         # 1 month no-credit-card trial for now
         logging.debug(
-            f"Granting 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})"
+            f"Granting 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=}; previous had? {pro is not None and pro.expires_date is not None})"
         )
         await rcat.grant_promotional_entitlement(
             revenue_cat_id=revenue_cat_id,

@@ -19,22 +19,25 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         gd (GracefulDeath): the signal tracker; provided automatically
     """
 
+    # TODO: this hasn't been tested since journeys -> interactive prompts
+
     conn = await itgs.conn()
     cursor = conn.cursor("weak")
     redis = await itgs.redis()
 
     response = await cursor.execute(
         """
-        SELECT COUNT(*) FROM journey_sessions
+        SELECT COUNT(*) FROM interactive_prompt_sessions
         WHERE 
             EXISTS (
-                SELECT 1 FROM journey_events
-                WHERE journey_events.journey_session_id = journey_sessions.id
+                SELECT 1 FROM interactive_prompt_events
+                WHERE interactive_prompt_events.interactive_prompt_session_id = interactive_prompt_sessions.id
             )
         """
     )
     await redis.set(
-        b"stats:journey_sessions:count", str(response.results[0][0]).encode("utf-8")
+        b"stats:interactive_prompt_sessions:count",
+        str(response.results[0][0]).encode("utf-8"),
     )
 
     current_month = unix_timestamp_to_unix_month(
@@ -49,23 +52,23 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
     response = await cursor.execute(
         """
-        SELECT COUNT(*) FROM journey_sessions
+        SELECT COUNT(*) FROM interactive_prompt_sessions
         WHERE
             EXISTS (
-                SELECT 1 FROM journey_events
-                WHERE journey_events.journey_session_id = journey_sessions.id
-                  AND journey_events.created_at >= ?
-                  AND journey_events.evtype = 'join'
+                SELECT 1 FROM interactive_prompt_events
+                WHERE interactive_prompt_events.interactive_prompt_id = interactive_prompts.id
+                  AND interactive_prompt_events.created_at >= ?
+                  AND interactive_prompt_events.evtype = 'join'
             )
         """,
         (start_of_current_month_datetime.timestamp(),),
     )
     await redis.set(
-        f"stats:journey_sessions:monthly:{current_month}:count".encode("ascii"),
+        f"stats:interactive_prompts:monthly:{current_month}:count".encode("ascii"),
         str(response.results[0][0]).encode("utf-8"),
     )
     await redis.set(
-        b"stats:journey_sessions:monthly:earliest",
+        b"stats:interactive_prompt_sessions:monthly:earliest",
         str(current_month).encode("ascii"),
         nx=True,
     )
@@ -126,12 +129,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         SELECT sub FROM users 
         WHERE
             EXISTS (
-                SELECT 1 FROM journey_events
-                WHERE journey_events.created_at >= ?
+                SELECT 1 FROM interactive_prompt_events
+                WHERE interactive_prompt_events.created_at >= ?
                   AND EXISTS (
-                    SELECT 1 FROM journey_sessions
-                    WHERE journey_sessions.id = journey_events.journey_session_id
-                        AND journey_sessions.user_id = users.id
+                    SELECT 1 FROM interactive_prompt_sessions
+                    WHERE interactive_prompt_sessions.id = interactive_prompt_events.interactive_prompt_session_id
+                        AND interactive_prompt_sessions.user_id = users.id
                   )
             )
         ORDER BY sub ASC
@@ -150,12 +153,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             SELECT sub FROM users 
             WHERE
                 EXISTS (
-                    SELECT 1 FROM journey_events
-                    WHERE journey_events.created_at >= ?
+                    SELECT 1 FROM interactive_prompt_events
+                    WHERE interactive_prompt_events.created_at >= ?
                     AND EXISTS (
-                        SELECT 1 FROM journey_sessions
-                        WHERE journey_sessions.id = journey_events.journey_session_id
-                            AND journey_sessions.user_id = users.id
+                        SELECT 1 FROM interactive_prompt_sessions
+                        WHERE interactive_prompt_sessions.id = interactive_prompt_events.interactive_prompt_session_id
+                            AND interactive_prompt_sessions.user_id = users.id
                     )
                 )
                 AND sub > ?
