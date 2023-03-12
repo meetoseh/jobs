@@ -253,6 +253,7 @@ async def execute(
             FROM users
             WHERE users.sub = ?
             ON CONFLICT (user_id) DO NOTHING
+            ON CONFLICT (klaviyo_id) DO NOTHING
             """,
             (
                 new_ukp_uid,
