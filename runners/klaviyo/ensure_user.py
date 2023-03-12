@@ -240,8 +240,15 @@ async def execute(
         await klaviyo.unsuppress_email(email)
 
         for list_id in correct_list_ids:
+            internal_id = list_id_to_internal_identifier[list_id]
+            is_sms_list = internal_id.startswith("sms-")
+            if is_sms_list and best_phone_number is None:
+                continue
             await klaviyo.subscribe_profile_to_list(
-                profile_id=new_profile_id, list_id=list_id
+                profile_id=new_profile_id,
+                list_id=list_id,
+                email=email if not is_sms_list else None,
+                phone_number=best_phone_number if is_sms_list else None,
             )
             new_ukpl_uid = f"oseh_ukpl_{secrets.token_urlsafe(16)}"
             await cursor.execute(
