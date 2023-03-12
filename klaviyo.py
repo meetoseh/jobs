@@ -277,16 +277,15 @@ class Klaviyo:
             data = await response.json()
             return data["data"]["id"]
 
-    async def get_profile_id(self, *, email: str) -> str:
+    async def get_profile_id(self, *, email: str) -> Optional[str]:
         """Gets the profile id for the given email address
 
         Args:
             email (str): The email address to look up
 
         Returns:
-            str: The profile id
+            str or None: The profile id, if found, otherwise None
         """
-        # TODO: verify this creates profiles
         async with self.session.get(
             "https://a.klaviyo.com/api/v2/people/search?"
             + urlencode({"api_key": self.api_key, "email": email}),
@@ -296,6 +295,9 @@ class Klaviyo:
                 "Accept": "application/json",
             },
         ) as response:
+            if response.status == 404:
+                return None
+
             response.raise_for_status()
 
             data = await response.json()
