@@ -37,10 +37,10 @@ def unix_timestamp_to_unix_date(
         # that exactly falls on a skipped hour due to daylight savings; we want to use the offset
         # prior to the skipped hour
         time_offset = tz.utcoffset(
-            datetime.datetime.utcfromtimestamp(unix_time) - 2 * 60 * 60
+            datetime.datetime.utcfromtimestamp(unix_time - 2 * 60 * 60)
         ).total_seconds()
 
-        return int((unix_time + time_offset) // 86400)
+    return int((unix_time + time_offset) // 86400)
 
 
 def unix_timestamp_to_unix_month(
