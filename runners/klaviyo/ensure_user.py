@@ -184,6 +184,19 @@ async def execute(
         )
         if new_profile_id is None:
             new_profile_id = await klaviyo.get_profile_id(email=email)
+            if new_profile_id is None:
+                # the conflict was another account with that phone; we can handle
+                # that in a moment
+                new_profile_id = await klaviyo.create_profile(
+                    email=email,
+                    phone_number=None,
+                    external_id=user_sub,
+                    first_name=given_name,
+                    last_name=family_name,
+                    timezone=best_timezone,
+                    environment=environment,
+                )
+
             try:
                 await klaviyo.update_profile(
                     profile_id=new_profile_id,
