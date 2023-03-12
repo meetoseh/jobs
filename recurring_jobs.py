@@ -376,9 +376,13 @@ class JobInterval:
 
         result = 31
 
-        result = 17 * result + int(
-            self.tz.utcoffset(datetime.datetime.now()).total_seconds()
-        )
+        try:
+            current_utc_offset = self.tz.utcoffset(datetime.datetime.now()).total_seconds()
+        except pytz.exceptions.NonExistentTimeError:
+            # it's currently daily savings skip hour, use the previous offset
+            current_utc_offset = self.tz.utcoffset(datetime.datetime.utcfromtimestamp(time.time() - 60 * 60 * 2)).total_seconds()
+
+        result = 17 * result + int(current_utc_offset)
         for val in (
             self.seconds,
             self.minutes,
