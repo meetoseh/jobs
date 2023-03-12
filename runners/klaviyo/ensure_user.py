@@ -150,7 +150,7 @@ async def execute(
 
     environment = os.environ["ENVIRONMENT"]
     best_phone_number = pv_phone_number or user_phone_number
-    best_timezone = timezone or uns_timezone or k_timezone
+    best_timezone = timezone or uns_timezone or k_timezone or "America/Los_Angeles"
     sms_notification_time = (
         None if uns_channel != "sms" else uns_preferred_notification_time
     )
