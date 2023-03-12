@@ -287,16 +287,32 @@ async def execute(
         or k_timezone != best_timezone
         or k_environment != environment
     ):
-        await klaviyo.update_profile(
-            profile_id=k_klaviyo_id,
-            email=email,
-            external_id=user_sub,
-            phone_number=best_phone_number,
-            first_name=given_name,
-            last_name=family_name,
-            timezone=best_timezone,
-            environment=environment,
-        )
+        try:
+            await klaviyo.update_profile(
+                profile_id=k_klaviyo_id,
+                email=email,
+                external_id=user_sub,
+                phone_number=best_phone_number,
+                first_name=given_name,
+                last_name=family_name,
+                timezone=best_timezone,
+                environment=environment,
+            )
+        except DuplicateProfileError as e:
+            await klaviyo.update_profile(
+                profile_id=e.duplicate_profile_id,
+                phone_number=None,
+            )
+            await klaviyo.update_profile(
+                profile_id=k_klaviyo_id,
+                email=email,
+                external_id=user_sub,
+                phone_number=best_phone_number,
+                first_name=given_name,
+                last_name=family_name,
+                timezone=best_timezone,
+                environment=environment,
+            )
 
     if k_email != email:
         await klaviyo.unsuppress_email(email)
