@@ -429,6 +429,7 @@ async def execute(
                 ?, user_klaviyo_profiles.id, ?, ?
             FROM user_klaviyo_profiles
             WHERE user_klaviyo_profiles.uid = ?
+            ON CONFLICT (user_klaviyo_profile_id, list_id) DO NOTHING
             """,
             (new_ukpl_uid, list_id_to_add, time.time(), k_uid),
         )
