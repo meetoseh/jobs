@@ -2,9 +2,11 @@
 the database and any data provided.
 """
 import asyncio
+import json
 import secrets
 import time
 from typing import Dict, List, Literal, Optional
+from error_middleware import handle_contextless_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -240,7 +242,7 @@ async def execute(
 
         now = time.time()
         new_ukp_uid = f"oseh_ukp_{secrets.token_urlsafe(16)}"
-        await cursor.execute(
+        response = await cursor.execute(
             """
             INSERT INTO user_klaviyo_profiles (
                 uid, klaviyo_id, user_id, email, phone_number, first_name, last_name, timezone,
@@ -250,6 +252,7 @@ async def execute(
                 ?, ?, users.id, ?, ?, ?, ?, ?, ?, ?, ?
             FROM users
             WHERE users.sub = ?
+            ON CONFLICT (user_id) DO NOTHING
             """,
             (
                 new_ukp_uid,
@@ -265,6 +268,24 @@ async def execute(
                 user_sub,
             ),
         )
+        if response.rows_affected is None or response.rows_affected <= 0:
+            await handle_contextless_error(
+                extra_info="raced creating klaviyo profile for user: "
+                + json.dumps(
+                    {
+                        "user_sub": user_sub,
+                        "email": email,
+                        "phone_number": best_phone_number,
+                        "first_name": given_name,
+                        "last_name": family_name,
+                        "timezone": best_timezone,
+                        "environment": environment,
+                        "klaviyo_id": new_profile_id,
+                    }
+                )
+            )
+            return
+
         await klaviyo.unsuppress_email(email)
 
         for list_id in correct_list_ids:
@@ -288,6 +309,7 @@ async def execute(
                     ?, user_klaviyo_profiles.id, ?, ?
                 FROM user_klaviyo_profiles
                 WHERE user_klaviyo_profiles.uid = ?
+                ON CONFLICT (user_klaviyo_profile_id, list_id) DO NOTHING
                 """,
                 (new_ukpl_uid, list_id, now, new_ukp_uid),
             )
