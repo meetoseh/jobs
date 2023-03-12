@@ -218,6 +218,10 @@ async def execute(
                     environment=environment,
                 )
             except DuplicateProfileError as e:
+                await cursor.execute(
+                    "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
+                    (e.duplicate_profile_id,),
+                )
                 await klaviyo.update_profile(
                     profile_id=e.duplicate_profile_id,
                     phone_number=None,
@@ -310,6 +314,10 @@ async def execute(
                 environment=environment,
             )
         except DuplicateProfileError as e:
+            await cursor.execute(
+                "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
+                (e.duplicate_profile_id,),
+            )
             await klaviyo.update_profile(
                 profile_id=e.duplicate_profile_id,
                 phone_number=None,
