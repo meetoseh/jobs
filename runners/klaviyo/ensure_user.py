@@ -25,6 +25,7 @@ async def execute(
     user_sub: str,
     timezone: Optional[str] = None,
     timezone_technique: Optional[Literal["browser"]] = None,
+    is_outside_flow: bool = False,
 ):
     """Updates the state of the given user in Klaviyo, matching it with the data in
     the database and any data provided.
@@ -39,6 +40,11 @@ async def execute(
         timezone_technique (str, None): If the users timezone is known, must be
             the technique used to determine it (e.g., "browser") and the timezone
             must be specified as well.
+        is_outside_flow (bool): If true, this is not being called on a scheduled
+            basis rather than during the user flow, so if we apply default values
+            it shouldn't result in double-opt-out notifications. This can also be
+            set if we're at the end of the standard flow and thus aren't expecting
+            updates soon.
     """
     if (timezone is None) != (timezone_technique is None):
         raise ValueError(
@@ -158,7 +164,12 @@ async def execute(
     klaviyo = await itgs.klaviyo()
     correct_list_internal_identifiers = [
         "users",
-        *(["sms-morning"] if sms_notification_time in ("any", "morning") else []),
+        *(
+            ["sms-morning"]
+            if sms_notification_time == "morning"
+            or (is_outside_flow and sms_notification_time == "any")
+            else []
+        ),
         *(["sms-afternoon"] if sms_notification_time == "afternoon" else []),
         *(["sms-evening"] if sms_notification_time == "evening" else []),
     ]
