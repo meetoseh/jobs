@@ -325,6 +325,31 @@ async def execute(
                 environment=environment,
             )
 
+        await cursor.execute(
+            """
+            UPDATE user_klaviyo_profiles
+            SET
+                email = ?,
+                phone_number = ?,
+                first_name = ?,
+                last_name = ?,
+                timezone = ?,
+                environment = ?,
+                updated_at = ?
+            WHERE user_klaviyo_profiles.uid = ?
+            """,
+            (
+                email,
+                best_phone_number,
+                given_name,
+                family_name,
+                best_timezone,
+                environment,
+                time.time(),
+                k_uid,
+            ),
+        )
+
     if k_email != email:
         await klaviyo.unsuppress_email(email)
         await klaviyo.suppress_email(k_email)
