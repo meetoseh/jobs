@@ -28,15 +28,19 @@ def unix_timestamp_to_unix_date(
     Returns:
         int: The unix date
     """
-    return int(
-        (
-            unix_time
-            + tz.utcoffset(
-                datetime.datetime.utcfromtimestamp(unix_time)
-            ).total_seconds()
-        )
-        // 86400
-    )
+
+    try:
+        time_offset = tz.utcoffset(
+            datetime.datetime.utcfromtimestamp(unix_time)
+        ).total_seconds()
+    except pytz.exceptions.NonExistentTimeError:
+        # that exactly falls on a skipped hour due to daylight savings; we want to use the offset
+        # prior to the skipped hour
+        time_offset = tz.utcoffset(
+            datetime.datetime.utcfromtimestamp(unix_time) - 2 * 60 * 60
+        ).total_seconds()
+
+        return int((unix_time + time_offset) // 86400)
 
 
 def unix_timestamp_to_unix_month(

@@ -11,6 +11,7 @@ import slack
 import jobs
 import file_service
 import revenue_cat
+import klaviyo
 import asyncio
 import importlib
 import twilio.rest
@@ -62,6 +63,9 @@ class Itgs:
 
         self._twilio: Optional[twilio.rest.Client] = None
         """the twilio connection if it had been opened"""
+
+        self._klaviyo: Optional[klaviyo.Klaviyo] = None
+        """the klaviyo connection if it had been opened"""
 
         self._closures: List[Callable[["Itgs"], Coroutine]] = []
         """functions to run on __aexit__ to cleanup opened resources"""
@@ -263,6 +267,29 @@ class Itgs:
             self._twilio = tw
 
         return self._twilio
+
+    async def klaviyo(self) -> klaviyo.Klaviyo:
+        """gets or creates the klaviyo connection"""
+        if self._klaviyo is not None:
+            return self._klaviyo
+
+        async with self._lock:
+            if self._klaviyo is not None:
+                return self._klaviyo
+
+            api_key = os.environ["OSEH_KLAVIYO_API_KEY"]
+
+            kl = klaviyo.Klaviyo(api_key)
+            await kl.__aenter__()
+
+            async def cleanup(me: "Itgs") -> None:
+                await me._klaviyo.__aexit__(None, None, None)
+                me._klaviyo = None
+
+            self._closures.append(cleanup)
+            self._klaviyo = kl
+
+        return self._klaviyo
 
 
 def get_job_category(name: str) -> jobs.JobCategory:

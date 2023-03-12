@@ -1,4 +1,4 @@
-from itgs import Itgs
+import io
 import traceback
 import logging
 from typing import Dict, Optional
@@ -6,6 +6,7 @@ from collections import deque
 import time
 import os
 import socket
+import logging as logger
 
 
 async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> None:
@@ -20,9 +21,37 @@ async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> N
     if extra_info is not None:
         message += f"\n\n{extra_info}"
 
+    from itgs import Itgs
+
     async with Itgs() as itgs:
         slack = await itgs.slack()
         await slack.send_web_error_message(message, "an error occurred in jobs")
+
+
+async def handle_contextless_error(*, extra_info: Optional[str] = None) -> None:
+    """Handles an error that was found programmatically, i.e., which didn't cause an
+    actual exception object to be raised. This will produce a stack trace and include
+    the extra information.
+    """
+    full_exc = io.StringIO()
+    full_exc.write(f"{extra_info=}\n")
+    traceback.print_stack(file=full_exc)
+    logger.error(full_exc.getvalue())
+
+    current_traceback = traceback.extract_stack()[-5:]
+    message = "\n".join(traceback.format_list(current_traceback))
+    message = f"{socket.gethostname()}\n\n```\n{message}\n```"
+
+    if extra_info is not None:
+        message += f"\n\n{extra_info}"
+
+    from itgs import Itgs
+
+    async with Itgs() as itgs:
+        slack = await itgs.slack()
+        await slack.send_web_error_message(
+            message, "a contextless error occurred in jobs"
+        )
 
 
 RECENT_WARNINGS: Dict[str, deque] = dict()  # deque[float] is not available on prod
@@ -65,6 +94,8 @@ async def handle_warning(
 
     recent_warnings.append(now)
     total_warnings = len(recent_warnings)
+
+    from itgs import Itgs
 
     async with Itgs() as itgs:
         slack = await itgs.slack()
