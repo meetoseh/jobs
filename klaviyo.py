@@ -1,10 +1,11 @@
 import json
-from typing import List, Literal, Optional
+from typing import AsyncIterator, List, Literal, Optional
 import os
 import aiohttp
 from urllib.parse import urlencode
-
 from error_middleware import handle_contextless_error
+from dataclasses import dataclass
+import asyncio
 
 
 class DuplicateProfileError(Exception):
@@ -14,6 +15,15 @@ class DuplicateProfileError(Exception):
             + duplicate_profile_id
         )
         self.duplicate_profile_id = duplicate_profile_id
+
+
+@dataclass
+class ProfileListsResponse:
+    items: List[str]
+    """The list ids on this page of results"""
+
+    next_uri: Optional[str]
+    """If there are more results, the uri to use to fetch them"""
 
 
 class Klaviyo:
@@ -458,3 +468,65 @@ class Klaviyo:
                     extra_info=f"body: ```\n{json.dumps(body)}\n```\nresponse:\n\n```\n{data}\n```"
                 )
             response.raise_for_status()
+
+    async def get_profile_lists(
+        self, *, profile_id: str, uri: Optional[str] = None
+    ) -> ProfileListsResponse:
+        """Gets the lists that the profile with the given id belongs to.
+
+        Args:
+            profile_id (str): The profile id to get lists for
+            uri (str, None): If specified, should be the next_uri of a previous response.
+                This is used for pagination.
+
+        Returns:
+            ProfileListsResponse: The profile ids and pagination info
+        """
+        request_uri = uri or (
+            f"https://a.klaviyo.com/api/profiles/{profile_id}/lists/?"
+            + urlencode({"fields[list]": "id"})
+        )
+        async with self.session.get(
+            uri,
+            headers={
+                "Authorization": f"Klaviyo-API-Key {self.api_key}",
+                "Accept": "application/json",
+                "revision": "2023-02-22",
+            },
+        ) as response:
+            data = await response.text()
+            if not response.ok:
+                await handle_contextless_error(
+                    extra_info=f"{request_uri=} response:\n\n```\n{data}\n```"
+                )
+            response.raise_for_status()
+
+            data_parsed: dict = json.loads(data)
+            list_ids = [list_data["id"] for list_data in data_parsed["data"]]
+            next_uri = data_parsed.get("links", {}).get("next", None)
+
+            return ProfileListsResponse(list_ids=list_ids, next_uri=next_uri)
+
+    async def get_profile_lists_auto_paginated(
+        self, *, profile_id: str
+    ) -> AsyncIterator[str]:
+        """Gets the list ids that the profile with the given id belongs to,
+        automatically paginating through all results. Sleeps 1 seconds between
+        requests, does not sleep before the first request or after the last
+        request.
+
+        Args:
+            profile_id (str): The profile id to get lists for
+
+        Returns:
+            AsyncIterator[str]: The list ids
+        """
+        next_uri = None
+        while True:
+            response = await self.get_profile_lists(profile_id=profile_id, uri=next_uri)
+            for id in response.items:
+                yield id
+            next_uri = response.next_uri
+            if next_uri is None:
+                break
+            await asyncio.sleep(1)
