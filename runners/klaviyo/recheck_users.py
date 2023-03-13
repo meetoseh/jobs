@@ -66,6 +66,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     last_list_id: str = None
 
     current_klaviyo_profile_id: Optional[str] = None
+    current_email: Optional[str] = None
     current_klaviyo_profile_actual_list_ids: Optional[Set[str]] = None
     current_klaviyo_profile_db_list_ids: Optional[Set[str]] = None
 
@@ -120,18 +121,19 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         if list_id_they_shouldnt_be_on not in list_ids_we_consider:
                             continue
                         logging.info(
-                            f"Removing {email=} ({klaviyo_profile_id=}, {phone_number=}) from {list_id_they_shouldnt_be_on=}"
+                            f"Removing {current_email=} ({current_klaviyo_profile_id=}) from {list_id_they_shouldnt_be_on=}"
                         )
                         await klaviyo.remove_from_list(
-                            profile_id=klaviyo_profile_id,
+                            profile_id=current_klaviyo_profile_id,
                             list_id=list_id_they_shouldnt_be_on,
                         )
                         await slack.send_web_error_message(
-                            f"User {email=} ({phone_number=}) ({klaviyo_profile_id=}) was subscribed to {list_id_they_shouldnt_be_on=}, but they shouldn't be: successfully unsubscribed"
+                            f"User {current_email=} ({current_klaviyo_profile_id=}) was subscribed to {list_id_they_shouldnt_be_on=}, but they shouldn't be: successfully unsubscribed"
                         )
                         await asyncio.sleep(1)
 
                 current_klaviyo_profile_id = klaviyo_profile_id
+                current_email = email
                 current_klaviyo_profile_actual_list_ids = set()
                 current_klaviyo_profile_db_list_ids = set()
                 async for list_id in klaviyo.get_profile_lists_auto_paginated(
