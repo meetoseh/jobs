@@ -127,7 +127,6 @@ if __name__ == "__main__":
             await jobs.enqueue(
                 "runners.revenue_cat.ensure_user",
                 user_sub=user_sub,
-                is_outside_flow=True,
             )
 
     asyncio.run(main())
