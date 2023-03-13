@@ -31,6 +31,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     for internal_id in ["sms-morning", "sms-afternoon", "sms-evening"]:
         sms_list_ids.add(await klaviyo.list_id(internal_id))
 
+    list_ids_we_consider = sms_list_ids + set([await klaviyo.list_id("users")])
+
     last_klaviyo_profile_id: str = None
     last_list_id: str = None
 
@@ -86,6 +88,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     for (
                         list_id_they_shouldnt_be_on
                     ) in list_ids_they_are_on_but_shouldnt_be:
+                        if list_id_they_should_be_on not in list_ids_we_consider:
+                            continue
                         logging.info(
                             f"Removing {email=} ({klaviyo_profile_id=}, {phone_number=}) from {list_id_they_shouldnt_be_on=}"
                         )
