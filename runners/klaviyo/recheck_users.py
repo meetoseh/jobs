@@ -31,7 +31,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     for internal_id in ["sms-morning", "sms-afternoon", "sms-evening"]:
         sms_list_ids.add(await klaviyo.list_id(internal_id))
 
-    list_ids_we_consider = sms_list_ids + set([await klaviyo.list_id("users")])
+    list_ids_we_consider = set(sms_list_ids)
+    list_ids_we_consider.add(await klaviyo.list_id("users"))
 
     last_klaviyo_profile_id: str = None
     last_list_id: str = None
