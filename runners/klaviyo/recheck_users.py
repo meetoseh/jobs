@@ -6,7 +6,7 @@ from typing import Optional, Set
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
-
+from runners.klaviyo.ensure_user import execute as ensure_user
 from jobs import JobCategory
 
 category = JobCategory.HIGH_RESOURCE_COST
@@ -25,6 +25,34 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     cursor = conn.cursor("none")
 
     slack = await itgs.slack()
+
+    # use ensure_user for users missing a klaviyo profile who have taken
+    # a session since the start of the second beta
+    response = await cursor.execute(
+        """
+        SELECT users.sub FROM users, user_notification_settings
+        WHERE
+            users.id = user_notification_settings.user_id
+            AND user_notification_settings.daily_event_enabled = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM user_klaviyo_profiles
+                WHERE user_klaviyo_profiles.user_id = users.id
+            )
+            AND EXISTS (
+                SELECT 1 FROM interactive_prompt_sessions, interactive_prompt_events
+                WHERE interactive_prompt_sessions.user_id = users.id
+                  AND interactive_prompt_events.interactive_prompt_session_id = interactive_prompt_sessions.id
+                  AND interactive_prompt_events.created_at > 1678608000
+            )
+        """,
+    )
+    for row in response.results:
+        await slack.send_web_error_message(
+            f"calling ensure_user for {row[0]} because of a missing profile"
+        )
+        await ensure_user(itgs, gd, user_sub=row[0])
+        await asyncio.sleep(1)
+
     klaviyo = await itgs.klaviyo()
 
     sms_list_ids: Set[str] = set()
