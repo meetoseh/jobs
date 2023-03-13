@@ -402,10 +402,9 @@ async def execute(
     correct_list_ids_set = set(correct_list_ids)
 
     for list_id_to_remove in current_list_ids_set - correct_list_ids_set:
-        await klaviyo.unsubscribe_from_list(
+        await klaviyo.remove_from_list(
             list_id=list_id_to_remove,
-            emails=[email, k_email],
-            phone_numbers=[best_phone_number, k_phone_number],
+            profile_id=k_klaviyo_id,
         )
         await cursor.execute(
             """

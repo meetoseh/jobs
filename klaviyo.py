@@ -142,7 +142,13 @@ class Klaviyo:
         phone_numbers: List[Optional[str]],
         list_id: str,
     ) -> None:
-        """Unsubscribes the given email from the given klaviyo list
+        """Unsubscribes the given emails and phone numbers from receiving any emails/
+        sms marketing, and then removes them from the given list.
+
+        This is almost never intended and is left for discoverability only. For
+        removing a profile from a list, use remove_from_list. To prevent a profile
+        from receiving any emails, use suppress_email. To prevent a profile from
+        receiving any sms messages, use suppress_sms.
 
         Args:
             emails (list[str, None]): The email addresses to unsubscribe. Nones are
@@ -151,29 +157,23 @@ class Klaviyo:
                 filtered out and duplicates are removed.
             list_id (str): The list id to unsubscribe from
         """
-        emails = list(set([email for email in emails if email is not None]))
-        phone_numbers = list(
-            set(
-                [
-                    phone_number
-                    for phone_number in phone_numbers
-                    if phone_number is not None
-                ]
-            )
+        raise NotImplementedError(
+            "Use remove from list instead or suppress as appropriate"
         )
-        if not emails and not phone_numbers:
-            return
 
+    async def remove_from_list(self, *, profile_id: str, list_id: str) -> None:
+        """Removes the given profile from the given list, without unsubscribing them
+        from receiving any emails/sms marketing on other lists.
+
+        Args:
+            profile_id (str): The profile id to remove from the list
+            list_id (str): The list id to remove the profile from
+        """
         async with self.session.post(
-            "https://a.klaviyo.com/api/profile-unsubscription-bulk-create-jobs/",
+            f"https://a.klaviyo.com/api/lists/{list_id}/relationships/{profile_id}/",
             json={
                 "data": {
-                    "type": "profile-unsubscription-bulk-create-job",
-                    "attributes": {
-                        "list_id": list_id,
-                        "emails": emails,
-                        "phone_numbers": phone_numbers,
-                    },
+                    "type": "profile",
                 }
             },
             headers={

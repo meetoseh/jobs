@@ -94,9 +94,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         logging.info(
                             f"Removing {email=} ({klaviyo_profile_id=}, {phone_number=}) from {list_id_they_shouldnt_be_on=}"
                         )
-                        await klaviyo.unsubscribe_from_list(
-                            emails=[email],
-                            phone_numbers=[phone_number],
+                        await klaviyo.remove_from_list(
+                            profile_id=klaviyo_profile_id,
                             list_id=list_id_they_shouldnt_be_on,
                         )
                         await slack.send_web_error_message(
