@@ -114,3 +114,20 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
             f"{socket.gethostname()} granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})",
             preview=f"Oseh+ given to {name}",
         )
+
+
+if __name__ == "__main__":
+
+    import asyncio
+
+    async def main():
+        user_sub = input("User sub: ")
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.revenue_cat.ensure_user",
+                user_sub=user_sub,
+                is_outside_flow=True,
+            )
+
+    asyncio.run(main())
