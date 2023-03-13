@@ -75,7 +75,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 current_klaviyo_profile_id = klaviyo_profile_id
                 current_klaviyo_profile_actual_list_ids = set()
                 async for list_id in klaviyo.get_profile_lists_auto_paginated(
-                    klaviyo_profile_id
+                    profile_id=klaviyo_profile_id
                 ):
                     current_klaviyo_profile_actual_list_ids.add(list_id)
                 await asyncio.sleep(1)
