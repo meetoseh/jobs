@@ -46,7 +46,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             )
         """,
     )
-    for row in response.results:
+    for row in response.results or []:
         await slack.send_web_error_message(
             f"calling ensure_user for {row[0]} because of a missing profile"
         )
