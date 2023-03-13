@@ -36,6 +36,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
     current_klaviyo_profile_id: Optional[str] = None
     current_klaviyo_profile_actual_list_ids: Optional[Set[str]] = None
+    current_klaviyo_profile_db_list_ids: Optional[Set[str]] = None
 
     while True:
         response = await cursor.execute(
@@ -77,8 +78,30 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             list_id_they_should_be_on,
         ) in response.results:
             if klaviyo_profile_id != current_klaviyo_profile_id:
+                if current_klaviyo_profile_id is not None:
+                    list_ids_they_are_on_but_shouldnt_be = (
+                        current_klaviyo_profile_actual_list_ids
+                        - current_klaviyo_profile_db_list_ids
+                    )
+                    for (
+                        list_id_they_shouldnt_be_on
+                    ) in list_ids_they_are_on_but_shouldnt_be:
+                        logging.info(
+                            f"Removing {email=} ({klaviyo_profile_id=}, {phone_number=}) from {list_id_they_shouldnt_be_on=}"
+                        )
+                        await klaviyo.unsubscribe_from_list(
+                            emails=[email],
+                            phone_numbers=[phone_number],
+                            list_id=list_id_they_shouldnt_be_on,
+                        )
+                        await slack.send_web_error_message(
+                            f"User {email=} ({phone_number=}) ({klaviyo_profile_id=}) was subscribed to {list_id_they_shouldnt_be_on=}, but they shouldn't be: successfully unsubscribed"
+                        )
+                        await asyncio.sleep(1)
+
                 current_klaviyo_profile_id = klaviyo_profile_id
                 current_klaviyo_profile_actual_list_ids = set()
+                current_klaviyo_profile_db_list_ids = set()
                 async for list_id in klaviyo.get_profile_lists_auto_paginated(
                     profile_id=klaviyo_profile_id
                 ):
@@ -93,6 +116,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             )
                             await asyncio.sleep(1)
 
+            current_klaviyo_profile_db_list_ids.add(list_id_they_should_be_on)
             if list_id_they_should_be_on not in current_klaviyo_profile_actual_list_ids:
                 if list_id_they_should_be_on in sms_list_ids:
                     if phone_number is None:
