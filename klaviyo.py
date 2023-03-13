@@ -505,7 +505,7 @@ class Klaviyo:
             list_ids = [list_data["id"] for list_data in data_parsed["data"]]
             next_uri = data_parsed.get("links", {}).get("next", None)
 
-            return ProfileListsResponse(list_ids=list_ids, next_uri=next_uri)
+            return ProfileListsResponse(items=list_ids, next_uri=next_uri)
 
     async def get_profile_lists_auto_paginated(
         self, *, profile_id: str
