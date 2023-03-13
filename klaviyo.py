@@ -487,7 +487,7 @@ class Klaviyo:
             + urlencode({"fields[list]": "id"})
         )
         async with self.session.get(
-            uri,
+            request_uri,
             headers={
                 "Authorization": f"Klaviyo-API-Key {self.api_key}",
                 "Accept": "application/json",
