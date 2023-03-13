@@ -201,6 +201,9 @@ async def execute(
             ),
         ]
     )
+    dont_remove_list_ids = set(
+        [await klaviyo.list_id(i) for i in dont_remove_internal_ids]
+    )
 
     correct_list_ids: List[str] = [
         (await klaviyo.list_id(i)) for i in correct_list_internal_identifiers
@@ -429,8 +432,7 @@ async def execute(
     correct_list_ids_set = set(correct_list_ids)
 
     for list_id_to_remove in current_list_ids_set - correct_list_ids_set:
-        internal_id_to_remove = list_id_to_internal_identifier[list_id_to_remove]
-        if internal_id_to_remove in dont_remove_internal_ids:
+        if list_id_to_remove in dont_remove_list_ids:
             continue
 
         await klaviyo.remove_from_list(
