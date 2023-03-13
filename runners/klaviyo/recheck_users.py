@@ -31,7 +31,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     for internal_id in ["sms-morning", "sms-afternoon", "sms-evening"]:
         sms_list_ids.add(await klaviyo.list_id(internal_id))
 
-    last_klaviyo_profide_id: str = None
+    last_klaviyo_profile_id: str = None
     last_list_id: str = None
 
     current_klaviyo_profile_id: Optional[str] = None
@@ -59,9 +59,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             LIMIT 50
             """,
             (
-                last_klaviyo_profide_id,
-                last_klaviyo_profide_id,
-                last_klaviyo_profide_id,
+                last_klaviyo_profile_id,
+                last_klaviyo_profile_id,
+                last_klaviyo_profile_id,
                 last_list_id,
             ),
         )
@@ -70,7 +70,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             await slack.send_ops_message("Finished syncing klaviyo profiles")
             return
 
-        for klaviyo_profile_id, email, phone_number, list_id in response.results:
+        for (
+            klaviyo_profile_id,
+            email,
+            phone_number,
+            list_id_they_should_be_on,
+        ) in response.results:
             if klaviyo_profile_id != current_klaviyo_profile_id:
                 current_klaviyo_profile_id = klaviyo_profile_id
                 current_klaviyo_profile_actual_list_ids = set()
@@ -88,40 +93,45 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             )
                             await asyncio.sleep(1)
 
-            if list_id not in current_klaviyo_profile_actual_list_ids:
-                if list_id in sms_list_ids:
+            if list_id_they_should_be_on not in current_klaviyo_profile_actual_list_ids:
+                if list_id_they_should_be_on in sms_list_ids:
                     if phone_number is None:
                         await slack.send_web_error_message(
-                            f"User {email=} ({klaviyo_profile_id=}) is not subscribed to {list_id=}, which is for sms, but we think they should be despite no phone number?"
+                            f"User {email=} ({klaviyo_profile_id=}) is not subscribed to {list_id_they_should_be_on=}, which is for sms, but we think they should be despite no phone number?"
                         )
                         await asyncio.sleep(1)
                         continue
 
-                    logging.info(f"Adding {phone_number} to list {list_id}")
+                    logging.info(
+                        f"Adding {phone_number} to list {list_id_they_should_be_on}"
+                    )
                     await klaviyo.subscribe_profile_to_list(
                         profile_id=current_klaviyo_profile_id,
                         email=None,
                         phone_number=phone_number,
-                        list_id=list_id,
+                        list_id=list_id_they_should_be_on,
                     )
                     await slack.send_web_error_message(
-                        f"User {email=} ({phone_number=}) ({klaviyo_profile_id=}) was supposed to be subscribed to {list_id=} "
+                        f"User {email=} ({phone_number=}) ({klaviyo_profile_id=}) was supposed to be subscribed to {list_id_they_should_be_on=} "
                         "(for sms) but they weren't; added them successfully"
                     )
                     await asyncio.sleep(1)
                 else:
-                    logging.info(f"Adding {email} to list {list_id}")
+                    logging.info(f"Adding {email} to list {list_id_they_should_be_on}")
                     await klaviyo.subscribe_profile_to_list(
                         profile_id=current_klaviyo_profile_id,
                         email=email,
                         phone_number=None,
-                        list_id=list_id,
+                        list_id=list_id_they_should_be_on,
                     )
                     await slack.send_web_error_message(
-                        f"User {email=} ({klaviyo_profile_id=}) was supposed to be subscribed to {list_id=} "
+                        f"User {email=} ({klaviyo_profile_id=}) was supposed to be subscribed to {list_id_they_should_be_on=} "
                         "(for email) but they weren't; added them successfully"
                     )
                     await asyncio.sleep(1)
+
+        last_klaviyo_profile_id = response.results[-1][0]
+        last_list_id = response.results[-1][3]
 
 
 if __name__ == "__main__":
