@@ -15,7 +15,7 @@ import os
 from jobs import JobCategory
 from klaviyo import DuplicateProfileError
 
-category = JobCategory.LOW_RESOURCE_COST
+category = JobCategory.HIGH_RESOURCE_COST
 """The category of the job; used to determine which instances can run this job.
 """
 
