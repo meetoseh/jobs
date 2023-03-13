@@ -169,13 +169,9 @@ class Klaviyo:
             profile_id (str): The profile id to remove from the list
             list_id (str): The list id to remove the profile from
         """
-        async with self.session.post(
-            f"https://a.klaviyo.com/api/lists/{list_id}/relationships/{profile_id}/",
-            json={
-                "data": {
-                    "type": "profile",
-                }
-            },
+        async with self.session.delete(
+            f"https://a.klaviyo.com/api/lists/{list_id}/relationships/profiles/",
+            json={"data": {"type": "profile", "id": profile_id}},
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Klaviyo-API-Key {self.api_key}",
