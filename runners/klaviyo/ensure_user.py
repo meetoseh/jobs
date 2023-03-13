@@ -74,7 +74,8 @@ async def execute(
             user_klaviyo_profiles.last_name,
             user_klaviyo_profiles.timezone,
             user_klaviyo_profiles.environment,
-            user_klaviyo_profiles.klaviyo_id
+            user_klaviyo_profiles.klaviyo_id,
+            user_notification_settings.daily_event_enabled
         FROM users
         LEFT OUTER JOIN user_notification_settings ON (
             user_notification_settings.user_id = users.id
@@ -137,6 +138,9 @@ async def execute(
     k_timezone: Optional[str] = response.results[0][13]
     k_environment: Optional[str] = response.results[0][14]
     k_klaviyo_id: Optional[str] = response.results[0][15]
+    uns_daily_event_enabled: Optional[bool] = (
+        bool(response.results[0][16]) if response.results[0][16] is not None else None
+    )
 
     k_list_ids: list[str] = []
     if k_uid is not None:
@@ -168,18 +172,29 @@ async def execute(
         "users",
         *(
             ["sms-morning"]
-            if sms_notification_time == "morning"
+            if uns_daily_event_enabled
+            and sms_notification_time == "morning"
             or (is_outside_flow and sms_notification_time == "any")
             else []
         ),
-        *(["sms-afternoon"] if sms_notification_time == "afternoon" else []),
-        *(["sms-evening"] if sms_notification_time == "evening" else []),
+        *(
+            ["sms-afternoon"]
+            if uns_daily_event_enabled and sms_notification_time == "afternoon"
+            else []
+        ),
+        *(
+            ["sms-evening"]
+            if uns_daily_event_enabled and sms_notification_time == "evening"
+            else []
+        ),
     ]
     dont_remove_internal_ids = set(
         [
             *(
                 ["sms-morning"]
-                if sms_notification_time == "any" and is_outside_flow
+                if uns_daily_event_enabled
+                and sms_notification_time == "any"
+                and is_outside_flow
                 else []
             ),
         ]
