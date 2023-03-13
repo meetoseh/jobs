@@ -173,8 +173,10 @@ async def execute(
         *(
             ["sms-morning"]
             if uns_daily_event_enabled
-            and sms_notification_time == "morning"
-            or (is_outside_flow and sms_notification_time == "any")
+            and (
+                sms_notification_time == "morning"
+                or (is_outside_flow and sms_notification_time == "any")
+            )
             else []
         ),
         *(
