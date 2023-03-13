@@ -129,7 +129,7 @@ if __name__ == "__main__":
     async def main():
         async with Itgs() as itgs:
             jobs = await itgs.jobs()
-            jobs.enqueue("runners.klaviyo.recheck_users")
+            await jobs.enqueue("runners.klaviyo.recheck_users")
             print("job queued successfully")
 
     asyncio.run(main())

@@ -175,12 +175,9 @@ async def execute(
         *(["sms-afternoon"] if sms_notification_time == "afternoon" else []),
         *(["sms-evening"] if sms_notification_time == "evening" else []),
     ]
-    correct_list_ids: List[str] = await asyncio.gather(
-        *[
-            klaviyo.list_id(internal_identifier)
-            for internal_identifier in correct_list_internal_identifiers
-        ]
-    )
+    correct_list_ids: List[str] = [
+        (await klaviyo.list_id(i)) for i in correct_list_internal_identifiers
+    ]
     list_id_to_internal_identifier: Dict[str, str] = dict(
         (v, k) for k, v in zip(correct_list_internal_identifiers, correct_list_ids)
     )
@@ -195,8 +192,10 @@ async def execute(
             timezone=best_timezone,
             environment=environment,
         )
+        await asyncio.sleep(1)
         if new_profile_id is None:
             new_profile_id = await klaviyo.get_profile_id(email=email)
+            await asyncio.sleep(1)
             if new_profile_id is None:
                 # the conflict was another account with that phone; we can handle
                 # that in a moment
@@ -209,6 +208,7 @@ async def execute(
                     timezone=best_timezone,
                     environment=environment,
                 )
+                await asyncio.sleep(1)
 
             try:
                 await klaviyo.update_profile(
@@ -219,18 +219,22 @@ async def execute(
                     timezone=best_timezone,
                     environment=environment,
                 )
+                await asyncio.sleep(1)
             except DuplicateProfileError as e:
-                await cursor.execute(
-                    "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
-                    (e.duplicate_profile_id,),
-                )
+                await asyncio.sleep(1)
                 await klaviyo.update_profile(
                     profile_id=e.duplicate_profile_id,
                     phone_number=None,
                 )
+                await cursor.execute(
+                    "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
+                    (e.duplicate_profile_id,),
+                )
+                await asyncio.sleep(1)
                 await klaviyo.update_profile(
                     profile_id=new_profile_id, phone_number=None
                 )
+                await asyncio.sleep(1)
                 await klaviyo.update_profile(
                     profile_id=new_profile_id,
                     phone_number=best_phone_number,
@@ -239,6 +243,7 @@ async def execute(
                     timezone=best_timezone,
                     environment=environment,
                 )
+                await asyncio.sleep(1)
 
         now = time.time()
         new_ukp_uid = f"oseh_ukp_{secrets.token_urlsafe(16)}"
@@ -288,6 +293,7 @@ async def execute(
             return
 
         await klaviyo.unsuppress_email(email)
+        await asyncio.sleep(1)
 
         for list_id in correct_list_ids:
             internal_id = list_id_to_internal_identifier[list_id]
@@ -314,6 +320,7 @@ async def execute(
                 """,
                 (new_ukpl_uid, list_id, now, new_ukp_uid),
             )
+            await asyncio.sleep(1)
 
         return
 
@@ -336,15 +343,18 @@ async def execute(
                 timezone=best_timezone,
                 environment=environment,
             )
+            await asyncio.sleep(1)
         except DuplicateProfileError as e:
-            await cursor.execute(
-                "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
-                (e.duplicate_profile_id,),
-            )
+            await asyncio.sleep(1)
             await klaviyo.update_profile(
                 profile_id=e.duplicate_profile_id,
                 phone_number=None,
             )
+            await cursor.execute(
+                "UPDATE user_klaviyo_profiles SET phone_number = NULL WHERE klaviyo_id = ?",
+                (e.duplicate_profile_id,),
+            )
+            await asyncio.sleep(1)
             await klaviyo.update_profile(
                 profile_id=k_klaviyo_id,
                 email=email,
@@ -355,6 +365,7 @@ async def execute(
                 timezone=best_timezone,
                 environment=environment,
             )
+            await asyncio.sleep(1)
 
         await cursor.execute(
             """
@@ -383,7 +394,9 @@ async def execute(
 
     if k_email != email:
         await klaviyo.unsuppress_email(email)
+        await asyncio.sleep(1)
         await klaviyo.suppress_email(k_email)
+        await asyncio.sleep(1)
 
     current_list_ids_set = set(k_list_ids)
     correct_list_ids_set = set(correct_list_ids)
@@ -407,11 +420,16 @@ async def execute(
             """,
             (k_uid, list_id_to_remove),
         )
+        await asyncio.sleep(1)
 
     for list_id_to_add in correct_list_ids_set - current_list_ids_set:
         internal_id = list_id_to_internal_identifier[list_id_to_add]
         is_sms_list = internal_id.startswith("sms-")
         if is_sms_list and best_phone_number is None:
+            slack = await itgs.slack()
+            await slack.send_web_error_message(
+                f"ensure_user has {list_id_to_add=} for {email=} but {is_sms_list=} and {best_phone_number=}."
+            )
             continue
         await klaviyo.subscribe_profile_to_list(
             profile_id=k_klaviyo_id,
@@ -433,3 +451,4 @@ async def execute(
             """,
             (new_ukpl_uid, list_id_to_add, time.time(), k_uid),
         )
+        await asyncio.sleep(1)
