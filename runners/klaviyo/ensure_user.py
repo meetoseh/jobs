@@ -482,3 +482,16 @@ async def execute(
             (new_ukpl_uid, list_id_to_add, time.time(), k_uid),
         )
         await asyncio.sleep(1)
+
+
+if __name__ == "__main__":
+
+    async def main():
+        user_sub = input("User sub: ")
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.klaviyo.ensure_user", user_sub=user_sub, is_outside_flow=True
+            )
+
+    asyncio.run(main())
