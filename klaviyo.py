@@ -480,7 +480,7 @@ class Klaviyo:
             }
         }
         async with self.session.post(
-            f"https://a.klaviyo.com/api/lists/{list_id}/profiles/",
+            f"https://a.klaviyo.com/api/lists/{list_id}/relationships/profiles/",
             json=body,
             headers={
                 "Content-Type": "application/json",

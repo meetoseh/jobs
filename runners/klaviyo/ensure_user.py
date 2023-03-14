@@ -336,6 +336,11 @@ async def execute(
                 email=email if not is_sms_list else None,
                 phone_number=best_phone_number if is_sms_list else None,
             )
+            await asyncio.sleep(1)
+            await klaviyo.add_profile_to_list(
+                profile_id=new_profile_id,
+                list_id=list_id,
+            )
             new_ukpl_uid = f"oseh_ukpl_{secrets.token_urlsafe(16)}"
             await cursor.execute(
                 """
