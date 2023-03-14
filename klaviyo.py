@@ -416,7 +416,7 @@ class Klaviyo:
         phone_number: Optional[str],
         list_id: str,
     ) -> None:
-        """Subscribes the given profile to the given list
+        """Subscribes the given profile to marketing and then adds them to the given list
 
         Args:
             profile_id (str): The profile id to subscribe; this is only used on
@@ -464,6 +464,39 @@ class Klaviyo:
                     extra_info=f"body: ```\n{json.dumps(body)}\n```\nresponse:\n\n```\n{data}\n```"
                 )
             response.raise_for_status()
+
+    async def add_profile_to_list(self, *, profile_id: str, list_id: str) -> None:
+        """Adds the given profile to the given list without changing their subscription
+        status.
+
+        Args:
+            profile_id (str): The profile id to add to the list
+            list_id (str): The list id to add the profile to
+        """
+        body = {
+            "data": {
+                "type": "profile",
+                "id": profile_id,
+            }
+        }
+        async with self.session.post(
+            f"https://a.klaviyo.com/api/lists/{list_id}/profiles/",
+            json=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Klaviyo-API-Key {self.api_key}",
+                "revision": "2023-02-22",
+            },
+        ) as response:
+            if not response.ok:
+                data = await response.text()
+                await handle_contextless_error(
+                    extra_info=f"body: ```\n{json.dumps(body)}\n```\nresponse:\n\n```\n{data}\n```"
+                )
+
+            if response.status != 409:
+                response.raise_for_status()
 
     async def get_profile_lists(
         self, *, profile_id: str, uri: Optional[str] = None

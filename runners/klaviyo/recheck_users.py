@@ -169,6 +169,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         phone_number=phone_number,
                         list_id=list_id_they_should_be_on,
                     )
+                    await asyncio.sleep(1)
+                    await klaviyo.add_profile_to_list(
+                        profile_id=current_klaviyo_profile_id,
+                        list_id=list_id_they_should_be_on,
+                    )
                     await slack.send_web_error_message(
                         f"User {email=} ({phone_number=}) ({klaviyo_profile_id=}) was supposed to be subscribed to {list_id_they_should_be_on=} "
                         "(for sms) but they weren't; added them successfully"
@@ -180,6 +185,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         profile_id=current_klaviyo_profile_id,
                         email=email,
                         phone_number=None,
+                        list_id=list_id_they_should_be_on,
+                    )
+                    await asyncio.sleep(1)
+                    await klaviyo.add_profile_to_list(
+                        profile_id=current_klaviyo_profile_id,
                         list_id=list_id_they_should_be_on,
                     )
                     await slack.send_web_error_message(

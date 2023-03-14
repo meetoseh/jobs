@@ -351,6 +351,11 @@ async def execute(
                 (new_ukpl_uid, list_id, now, new_ukp_uid),
             )
             await asyncio.sleep(1)
+            await klaviyo.add_profile_to_list(
+                profile_id=new_profile_id,
+                list_id=list_id,
+            )
+            await asyncio.sleep(1)
 
         return
 
