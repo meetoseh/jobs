@@ -5,11 +5,15 @@ import asyncio
 import json
 import secrets
 import time
+from pydantic import BaseModel, Field
 from typing import Dict, List, Literal, Optional
 from error_middleware import handle_contextless_error
+from redis.exceptions import NoScriptError
 from itgs import Itgs
 from graceful_death import GracefulDeath
+import hashlib
 import logging
+import socket
 import os
 
 from jobs import JobCategory
@@ -28,6 +32,7 @@ async def execute(
     timezone: Optional[str] = None,
     timezone_technique: Optional[Literal["browser"]] = None,
     is_outside_flow: bool = False,
+    is_bounce: bool = False,
 ):
     """Updates the state of the given user in Klaviyo, matching it with the data in
     the database and any data provided.
@@ -47,7 +52,325 @@ async def execute(
             it shouldn't result in double-opt-out notifications. This can also be
             set if we're at the end of the standard flow and thus aren't expecting
             updates soon.
+        is_bounce (bool): If true, this is not an actual request to do anything,
+            but rather an implementation detail of how ensure_user works; specifically,
+            this is a job to check the queue for the user.
     """
+    now = time.time()
+    requested_lock = KlaviyoEnsureUserLock(
+        typ="lock",
+        acquired_at=now,
+        host=socket.gethostname(),
+        pid=os.getpid(),
+        uid=secrets.token_hex(8),
+    )
+    if is_bounce:
+        action_to_execute = await maybe_lock(
+            itgs,
+            user_sub=user_sub,
+            lock=requested_lock,
+        )
+        if action_to_execute is None:
+            logging.info(
+                "This was a bounce request for ensure_user, but we either failed "
+                "to acquire the lock or there was no action to execute. This "
+                "happens under normal circumstances after a chain of queued "
+                "actions."
+            )
+            return
+    else:
+        queued_action = KlaviyoEnsureUserQueuedAction(
+            typ="action",
+            queued_at=now,
+            timezone=timezone,
+            timezone_technique=timezone_technique,
+            is_outside_flow=is_outside_flow,
+        )
+        action_to_execute = await queue_action_and_maybe_lock(
+            itgs,
+            user_sub=user_sub,
+            lock=requested_lock,
+            action=queued_action,
+        )
+        if action_to_execute is None:
+            logging.info(
+                f"Failed to acquire lock for {user_sub=}, queued instead: {queued_action.json()}"
+            )
+            return
+
+    if action_to_execute is None:
+        return
+
+    logging.debug(
+        f"Acquired lock={requested_lock.json()} for {user_sub=} to execute action={action_to_execute.json()}..."
+    )
+    try:
+        await _execute_directly(
+            itgs,
+            user_sub=user_sub,
+            timezone=action_to_execute.timezone,
+            timezone_technique=action_to_execute.timezone_technique,
+            is_outside_flow=action_to_execute.is_outside_flow,
+        )
+    finally:
+        logging.debug(f"Releasing lock={requested_lock.json()} for {user_sub=}")
+        await release_lock(itgs, user_sub=user_sub, lock=requested_lock)
+
+        logging.debug(f"Queueing bounce for {user_sub=}")
+        jobs = await itgs.jobs()
+        await jobs.enqueue(
+            "runners.klaviyo.ensure_user", user_sub=user_sub, is_bounce=True
+        )
+
+
+class KlaviyoEnsureUserLock(BaseModel):
+    typ: Literal["lock"] = Field()
+    """Indicates this is a lock for deserialization"""
+    acquired_at: float = Field()
+    """The time at which the lock was acquired"""
+    host: str = Field()
+    """The host that acquired the lock, as if from socket.gethostname()"""
+    pid: str = Field()
+    """The PID of the process that acquired the lock, as if from os.getpid()"""
+    uid: str = Field()
+    """A unique identifier created when acquiring the lock and used in some log messages
+    to facilitate debugging
+    """
+
+
+class KlaviyoEnsureUserQueuedAction(BaseModel):
+    typ: Literal["action"] = Field()
+    """Indicates this is an action for deserialization"""
+    queued_at: float = Field()
+    """The time at which the action was queued"""
+    timezone: Optional[str] = Field(None)
+    """See execute timezone kwarg"""
+    timezone_technique: Optional[Literal["browser"]] = Field(None)
+    """See execute timezone_technique kwarg"""
+    is_outside_flow: bool = Field(False)
+    """See execute is_outside_flow kwarg"""
+
+
+REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK = """
+local lock_key = KEYS[1]
+local queue_key = KEYS[2]
+local lock_val = ARGV[1]
+local action_val = ARGV[2]
+
+local acquired_lock = redis.call("SET", lock_key, lock_val, "NX", "EX", 300)
+redis.call("RPUSH", queue_key, action_val)
+
+if acquired_lock ~= nil and acquired_lock ~= false then
+    local first_action = redis.call("LPOP", queue_key)
+    return {"1", first_action}
+end
+
+return {"2", nil}
+"""
+
+REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK_SHA = hashlib.sha1(
+    REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK.encode("utf-8")
+).hexdigest()
+
+
+async def queue_action_and_maybe_lock(
+    itgs: Itgs,
+    *,
+    user_sub: str,
+    lock: KlaviyoEnsureUserLock,
+    action: KlaviyoEnsureUserQueuedAction,
+) -> Optional[KlaviyoEnsureUserQueuedAction]:
+    """Simultaneously attempts to acquire a lock and queue an action. If the lock
+    is acquired, then the first queued action is also popped and returned, otherwise
+    the action is queued and None is returned.
+
+    Args:
+        itgs (Itgs): the integrations to (re)use
+        user_sub (str): The sub of the user to check
+        lock (KlaviyoEnsureUserLock): The lock to acquire
+        action (KlaviyoEnsureUserQueuedAction): The action to queue if the lock
+            cannot be acquired
+
+    Returns:
+        (KlaviyoEnsureUserQueuedAction or None): The first queued action if the lock
+            was acquired, otherwise None
+    """
+    redis = await itgs.redis()
+    lock_key = f"users:klaviyo:ensure_user:{user_sub}:lock".encode("utf-8")
+    queue_key = f"users:klaviyo:ensure_user:{user_sub}:queue".encode("utf-8")
+    ser_lock = lock.json().encode("utf-8")
+    ser_action = action.json().encode("utf-8")
+
+    try:
+        res = await redis.evalsha(
+            REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK_SHA,
+            2,
+            lock_key,
+            queue_key,
+            ser_lock,
+            ser_action,
+        )
+    except NoScriptError:
+        correct_sha = await redis.script_load(REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK)
+        if correct_sha != REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK_SHA:
+            raise RuntimeError(
+                f"Redis script SHA mismatch: {correct_sha=} != {REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK_SHA=}"
+            )
+
+        res = await redis.evalsha(
+            REDIS_SCRIPT_QUEUE_ACTION_AND_MAYBE_LOCK_SHA,
+            2,
+            lock_key,
+            queue_key,
+            ser_lock,
+            ser_action,
+        )
+
+    if isinstance(res, bytes):
+        assert int(res) == 2, f"{res=} should be 2 for bytes response"
+        return None
+
+    assert isinstance(res, (list, tuple)), f"{res=} should be a list or tuple"
+    assert len(res) in (1, 2), f"{res=} should have length 1 or 2"
+
+    result_enum = int(res[0])
+    if result_enum == 2:
+        return None
+
+    assert len(res) == 2, f"{res=} should have length 2"
+    assert int(result_enum) == 1, f"{result_enum=} should be 1"
+    assert isinstance(res[1], bytes), f"{res[1]=} should be bytes"
+    return KlaviyoEnsureUserQueuedAction.parse_raw(
+        res[1], content_type="application/json"
+    )
+
+
+REDIS_SCRIPT_MAYBE_LOCK = """
+local lock_key = KEYS[1]
+local queue_key = KEYS[2]
+local lock_val = ARGV[1]
+
+local current_len = redis.call("LLEN", queue_key)
+if tonumber(current_len) <= 0 then
+    return {"0", nil}
+end
+
+local acquired_lock = redis.call("SET", lock_key, lock_val, "NX", "EX", 300)
+
+if acquired_lock ~= nil and acquired_lock ~= false then
+    local first_action = redis.call("LPOP", queue_key)
+    return {"1", first_action}
+end
+
+return {"2", nil}
+"""
+
+REDIS_SCRIPT_MAYBE_LOCK_SHA = hashlib.sha1(
+    REDIS_SCRIPT_MAYBE_LOCK.encode("utf-8")
+).hexdigest()
+
+
+async def maybe_lock(
+    itgs: Itgs,
+    *,
+    user_sub: str,
+    lock: KlaviyoEnsureUserLock,
+) -> Optional[KlaviyoEnsureUserQueuedAction]:
+    """Attempts to acquire a lock. If the lock is acquired, then the first queued action
+    is also popped and returned, otherwise None is returned.
+
+    If there are no actions queued for the given user, this does not attempt to
+    acquire the lock and instead just returns None.
+
+    Args:
+        itgs (Itgs): the integrations to (re)use
+        user_sub (str): The sub of the user to check
+        lock (KlaviyoEnsureUserLock): The lock to acquire
+
+    Returns:
+        (KlaviyoEnsureUserQueuedAction or None): The first queued action if the lock
+            was acquired, otherwise None
+    """
+    redis = await itgs.redis()
+    lock_key = f"users:klaviyo:ensure_user:{user_sub}:lock".encode("utf-8")
+    queue_key = f"users:klaviyo:ensure_user:{user_sub}:queue".encode("utf-8")
+    ser_lock = lock.json().encode("utf-8")
+
+    try:
+        res = await redis.evalsha(
+            REDIS_SCRIPT_MAYBE_LOCK_SHA, 2, lock_key, queue_key, ser_lock
+        )
+    except NoScriptError:
+        correct_sha = await redis.script_load(REDIS_SCRIPT_MAYBE_LOCK)
+        if correct_sha != REDIS_SCRIPT_MAYBE_LOCK_SHA:
+            raise RuntimeError(
+                f"Redis script SHA mismatch: {correct_sha=} != {REDIS_SCRIPT_MAYBE_LOCK_SHA=}"
+            )
+
+        res = await redis.evalsha(
+            REDIS_SCRIPT_MAYBE_LOCK_SHA, 2, lock_key, queue_key, ser_lock
+        )
+
+    if isinstance(res, bytes):
+        assert int(res) in (0, 1), f"{res=} should be 0 or 2 for bytes response"
+        return None
+
+    assert isinstance(res, (list, tuple)), f"{res=} should be a list or tuple"
+    assert len(res) in (1, 2), f"{res=} should have length 1 or 2"
+
+    result_enum = int(res[0])
+    if result_enum in (0, 2):
+        return None
+
+    assert len(res) == 2, f"{res=} should have length 2"
+    assert result_enum == 1, f"{result_enum=} should be 1"
+    assert isinstance(res[1], bytes), f"{res[1]=} should be bytes"
+    return KlaviyoEnsureUserQueuedAction.parse_raw(
+        res[1], content_type="application/json"
+    )
+
+
+async def release_lock(
+    itgs: Itgs, *, user_sub: str, lock: KlaviyoEnsureUserLock
+) -> None:
+    """Releases the lock for the given user. The lock is released even if it mismatches,
+    but an error is sent to slack in that case.
+
+    Args:
+        itgs (Itgs): the integrations to (re)use
+        user_sub (str): The sub of the user to check
+        lock (KlaviyoEnsureUserLock): The lock to release
+    """
+    lock_key = f"users:klaviyo:ensure_user:{user_sub}:lock".encode("utf-8")
+    redis = await itgs.redis()
+    old_value = await redis.getdel(lock_key)
+    if old_value is None:
+        await handle_contextless_error(
+            extra_info=(
+                f"for {user_sub=} tried to release lock={lock.json()}, but no lock was held"
+            )
+        )
+        return
+
+    old_lock = KlaviyoEnsureUserLock.parse_raw(
+        old_value, content_type="application/json"
+    )
+    if old_lock.uid != lock.uid:
+        await handle_contextless_error(
+            extra_info=(
+                f"for {user_sub=} tried to release lock={lock.json()} but instead released lock={old_lock.json()}"
+            )
+        )
+
+
+async def _execute_directly(
+    itgs: Itgs,
+    *,
+    user_sub: str,
+    timezone: Optional[str],
+    timezone_technique: Optional[Literal["browser"]],
+    is_outside_flow: bool,
+):
     if (timezone is None) != (timezone_technique is None):
         raise ValueError(
             "If either timezone or timezone_technique is provided, both must be"
