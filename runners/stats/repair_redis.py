@@ -20,6 +20,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     """
 
     # TODO: this hasn't been tested since journeys -> interactive prompts
+    # TODO: missing user_notification_settings_stats
 
     conn = await itgs.conn()
     cursor = conn.cursor("weak")

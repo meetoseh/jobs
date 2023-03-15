@@ -6,6 +6,7 @@ from graceful_death import GracefulDeath
 import logging
 import unix_dates
 import time
+import pytz
 from jobs import JobCategory
 
 category = JobCategory.LOW_RESOURCE_COST
@@ -19,7 +20,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         gd (GracefulDeath): the signal tracker; provided automatically
     """
 
-    curr_unix_month = unix_dates.unix_timestamp_to_unix_month(time.time())
+    curr_unix_month = unix_dates.unix_timestamp_to_unix_month(
+        time.time(), tz=pytz.timezone("America/Los_Angeles")
+    )
     redis = await itgs.redis()
     earliest_key = "stats:monthly_active_users:earliest"
     earliest_stored_month = await redis.get(earliest_key)

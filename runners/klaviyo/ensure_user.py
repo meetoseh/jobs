@@ -14,7 +14,10 @@ from graceful_death import GracefulDeath
 import hashlib
 import logging
 import socket
+import unix_dates
+import pytz
 import os
+import lib.users.stats
 
 from jobs import JobCategory
 from klaviyo import DuplicateProfileError
@@ -644,6 +647,31 @@ async def _execute_directly(
                 )
             )
             return
+
+        if (
+            uns_preferred_notification_time is not None
+            and uns_daily_event_enabled
+            and pv_phone_number is not None
+        ):
+            logging.info(
+                f"Since {user_sub=} had a notification time ({uns_preferred_notification_time=}) "
+                "with daily event enabled, and had a phone number verified, we are handling a "
+                f'notification time update from "unset" to "text-{uns_preferred_notification_time}"'
+            )
+            await lib.users.stats.on_notification_time_updated(
+                itgs,
+                user_sub=user_sub,
+                old_preference="unset",
+                new_preference=f"text-{uns_preferred_notification_time}",
+                changed_at=now,
+            )
+        else:
+            logging.info(
+                f"Despite creating a profile for {user_sub=}, not necessary to update "
+                f"notification time stats, since either {uns_preferred_notification_time=}, "
+                f", {uns_daily_event_enabled=}, or {pv_phone_number=} would prevent them "
+                "from receiving notifications"
+            )
 
         await klaviyo.unsuppress_email(email)
         await asyncio.sleep(1)

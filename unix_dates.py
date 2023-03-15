@@ -10,42 +10,35 @@ Note this format does not indicate anything about timezones.
 """
 import datetime
 import pytz
+import time
 
 
-def unix_timestamp_to_unix_date(
-    unix_time: float, *, tz: datetime.timezone = datetime.timezone.utc
-) -> int:
+def unix_timestamp_to_unix_date(unix_time: float, *, tz: pytz.BaseTzInfo) -> int:
     """Converts the given unix timestamp to a unix date, i.e., converts
     the number of seconds since the unix epoch to the number of days
     since the unix epoch.
 
     Args:
         unix_time (float): The unix timestamp to convert
-        tz (datetime.timezone, optional): The timezone for the returned
+        tz (pytz.BaseTzInfo): The timezone for the returned
             date. If, for example, the unix time is 3AM UTC, then for PST (-8)
             the date will be the previous day. Defaults to UTC
 
     Returns:
         int: The unix date
     """
+    naive_datetime = datetime.datetime.utcfromtimestamp(unix_time)
+    localized_datetime = tz.fromutc(naive_datetime)
+    localized_date = localized_datetime.date()
+    localized_unix_date = date_to_unix_date(localized_date)
+    utc_midnight_on_localized_date = unix_date_to_timestamp(
+        localized_unix_date, tz=pytz.utc
+    )
 
-    try:
-        time_offset = tz.utcoffset(
-            datetime.datetime.utcfromtimestamp(unix_time)
-        ).total_seconds()
-    except pytz.exceptions.NonExistentTimeError:
-        # that exactly falls on a skipped hour due to daylight savings; we want to use the offset
-        # prior to the skipped hour
-        time_offset = tz.utcoffset(
-            datetime.datetime.utcfromtimestamp(unix_time - 2 * 60 * 60)
-        ).total_seconds()
-
-    return int((unix_time + time_offset) // 86400)
+    return int(utc_midnight_on_localized_date // 86400)
 
 
-def unix_timestamp_to_unix_month(
-    unix_time: float, *, tz: datetime.timezone = datetime.timezone.utc
-) -> int:
+def unix_timestamp_to_unix_month(unix_time: float, *, tz: pytz.BaseTzInfo) -> int:
     """Converts the given unix timestamp to a unix month, i.e., converts
     the number of seconds since the unix epoch to the number of months
     since the unix epoch.
@@ -56,7 +49,7 @@ def unix_timestamp_to_unix_month(
 
     Args:
         unix_time (float): The unix timestamp to convert
-        tz (datetime.timezone, optional): The timezone for the returned
+        tz (pytz.BaseTzInfo): The timezone for the returned
             date. If, for example, the unix time is 3AM UTC on the first
             of the month, then for PST (-8) the month will be the previous
             month. Defaults to UTC
@@ -93,10 +86,8 @@ def date_to_unix_date(date: datetime.date) -> int:
     Returns:
         int: The unix date
     """
-    as_naive_datetime = datetime.datetime.combine(
-        date, datetime.time(), tzinfo=pytz.utc
-    )
-    return int(as_naive_datetime.timestamp() // 86400)
+    as_utc_datetime = datetime.datetime.combine(date, datetime.time(), tzinfo=pytz.utc)
+    return int(as_utc_datetime.timestamp() // 86400)
 
 
 def unix_month_to_date_of_first(unix_month: int) -> datetime.date:
@@ -112,3 +103,31 @@ def unix_month_to_date_of_first(unix_month: int) -> datetime.date:
     year = 1970 + unix_month // 12
     month = unix_month % 12 + 1
     return datetime.date(year, month, 1)
+
+
+def unix_date_to_timestamp(unix_date: int, *, tz: pytz.BaseTzInfo) -> float:
+    """Converts the given unix date to the unix timestamp that corresponds
+    to 12:00AM in the given timezone on that date, ie., the unix timestamp of
+    the first second of the day.
+
+    Args:
+        unix_date (int): The unix date to convert
+
+    Returns:
+        float: The unix timestamp
+    """
+    naive_date = unix_date_to_date(unix_date)
+    smart_datetime = tz.localize(datetime.datetime.combine(naive_date, datetime.time()))
+    return smart_datetime.timestamp()
+
+
+def unix_date_today(*, tz: pytz.BaseTzInfo) -> int:
+    """Equivalent to unix_timestamp_to_unix_date(time.time(), tz=tz)
+
+    Args:
+        tz (pytz.BaseTzInfo): The timezone for the returned date
+
+    Returns:
+        int: The unix date
+    """
+    return unix_timestamp_to_unix_date(time.time(), tz=tz)
