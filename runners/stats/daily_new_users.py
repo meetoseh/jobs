@@ -1,5 +1,7 @@
 """Rolls over daily new users to rqlite"""
 import asyncio
+
+import pytz
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -19,7 +21,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         gd (GracefulDeath): the signal tracker; provided automatically
     """
 
-    curr_unix_date = unix_dates.unix_timestamp_to_unix_date(time.time())
+    curr_unix_date = unix_dates.unix_date_today(tz=pytz.timezone("America/Los_Angeles"))
     redis = await itgs.redis()
     earliest_key = "stats:daily_new_users:earliest"
     earliest_stored_date = await redis.get(earliest_key)
