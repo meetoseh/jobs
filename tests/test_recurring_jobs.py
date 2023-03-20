@@ -11,7 +11,6 @@ import datetime
 import asyncio
 from itgs import Itgs
 from redis.asyncio import Redis
-import platform
 
 tz = datetime.timezone.utc
 
@@ -418,9 +417,6 @@ class Test(unittest.TestCase):
                     await redis.delete(hash_key)
                     await redis.delete(purg_key)
 
-        if platform.system() == "Windows":
-            # silences some errors: https://stackoverflow.com/a/68137823
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(_inner())
 
 

@@ -377,10 +377,14 @@ class JobInterval:
         result = 31
 
         try:
-            current_utc_offset = self.tz.utcoffset(datetime.datetime.now()).total_seconds()
+            current_utc_offset = self.tz.utcoffset(
+                datetime.datetime.now()
+            ).total_seconds()
         except pytz.exceptions.NonExistentTimeError:
             # it's currently daily savings skip hour, use the previous offset
-            current_utc_offset = self.tz.utcoffset(datetime.datetime.utcfromtimestamp(time.time() - 60 * 60 * 2)).total_seconds()
+            current_utc_offset = self.tz.utcoffset(
+                datetime.datetime.utcfromtimestamp(time.time() - 60 * 60 * 2)
+            ).total_seconds()
 
         result = 17 * result + int(current_utc_offset)
         for val in (
@@ -576,6 +580,21 @@ JOBS: List[Job] = (
         name="runners.stats.users_retention",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_utm_conversion_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.visitors.process_visitor_users",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(0,)),
+    ),
+    Job(
+        name="runners.visitors.process_visitor_utms",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(30,)),
     ),
     # BLOCKED UNTIL APPROVED BY TWILIO
     # Job(

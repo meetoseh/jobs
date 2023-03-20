@@ -9,6 +9,7 @@ library, but 100 days before 19052 is 18952 - easy to answer.
 Note this format does not indicate anything about timezones.
 """
 import datetime
+from typing import Optional
 import pytz
 import time
 
@@ -121,7 +122,7 @@ def unix_date_to_timestamp(unix_date: int, *, tz: pytz.BaseTzInfo) -> float:
     return smart_datetime.timestamp()
 
 
-def unix_date_today(*, tz: pytz.BaseTzInfo) -> int:
+def unix_date_today(*, tz: pytz.BaseTzInfo, now: Optional[float] = None) -> int:
     """Equivalent to unix_timestamp_to_unix_date(time.time(), tz=tz)
 
     Args:
@@ -130,4 +131,17 @@ def unix_date_today(*, tz: pytz.BaseTzInfo) -> int:
     Returns:
         int: The unix date
     """
-    return unix_timestamp_to_unix_date(time.time(), tz=tz)
+    return unix_timestamp_to_unix_date(now if now is not None else time.time(), tz=tz)
+
+
+def unix_timestamp_to_datetime(
+    unix_seconds: float, *, tz: pytz.BaseTzInfo
+) -> datetime.datetime:
+    """Converts the given unix time to a timezone-aware datetime object
+    in the given timezone.
+
+    Args:
+        unix_seconds (float): The unix time to convert
+        tz (pytz.BaseTzInfo): The timezone for the returned date
+    """
+    return tz.fromutc(datetime.datetime.utcfromtimestamp(unix_seconds))
