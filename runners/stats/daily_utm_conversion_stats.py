@@ -176,6 +176,7 @@ async def rotate_utm_conversion_stats(itgs: Itgs, unix_date: int, utm: str) -> N
                 utm_parts.term,
                 utm_parts.content,
                 retrieved_at,
+                get_canonical_utm_representation_from_wrapped(utm_parts),
             ),
         ),
         (
