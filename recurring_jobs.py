@@ -594,7 +594,7 @@ JOBS: List[Job] = (
     Job(
         name="runners.visitors.process_visitor_utms",
         kwargs=tuple(),
-        interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(30,)),
+        interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(5,)),
     ),
     # BLOCKED UNTIL APPROVED BY TWILIO
     # Job(
