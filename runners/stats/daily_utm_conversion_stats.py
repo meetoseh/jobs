@@ -4,7 +4,6 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from lib.utms.parse import (
-    get_canonical_utm_representation,
     get_canonical_utm_representation_from_wrapped,
     get_utm_parts,
 )
@@ -155,63 +154,65 @@ async def rotate_utm_conversion_stats(itgs: Itgs, unix_date: int, utm: str) -> N
 
     response = await cursor.executemany3(
         (
-            """
-            INSERT INTO utms (
-                uid, verified, canonical_query_param, utm_source, utm_medium,
-                utm_campaign, utm_term, utm_content, created_at
-            )
-            SELECT
-                ?, 0, ?, ?, ?, ?, ?, ?, ?
-            WHERE
-                NOT EXISTS (
-                    SELECT 1 FROM utms WHERE canonical_query_param = ?
-                )
-            """,
             (
-                f"oseh_utm_{secrets.token_urlsafe(16)}",
-                get_canonical_utm_representation_from_wrapped(utm_parts),
-                utm_parts.source,
-                utm_parts.medium,
-                utm_parts.campaign,
-                utm_parts.term,
-                utm_parts.content,
-                retrieved_at,
-                get_canonical_utm_representation_from_wrapped(utm_parts),
-            ),
-        ),
-        (
-            """
-            INSERT INTO daily_utm_conversion_stats (
-                utm_id, retrieved_for, visits, holdover_preexisting,
-                holdover_last_click_signups, holdover_any_click_signups,
-                preexisting, last_click_signups, any_click_signups, retrieved_at
-            )
-            SELECT
-                utms.id, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            FROM utms
-            WHERE
-                utms.canonical_query_param = ?
-                AND NOT EXISTS (
-                    SELECT 1 FROM daily_utm_conversion_stats
-                    WHERE
-                        daily_utm_conversion_stats.utm_id = utms.id
-                        AND daily_utm_conversion_stats.retrieved_for = ?
+                """
+                INSERT INTO utms (
+                    uid, verified, canonical_query_param, utm_source, utm_medium,
+                    utm_campaign, utm_term, utm_content, created_at
                 )
-            """,
-            (
-                unix_dates.unix_date_to_date(unix_date).isoformat(),
-                visits,
-                holdover_preexisting,
-                holdover_last_click_signups,
-                holdover_any_click_signups,
-                preexisting,
-                last_click_signups,
-                any_click_signups,
-                retrieved_at,
-                get_canonical_utm_representation_from_wrapped(utm_parts),
-                unix_dates.unix_date_to_date(unix_date).isoformat(),
+                SELECT
+                    ?, 0, ?, ?, ?, ?, ?, ?, ?
+                WHERE
+                    NOT EXISTS (
+                        SELECT 1 FROM utms WHERE canonical_query_param = ?
+                    )
+                """,
+                (
+                    f"oseh_utm_{secrets.token_urlsafe(16)}",
+                    get_canonical_utm_representation_from_wrapped(utm_parts),
+                    utm_parts.source,
+                    utm_parts.medium,
+                    utm_parts.campaign,
+                    utm_parts.term,
+                    utm_parts.content,
+                    retrieved_at,
+                    get_canonical_utm_representation_from_wrapped(utm_parts),
+                ),
             ),
-        ),
+            (
+                """
+                INSERT INTO daily_utm_conversion_stats (
+                    utm_id, retrieved_for, visits, holdover_preexisting,
+                    holdover_last_click_signups, holdover_any_click_signups,
+                    preexisting, last_click_signups, any_click_signups, retrieved_at
+                )
+                SELECT
+                    utms.id, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                FROM utms
+                WHERE
+                    utms.canonical_query_param = ?
+                    AND NOT EXISTS (
+                        SELECT 1 FROM daily_utm_conversion_stats
+                        WHERE
+                            daily_utm_conversion_stats.utm_id = utms.id
+                            AND daily_utm_conversion_stats.retrieved_for = ?
+                    )
+                """,
+                (
+                    unix_dates.unix_date_to_date(unix_date).isoformat(),
+                    visits,
+                    holdover_preexisting,
+                    holdover_last_click_signups,
+                    holdover_any_click_signups,
+                    preexisting,
+                    last_click_signups,
+                    any_click_signups,
+                    retrieved_at,
+                    get_canonical_utm_representation_from_wrapped(utm_parts),
+                    unix_dates.unix_date_to_date(unix_date).isoformat(),
+                ),
+            ),
+        )
     )
 
     if response[0].rows_affected is not None and response[0].rows_affected > 0:

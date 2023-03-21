@@ -467,7 +467,8 @@ async def get_visitor_user_state(
 def _visitor_user_state_clause(state: VisitorUserState) -> Tuple[str, list]:
     """Creates the sql clause and corresponding ordered arguments to verify
     the given state is still valid. This requires that `users` is already joined
-    and corresponds to the user with the given sub.
+    and corresponds to the user with the given sub, and that `visitors` is already
+    joined and corresponds to the visitor with the given uid.
 
     Args:
         state (VisitorUserState): The state to verify
@@ -476,6 +477,10 @@ def _visitor_user_state_clause(state: VisitorUserState) -> Tuple[str, list]:
         (str, list): The sql clause and corresponding ordered arguments
     """
     result_parts: List[Tuple[str, list]] = [
+        (
+            "visitors.version = ?",
+            [state.visitor_version],
+        ),
         (
             "? = (SELECT COUNT(*) FROM visitor_users AS vu_inner WHERE vu_inner.user_id = users.id)",
             [len(state.previously_associated_visitors)],

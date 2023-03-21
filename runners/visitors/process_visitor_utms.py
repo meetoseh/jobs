@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 from error_middleware import handle_contextless_error, handle_warning
 from itgs import Itgs
@@ -37,7 +38,12 @@ def time_per(n: int, time_taken: float) -> float:
 
 
 async def execute(
-    itgs: Itgs, gd: GracefulDeath, *, limit: int = 5000, now: float = None
+    itgs: Itgs,
+    gd: GracefulDeath,
+    *,
+    limit: int = 5000,
+    now: float = None,
+    trigger_races: bool = False,
 ):
     """Processes queued visitor utm associations on the redis key
     `visitors:utms`. Any entries which are more than 1 hour old and
@@ -57,6 +63,10 @@ async def execute(
         now (float): The current time for processing, in seconds since the epoch. If
             not provided, the current time will be used. Generally only needed in unit
             tests.
+        trigger_races (bool): Primarily for unit tests. Defaults to False. If true, we will
+            sleep for 1 second at the worst possible time, making it extremely likely that
+            race conditions will be triggered if this is being run concurrently with another
+            process_visitor_* job.
     """
     if now is None:
         now = time.time()
@@ -133,6 +143,8 @@ async def execute(
             consistency=consistency,
             retry_on_fail="weak",
         )
+        if trigger_races:
+            await asyncio.sleep(1)
 
         if state is None:
             await handle_contextless_error(
@@ -157,6 +169,8 @@ async def execute(
                 consistency=consistency,
                 retry_on_fail="weak",
             )
+            if trigger_races:
+                await asyncio.sleep(1)
             if state is None:
                 await handle_contextless_error(
                     extra_info=f"process_visitor_utms: after raced, failed to get visitor state for {next_entry.visitor_uid}"
@@ -178,9 +192,7 @@ async def execute(
                 extra_info=f"process_visitor_utms: failed to insert visitor utm (raced?): {next_entry.json()} (requeuing)"
             )
             await redis.rpush(b"visitors:utms", next_raw_entry)
-            # we probably always want to break here since we want ~1 of these jobs running at most
-            # at a time to not fight each other
-            break
+            continue
 
         changes = lib.visitors.deltas.compute_changes_from_visitor_utm(
             state, utm, next_entry.clicked_at

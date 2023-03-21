@@ -638,6 +638,76 @@ class Test(unittest.TestCase):
 
         asyncio.run(_inner())
 
+    def test_raced_last_click(self):
+        # 12:01 AM - visitor created, clicks utm
+        # 12:02 AM - user created, associated with visitor
+        async def _inner():
+            async with Itgs() as itgs:
+                redis = await itgs.redis()
+                today = unix_dates.unix_date_today(tz=tz)
+                now = time_in_day(today, hour=0, minute=2, pm=False)
+
+                last_click_raw = await redis.hget(
+                    f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
+                        "utf-8"
+                    ),
+                    b"last_click_signups",
+                )
+
+                last_click = int(last_click_raw) if last_click_raw is not None else 0
+                async with temp_visitor(itgs, created_at=now - 60) as vis, temp_user(
+                    itgs, created_at=now
+                ) as user:
+                    await redis.rpush(
+                        b"visitors:utms",
+                        process_visitor_utms.QueuedVisitorUTM(
+                            visitor_uid=vis.uid,
+                            utm_source=default_utm.source,
+                            utm_medium=default_utm.medium,
+                            utm_campaign=default_utm.campaign,
+                            utm_content=default_utm.content,
+                            utm_term=default_utm.term,
+                            clicked_at=now - 60,
+                        )
+                        .json()
+                        .encode("utf-8"),
+                    )
+                    await redis.rpush(
+                        b"visitors:user_associations",
+                        process_visitor_users.QueuedVisitorUser(
+                            visitor_uid=vis.uid,
+                            user_sub=user.sub,
+                            seen_at=now,
+                        )
+                        .json()
+                        .encode("utf-8"),
+                    )
+                    task1 = asyncio.create_task(
+                        process_visitor_utms.execute(
+                            itgs, FakeGracefulDeath(), now=now, trigger_races=True
+                        )
+                    )
+                    task2 = asyncio.create_task(
+                        process_visitor_users.execute(
+                            itgs, FakeGracefulDeath(), now=now, trigger_races=True
+                        )
+                    )
+                    await asyncio.wait(
+                        [task1, task2], return_when=asyncio.ALL_COMPLETED
+                    )
+
+                last_click_raw = await redis.hget(
+                    f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
+                        "utf-8"
+                    ),
+                    b"last_click_signups",
+                )
+                last_click2 = int(last_click_raw) if last_click_raw is not None else 0
+
+                self.assertEqual(last_click + 1, last_click2)
+
+        asyncio.run(_inner())
+
 
 if __name__ == "__main__":
     with open("logging.yaml") as f:

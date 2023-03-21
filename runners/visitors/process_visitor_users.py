@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 from error_middleware import handle_contextless_error, handle_warning
 from itgs import Itgs
@@ -33,7 +34,12 @@ def time_per(n: int, time_taken: float) -> float:
 
 
 async def execute(
-    itgs: Itgs, gd: GracefulDeath, *, limit: int = 5000, now: Optional[float] = None
+    itgs: Itgs,
+    gd: GracefulDeath,
+    *,
+    limit: int = 5000,
+    now: Optional[float] = None,
+    trigger_races: bool = False,
 ):
     """Processes queued visitor user associations on the redis key
     `visitors:user_associations`. Any entries which are more than 1 hour old and
@@ -51,6 +57,10 @@ async def execute(
         limit (int): the maximum number of associations to process
         now (float or None): The current time, primarily for unit tests, otherwise None to
             get the current time from `time.time()`
+        trigger_races (bool): Primarily for unit tests. Defaults to False. If true, we will
+            sleep for 1 second at the worst possible time, making it extremely likely that
+            race conditions will be triggered if this is being run concurrently with another
+            process_visitor_* job.
     """
     if now is None:
         now = time.time()
@@ -137,6 +147,8 @@ async def execute(
             consistency=consistency,
             retry_on_fail="weak",
         )
+        if trigger_races:
+            await asyncio.sleep(1)
 
         if state is None:
             await handle_contextless_error(
@@ -164,6 +176,8 @@ async def execute(
                 consistency=consistency,
                 retry_on_fail="weak",
             )
+            if trigger_races:
+                await asyncio.sleep(1)
             if state is None:
                 await handle_contextless_error(
                     extra_info=f"process_visitor_users: after raced, failed to get state for visitor {next_entry.visitor_uid} and user {next_entry.user_sub}"
@@ -189,9 +203,7 @@ async def execute(
                 extra_info=f"process_visitor_users: failed to insert visitor user (raced?): {next_entry.json()} (requeuing)"
             )
             await redis.rpush(b"visitors:user_associations", next_raw_entry)
-            # we probably always want to break here since we want ~1 of these jobs running at most
-            # at a time to not fight each other
-            break
+            continue
 
         if success == "updated":
             continue
