@@ -117,7 +117,7 @@ class Slack:
         )
 
     async def send_oseh_bot_blocks(self, blocks: list, preview: str) -> None:
-        """sends the given blocks to the ops channel
+        """sends the given blocks to the oseh-bot channel
 
         Args:
             blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
@@ -129,7 +129,7 @@ class Slack:
     async def send_oseh_bot_message(
         self, message: str, preview: Optional[str] = None, markdown: bool = True
     ) -> None:
-        """sends the given markdown text to the ops channel
+        """sends the given markdown text to the oseh-bot channel
 
         Args:
             message (str): the markdown formatted message to send
@@ -139,4 +139,29 @@ class Slack:
 
         await self.send_message(
             os.environ.get("SLACK_OSEH_BOT_URL"), message, preview, markdown
+        )
+
+    async def send_oseh_classes_blocks(self, blocks: list, preview: str) -> None:
+        """sends the given blocks to the oseh-classes channel
+
+        Args:
+            blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
+            preview (str): the text for notifications
+        """
+        await self.send_blocks(
+            os.environ.get("SLACK_OSEH_CLASSES_URL"), blocks, preview
+        )
+
+    async def send_oseh_classes_message(
+        self, message: str, preview: Optional[str] = None, markdown: bool = True
+    ) -> None:
+        """sends the given markdown text to the oseh-classes channel
+
+        Args:
+            message (str): the markdown formatted message to send
+            preview (str, None): the text for notifications or None to use the message
+            markdown (bool): True for markdown format, False for raw text
+        """
+        await self.send_message(
+            os.environ.get("SLACK_OSEH_CLASSES_URL"), message, preview, markdown
         )
