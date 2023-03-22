@@ -10,6 +10,9 @@ from temp_files import temp_file
 from images import process_image, ImageTarget, ProcessImageAbortedException
 import logging
 from jobs import JobCategory
+import time
+import secrets
+import json
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -121,14 +124,15 @@ LAST_TARGETS_CHANGED_AT = 1672953669
 async def execute(
     itgs: Itgs, gd: GracefulDeath, *, user_sub: str, picture_url: str, jwt_iat: float
 ):
-    """If the given user exists, but its profile picture is either not set or does
-    not match the given url, download the image, modify it appropriately, and update
-    our database.
+    """Handles seeing an oauth2 profile claim for an identity of the user with
+    the given sub issued at the given time.
 
-    When a user updates their profile picture, it will cause all new JWTs issued
-    by cognito to have the updated URL, however, old JWTs will still have the old URL.
-    Hence we ignore the picture url if it's from a JWT older than the one we used to
-    get the users current profile picture.
+    If we have already processed that profile picture, this does nothing. If the
+    user has a profile picture from a better source, such as direct upload or a more
+    recent jwt, this does nothing.
+
+    If both of those are not true, this downloads the picture processes it and inserts
+    it into user_profile_pictures, marking it latest.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
@@ -143,35 +147,52 @@ async def execute(
     response = await cursor.execute(
         """
         SELECT
-            users.picture_url,
-            image_files.uid,
-            users.picture_image_file_updated_at
-        FROM users
-        LEFT OUTER JOIN image_files ON image_files.id = users.picture_image_file_id
-        WHERE
-            users.sub = ?
+            EXISTS (SELECT 1 FROM users WHERE sub=?) AS b1,
+            EXISTS (
+                SELECT 1 FROM user_profile_pictures
+                WHERE 
+                    EXISTS (
+                        SELECT 1 FROM users
+                        WHERE
+                            users.id = user_profile_pictures.user_id
+                            AND users.sub = ?
+                    )
+                    AND json_extract(user_profile_pictures.source, '$.src') = 'oauth2-token'
+                    AND json_extract(user_profile_pictures.source, '$.url') = ?
+            ) AS b2,
+            EXISTS (
+                SELECT 1 FROM user_profile_pictures
+                WHERE
+                    EXISTS (
+                        SELECT 1 FROM users
+                        WHERE
+                            users.id = user_profile_pictures.user_id
+                            AND users.sub = ?
+                    )
+                    AND json_extract(user_profile_pictures.source, '$.src') = 'oauth2-token'
+                    AND json_extract(user_profile_pictures.source, '$.iat') > ?
+            ) AS b3
         """,
-        (user_sub,),
+        (user_sub, user_sub, picture_url, user_sub, jwt_iat),
     )
-    if not response.results:
-        await handle_warning(f"{__name__}:user_not_found", f"{user_sub=} not found")
+    user_exists = bool(response.results[0][0])
+    picture_exists = bool(response.results[0][1])
+    newer_picture_exists = bool(response.results[0][2])
+
+    if not user_exists:
+        await handle_warning(f"{__name__}:user_does_not_exist", f"{user_sub=}")
         return
 
-    old_picture_url: Optional[str] = response.results[0][0]
-    old_picture_image_file_uid: Optional[str] = response.results[0][1]
-    old_picture_image_file_updated_at: Optional[float] = response.results[0][2]
-
-    if (
-        old_picture_url == picture_url
-        and old_picture_image_file_updated_at is not None
-        and old_picture_image_file_updated_at >= LAST_TARGETS_CHANGED_AT
-    ):
+    if picture_exists:
+        logging.debug(
+            f"{user_sub=} already has {picture_url=} as one of their profile pictures"
+        )
         return
 
-    if (
-        old_picture_image_file_updated_at
-        and old_picture_image_file_updated_at > jwt_iat
-    ):
+    if newer_picture_exists:
+        logging.debug(
+            f"{user_sub=} already has a newer profile picture than {picture_url=}, {jwt_iat=}"
+        )
         return
 
     jobs = await itgs.jobs()
@@ -217,64 +238,79 @@ async def execute(
             await _bounce()
             return
 
-        if image.uid == old_picture_image_file_uid:
-            return
-
-        response = await cursor.execute(
-            """
-            UPDATE users
-            SET
-                picture_url=?,
-                picture_image_file_id=image_files.id,
-                picture_image_file_updated_at=?
-            FROM image_files
-            WHERE
-                users.sub = ?
-                AND image_files.uid = ?
-                AND (
-                    users.picture_image_file_updated_at IS NULL
-                    OR users.picture_image_file_updated_at < ?
-                )
-                AND (? IS NULL OR EXISTS (
-                    SELECT 1 FROM image_files AS old_image_files
-                    WHERE
-                        old_image_files.id = users.picture_image_file_id
-                        AND old_image_files.uid = ?
-                ))
-            """,
+        now = time.time()
+        new_upp_uid = f"oseh_upp_{secrets.token_urlsafe(16)}"
+        response = await cursor.executemany3(
             (
-                picture_url,
-                jwt_iat,
-                user_sub,
-                image.uid,
-                jwt_iat,
-                old_picture_image_file_uid,
-                old_picture_image_file_uid,
-            ),
-        )
-
-        if response.rows_affected is None or response.rows_affected < 1:
-            await handle_warning(
-                f"{__name__}:update_failed",
                 (
-                    f"Failed to update {user_sub=} (changed during processing)\n\n"
-                    "```\n"
-                    f"{old_picture_url=}\n"
-                    f"{old_picture_image_file_uid=}\n"
-                    f"{old_picture_image_file_updated_at=}\n"
-                    f"{picture_url=}\n"
-                    f"{jwt_iat=}\n"
-                    f"{user_sub=}\n"
-                    f"{image.uid=}\n"
-                    "```\n"
+                    """
+                    INSERT INTO user_profile_pictures (
+                        uid, user_id, latest, image_file_id, source, created_at
+                    )
+                    SELECT
+                        ?, users.id, 0, image_files.id, ?, ?
+                    FROM users, image_files
+                    WHERE
+                        users.sub = ?
+                        AND image_files.uid = ?
+                        AND NOT EXISTS (
+                            SELECT 1 FROM user_profile_pictures AS upp
+                            WHERE 
+                                upp.image_file_id = image_files.id
+                                AND upp.user_id = users.id
+                        )
+                    """,
+                    (
+                        new_upp_uid,
+                        json.dumps(
+                            {
+                                "src": "oauth2-token",
+                                "url": picture_url,
+                                "iat": jwt_iat,
+                            }
+                        ),
+                        now,
+                        user_sub,
+                        image.uid,
+                    ),
+                ),
+                (
+                    """
+                    UPDATE user_profile_pictures
+                    SET latest=0
+                    WHERE
+                        EXISTS (
+                            SELECT 1 FROM users
+                            WHERE
+                                users.id = user_profile_pictures.user_id
+                                AND users.sub = ?
+                        )
+                        AND latest=1
+                        AND EXISTS (
+                            SELECT 1 FROM user_profile_pictures AS upp
+                            WHERE upp.uid = ?
+                        )
+                    """,
+                    (user_sub, new_upp_uid),
+                ),
+                (
+                    """
+                    UPDATE user_profile_pictures
+                    SET latest=1
+                    WHERE uid=?
+                    """,
+                    (new_upp_uid,),
                 ),
             )
-            await jobs.enqueue("runners.delete_image_file", uid=image.uid)
+        )
+
+        if response[0].rows_affected is None or response[0].rows_affected < 1:
+            await handle_warning(
+                f"{__name__}:update_failed",
+                f"Failed to insert profile picture {picture_url} for {user_sub} ({image.uid=})",
+            )
             return
 
-        if old_picture_image_file_uid is not None:
-            await jobs.enqueue(
-                "runners.delete_image_file", uid=old_picture_image_file_uid
-            )
-
-        logging.info("Updated %s's profile picture to %s", user_sub, picture_url)
+        logging.info(
+            f"Updated {user_sub=} profile picture to {image.uid=} ({picture_url=})"
+        )

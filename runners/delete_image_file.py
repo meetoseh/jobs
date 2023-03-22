@@ -34,8 +34,8 @@ async def execute(
         WHERE
             image_files.uid = ?
             AND NOT EXISTS (
-                SELECT 1 FROM users
-                WHERE users.picture_image_file_id = image_files.id
+                SELECT 1 FROM user_profile_pictures
+                WHERE user_profile_pictures.image_file_id = image_files.id
             )
             AND NOT EXISTS (
                 SELECT 1 FROM journeys
@@ -44,6 +44,18 @@ async def execute(
             AND NOT EXISTS (
                 SELECT 1 FROM journeys
                 WHERE journeys.blurred_background_image_file_id = image_files.id
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM journeys
+                WHERE journeys.darkened_background_image_file_id = image_files.id
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM instructors
+                WHERE instructors.picture_image_file_id = image_files.id
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM static_public_images
+                WHERE static_public_images.image_file_id = image_files.id
             )
         """,
         (uid,),
