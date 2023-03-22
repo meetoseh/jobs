@@ -35,7 +35,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
             profile_image_files.uid,
             attributed_utms.canonical_query_param
         FROM users
-        LEFT OUTER JOIN image_files AS profile_image_files ON profile_image_files.id = users.picture_image_file_id
+        LEFT OUTER JOIN image_files AS profile_image_files ON 
+            EXISTS (
+                SELECT 1 FROM user_profile_pictures
+                WHERE user_profile_pictures.image_file_id = image_files.id
+                  AND user_profile_pictures.user_id = users.id
+                  AND user_profile_pictures.latest = 1
+            )
         LEFT OUTER JOIN utms AS attributed_utms ON (
             EXISTS (
                 SELECT 1 FROM visitor_utms AS last_visitor_utms
