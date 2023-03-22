@@ -38,7 +38,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
         LEFT OUTER JOIN image_files AS profile_image_files ON 
             EXISTS (
                 SELECT 1 FROM user_profile_pictures
-                WHERE user_profile_pictures.image_file_id = image_files.id
+                WHERE user_profile_pictures.image_file_id = profile_image_files.id
                   AND user_profile_pictures.user_id = users.id
                   AND user_profile_pictures.latest = 1
             )
