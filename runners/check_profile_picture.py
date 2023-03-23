@@ -305,11 +305,21 @@ async def execute(
         )
 
         if response[0].rows_affected is None or response[0].rows_affected < 1:
-            await handle_warning(
-                f"{__name__}:update_failed",
-                f"Failed to insert profile picture {picture_url} for {user_sub} ({image.uid=})",
-            )
+            # this is not dangerous, this just means the url changed but the image is the same
+            logging.info(f"{user_sub=} still has profile picture {image.uid=}, though its now at {picture_url=}")
             return
+
+        if response[1].rows_affected is None or response[1].rows_affected < 1:
+            await handle_warning(
+                f"{__name__}:unset_latest",
+                f"Could not unset latest for {user_sub=}, {new_upp_uid=}",
+            )
+        
+        if response[2].rows_affected is None or response[2].rows_affected < 1:
+            await handle_warning(
+                f"{__name__}:set_latest",
+                f"Could not set latest for {user_sub=}, {new_upp_uid=}",
+            )
 
         logging.info(
             f"Updated {user_sub=} profile picture to {image.uid=} ({picture_url=})"
