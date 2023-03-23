@@ -553,12 +553,7 @@ JOBS: List[Job] = (
         ),
     ),
     Job(
-        name="runners.stats.interactive_prompt_sessions_daily_subcategory_counts",
-        kwargs=tuple(),
-        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
-    ),
-    Job(
-        name="runners.stats.interactive_prompt_sessions_daily_subcategory_totals",
+        name="runners.stats.interactive_prompt_sessions_daily_subcategory_views",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
