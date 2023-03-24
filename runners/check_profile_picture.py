@@ -306,15 +306,11 @@ async def execute(
 
         if response[0].rows_affected is None or response[0].rows_affected < 1:
             # this is not dangerous, this just means the url changed but the image is the same
-            logging.info(f"{user_sub=} still has profile picture {image.uid=}, though its now at {picture_url=}")
+            logging.info(
+                f"{user_sub=} still has profile picture {image.uid=}, though its now at {picture_url=}"
+            )
             return
 
-        if response[1].rows_affected is None or response[1].rows_affected < 1:
-            await handle_warning(
-                f"{__name__}:unset_latest",
-                f"Could not unset latest for {user_sub=}, {new_upp_uid=}",
-            )
-        
         if response[2].rows_affected is None or response[2].rows_affected < 1:
             await handle_warning(
                 f"{__name__}:set_latest",
