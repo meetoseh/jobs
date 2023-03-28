@@ -73,14 +73,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         if key not in curr_attrs or curr_attrs[key].value != exp_val:
             to_update[key] = exp_val
 
-    if not to_update:
-        return
+    if to_update:
+        await rcat.set_customer_attributes(
+            revenue_cat_id=revenue_cat_id, attributes=to_update
+        )
 
-    await rcat.set_customer_attributes(
-        revenue_cat_id=revenue_cat_id, attributes=to_update
-    )
-
-    logging.debug(f"Updated {revenue_cat_id=} with {to_update=}")
+        logging.debug(f"Updated {revenue_cat_id=} with {to_update=}")
 
     dnow = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc)
     pro = customer_info.subscriber.entitlements.get("pro")
