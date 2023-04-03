@@ -7,6 +7,7 @@ from lib.image_files.get_biggest_export import get_biggest_export_url
 from lib.durations import format_duration
 import unix_dates
 import pytz
+import os
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -21,6 +22,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
         user_sub (str): The sub of the user entering the lobby
         journey_uid (str): The uid of the journey the user is entering the lobby for
     """
+    if os.environ["ENVIRONMENT"] == "dev":
+        return
+
     conn = await itgs.conn()
     cursor = conn.cursor("none")
 
