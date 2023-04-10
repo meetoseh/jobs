@@ -468,6 +468,10 @@ async def _execute_directly(
         bool(response.results[0][16]) if response.results[0][16] is not None else None
     )
 
+    if email == 'anonymous@example.com':
+        logging.warning(f"User with sub {user_sub=} is anonymous (should only happen in dev)")
+        return
+
     k_list_ids: list[str] = []
     if k_uid is not None:
         response = await cursor.execute(
@@ -492,6 +496,9 @@ async def _execute_directly(
     sms_notification_time = (
         None if uns_channel != "sms" else uns_preferred_notification_time
     )
+
+    if best_phone_number == '+15555555555':
+        best_phone_number = None
 
     klaviyo = await itgs.klaviyo()
     correct_list_internal_identifiers = [
