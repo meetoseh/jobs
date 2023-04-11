@@ -57,6 +57,15 @@ async def execute(
                 SELECT 1 FROM static_public_images
                 WHERE static_public_images.image_file_id = image_files.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM vip_chat_requests
+                WHERE
+                    vip_chat_requests.variant = 'phone-04102023'
+                    AND (
+                        json_extract(vip_chat_requests.display_data, '$.image_uid') = image_files.uid
+                        OR json_extract(vip_chat_requests.display_data, '$.background_image_uid') = image_files.uid
+                    )
+            )
         """,
         (uid,),
     )
