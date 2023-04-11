@@ -153,6 +153,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
             f"email: `{email}`",
             f"joined: {pretty_joined}",
             *([f"source: `{attributed_source}`"] if attributed_source else []),
+            f"sub: `{user_sub}`",
         ]
     )
 
