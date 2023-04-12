@@ -468,8 +468,10 @@ async def _execute_directly(
         bool(response.results[0][16]) if response.results[0][16] is not None else None
     )
 
-    if email == 'anonymous@example.com':
-        logging.warning(f"User with sub {user_sub=} is anonymous (should only happen in dev)")
+    if email == "anonymous@example.com":
+        logging.warning(
+            f"User with sub {user_sub=} is anonymous (should only happen in dev)"
+        )
         return
 
     k_list_ids: list[str] = []
@@ -497,7 +499,7 @@ async def _execute_directly(
         None if uns_channel != "sms" else uns_preferred_notification_time
     )
 
-    if best_phone_number == '+15555555555':
+    if best_phone_number == "+15555555555":
         best_phone_number = None
 
     klaviyo = await itgs.klaviyo()
@@ -638,10 +640,79 @@ async def _execute_directly(
             ),
         )
         if response.rows_affected is None or response.rows_affected <= 0:
+            # the most common reason this happens is the user has two accounts via different identities
+            # and they both have the same email. Let's see if this is happening and steal the profile
+            # from the other account
+            response = await cursor.execute(
+                """
+                SELECT 
+                    users.sub 
+                FROM user_klaviyo_profiles
+                JOIN users ON users.id = user_klaviyo_profiles.user_id
+                WHERE
+                    user_klaviyo_profiles.klaviyo_id = ?
+                    AND users.sub != ?
+                """,
+                (new_profile_id, user_sub),
+            )
+            if not response.results:
+                await handle_contextless_error(
+                    extra_info="raced creating klaviyo profile for user: "
+                    + json.dumps(
+                        {
+                            "user_sub": user_sub,
+                            "email": email,
+                            "phone_number": best_phone_number,
+                            "first_name": given_name,
+                            "last_name": family_name,
+                            "timezone": best_timezone,
+                            "environment": environment,
+                            "klaviyo_id": new_profile_id,
+                        }
+                    )
+                )
+                return
+
+            old_user_sub = response.results[0][0]
+            response = await cursor.execute(
+                """
+                UPDATE user_klaviyo_profiles SET user_id = users.id
+                FROM users
+                WHERE
+                    users.sub = ?
+                    AND user_klaviyo_profiles.klaviyo_id = ?
+                    AND EXISTS (
+                        SELECT 1 FROM users as old_users
+                        WHERE 
+                            old_users.id = user_klaviyo_profiles.user_id
+                            AND old_users.sub = ?
+                    )
+                """,
+                (user_sub, new_profile_id, old_user_sub),
+            )
+            if response.rows_affected is None or response.rows_affected <= 0:
+                await handle_contextless_error(
+                    extra_info="failed to steal klaviyo profile (no rows affected): "
+                    + json.dumps(
+                        {
+                            "old_user_sub": old_user_sub,
+                            "user_sub": user_sub,
+                            "email": email,
+                            "phone_number": best_phone_number,
+                            "first_name": given_name,
+                            "last_name": family_name,
+                            "timezone": best_timezone,
+                            "environment": environment,
+                            "klaviyo_id": new_profile_id,
+                        }
+                    )
+                )
+                return
             await handle_contextless_error(
-                extra_info="raced creating klaviyo profile for user: "
+                extra_info="stole klaviyo profile from another user with the same email: "
                 + json.dumps(
                     {
+                        "old_user_sub": old_user_sub,
                         "user_sub": user_sub,
                         "email": email,
                         "phone_number": best_phone_number,
@@ -652,6 +723,15 @@ async def _execute_directly(
                         "klaviyo_id": new_profile_id,
                     }
                 )
+            )
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.klaviyo.ensure_user",
+                user_sub=user_sub,
+                timezone=timezone,
+                timezone_technique=timezone_technique,
+                is_outside_flow=is_outside_flow,
+                is_bounce=False,
             )
             return
 
