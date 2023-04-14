@@ -11,6 +11,9 @@ def format_bps(time_seconds: float, bytes: int) -> str:
         5000 bytes in 5 seconds is 1 kBps / 8 kbps
         8,192,456 bytes in 7.345 seconds is 1.115 MBps / 8.923 Mbps
     """
+    if time_seconds == 0:
+        return "inf Bps / inf bps"
+
     bps = bytes / time_seconds
     return (
         si_format(bps, precision=3) + "Bps / " + si_format(bps * 8, precision=3) + "bps"

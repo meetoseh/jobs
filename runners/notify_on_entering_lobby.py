@@ -12,7 +12,14 @@ import os
 category = JobCategory.LOW_RESOURCE_COST
 
 
-async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: str):
+async def execute(
+    itgs: Itgs,
+    gd: GracefulDeath,
+    *,
+    user_sub: str,
+    journey_uid: str,
+    action: str = "entering a lobby",
+):
     """Notifies slack that the user with the given sub has just been provided a ref to
     the journey with the given uid.
 
@@ -21,6 +28,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
         gd (GracefulDeath): the signal tracker; provided automatically
         user_sub (str): The sub of the user entering the lobby
         journey_uid (str): The uid of the journey the user is entering the lobby for
+        action (str): The action message to include in the slack message
     """
     if os.environ["ENVIRONMENT"] == "dev":
         return
@@ -162,7 +170,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*{name} is entering a lobby!*{user_details}",
+                "text": f"*{name} is {action}!*{user_details}",
             },
             **(
                 {
@@ -193,4 +201,4 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, journey_uid: 
     logging.debug(f"Posting to slack: {blocks}")
 
     slack = await itgs.slack()
-    await slack.send_oseh_classes_blocks(blocks, preview=f"{name} is entering a lobby!")
+    await slack.send_oseh_classes_blocks(blocks, preview=f"{name} is {action}!")
