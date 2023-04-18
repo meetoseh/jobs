@@ -27,7 +27,7 @@ import time
 category = JobCategory.HIGH_RESOURCE_COST
 
 
-EXPORTER_VERSION = "1.0.6"
+EXPORTER_VERSION = "1.0.7"
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, course_uid: str):
@@ -242,8 +242,6 @@ class JourneyRelpaths:
 
     video: str
     """The relative path to where the video is stored"""
-    description: str
-    """The relative path to where we stored the txt file with the title, instructor, and description"""
 
 
 async def download_video(
@@ -304,32 +302,16 @@ async def generate_export(itgs: Itgs, course: CourseForExport, out_file: str) ->
         return relpath
 
     with temp_dir() as folder:
-        os.makedirs(os.path.join(folder, "images"))
-        os.makedirs(os.path.join(folder, "videos"))
         os.makedirs(os.path.join(folder, "classes"))
-
-        course_background_relpath = create_relpath(
-            "images", course.title, course.background.format
-        )
-        with open(os.path.join(folder, course_background_relpath), "wb") as f:
-            await download_image_export_ref(itgs, course.background, f, sync=True)
 
         journey_uid_to_relpaths: Dict[str, JourneyRelpaths] = dict()
         for journey in course.journeys:
-            video_relpath = create_relpath("videos", journey.title, ".mp4")
+            video_relpath = create_relpath("classes", journey.title, ".mp4")
             with open(os.path.join(folder, video_relpath), "wb") as f:
                 await download_video(itgs, journey.video_content_file, f)
 
-            description_relpath = create_relpath("classes", journey.title, ".txt")
-            with open(os.path.join(folder, description_relpath), "w") as f:
-                print(journey.title, file=f)
-                print(f"by {journey.instructor.name}", file=f)
-                print(file=f)
-                print("\n".join(textwrap.wrap(journey.description, width=80)), file=f)
-
             journey_uid_to_relpaths[journey.uid] = JourneyRelpaths(
                 video=video_relpath,
-                description=description_relpath,
             )
 
         meta = create_relpath("", "meta", ".txt")
@@ -355,10 +337,6 @@ async def generate_export(itgs: Itgs, course: CourseForExport, out_file: str) ->
             print("<body>", file=f)
             print(f"<h1>{course.title}</h1>", file=f)
             print(f"<p>{course.description}</p>", file=f)
-            print(
-                f'<div class="background-container"><img src="{course_background_relpath}" /></div>',
-                file=f,
-            )
             print("<h2>Classes</h2>", file=f)
             for journey in course.journeys:
                 print(f'<div class="course-class">', file=f)
