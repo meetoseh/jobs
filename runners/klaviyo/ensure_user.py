@@ -661,10 +661,10 @@ async def _execute_directly(
             """
             INSERT INTO user_klaviyo_profiles (
                 uid, klaviyo_id, user_id, email, phone_number, first_name, last_name, timezone,
-                environment, created_at, updated_at
+                environment, course_links_by_slug, created_at, updated_at
             )
             SELECT
-                ?, ?, users.id, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, users.id, ?, ?, ?, ?, ?, ?, ?, ?, ?
             FROM users
             WHERE users.sub = ?
             ON CONFLICT (user_id) DO NOTHING
@@ -679,6 +679,7 @@ async def _execute_directly(
                 family_name,
                 best_timezone,
                 environment,
+                json.dumps(course_links_by_slug),
                 now,
                 now,
                 user_sub,
@@ -898,7 +899,8 @@ async def _execute_directly(
                 last_name = ?,
                 timezone = ?,
                 environment = ?,
-                updated_at = ?
+                updated_at = ?,
+                course_links_by_slug = ?
             WHERE user_klaviyo_profiles.uid = ?
             """,
             (
@@ -909,6 +911,7 @@ async def _execute_directly(
                 best_timezone,
                 environment,
                 time.time(),
+                json.dumps(course_links_by_slug),
                 k_uid,
             ),
         )
