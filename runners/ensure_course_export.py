@@ -472,7 +472,7 @@ async def get_course(itgs: Itgs, uid: str) -> Optional[CourseForExport]:
     )
     if len(response.results or []) != num_journeys:
         await handle_contextless_error(
-            f"course {uid=} has {len(response.results or [])} exportable journeys, but {num_journeys} were expected"
+            extra_info=f"course {uid=} has {len(response.results or [])} exportable journeys, but {num_journeys} were expected"
         )
         return None
 
