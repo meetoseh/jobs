@@ -401,6 +401,7 @@ async def _execute_directly(
             user_klaviyo_profiles.timezone,
             user_klaviyo_profiles.environment,
             user_klaviyo_profiles.klaviyo_id,
+            user_klaviyo_profiles.course_links_by_slug,
             user_notification_settings.daily_event_enabled
         FROM users
         LEFT OUTER JOIN user_notification_settings ON (
@@ -464,8 +465,9 @@ async def _execute_directly(
     k_timezone: Optional[str] = response.results[0][13]
     k_environment: Optional[str] = response.results[0][14]
     k_klaviyo_id: Optional[str] = response.results[0][15]
+    k_course_links_by_slug_raw: Optional[str] = response.results[0][16]
     uns_daily_event_enabled: Optional[bool] = (
-        bool(response.results[0][16]) if response.results[0][16] is not None else None
+        bool(response.results[0][17]) if response.results[0][17] is not None else None
     )
 
     if email == "anonymous@example.com":
@@ -492,6 +494,25 @@ async def _execute_directly(
         if response.results:
             k_list_ids = [r[0] for r in response.results]
 
+    course_links_by_slug: Dict[str, str] = dict()
+    response = await cursor.execute(
+        """
+        SELECT
+            courses.slug,
+            course_download_links.code
+        FROM course_download_links, courses, users
+        WHERE
+            course_download_links.course_id = courses.id
+            AND users.id = course_download_links.user_id
+            AND users.sub = ?
+        """,
+        (user_sub,),
+    )
+    for row in response.results or []:
+        course_links_by_slug[row[0]] = (
+            os.environ["ROOT_FRONTEND_URL"] + "/courses/download?code=" + row[1]
+        )
+
     environment = os.environ["ENVIRONMENT"]
     best_phone_number = pv_phone_number or user_phone_number
     best_timezone = timezone or uns_timezone or k_timezone or "America/Los_Angeles"
@@ -499,8 +520,28 @@ async def _execute_directly(
         None if uns_channel != "sms" else uns_preferred_notification_time
     )
 
+    is_debug_phone_number = False
     if best_phone_number == "+15555555555":
+        is_debug_phone_number = True
         best_phone_number = None
+
+    changed_course_links_by_slug: Optional[Dict[str, str]] = dict()
+    if k_course_links_by_slug_raw is not None:
+        k_course_links_by_slug: Dict[str, str] = json.loads(k_course_links_by_slug_raw)
+        for slug, link in k_course_links_by_slug.items():
+            if slug not in course_links_by_slug:
+                changed_course_links_by_slug[slug] = ""
+            elif link != course_links_by_slug[slug]:
+                changed_course_links_by_slug[slug] = course_links_by_slug[slug]
+
+        for slug, link in course_links_by_slug.items():
+            if slug not in k_course_links_by_slug:
+                changed_course_links_by_slug[slug] = link
+    else:
+        changed_course_links_by_slug = dict(course_links_by_slug)
+
+    if not changed_course_links_by_slug:
+        changed_course_links_by_slug = None
 
     klaviyo = await itgs.klaviyo()
     correct_list_internal_identifiers = [
@@ -556,6 +597,7 @@ async def _execute_directly(
             last_name=family_name,
             timezone=best_timezone,
             environment=environment,
+            course_links_by_slug=changed_course_links_by_slug,
         )
         await asyncio.sleep(1)
         if new_profile_id is None:
@@ -572,6 +614,7 @@ async def _execute_directly(
                     last_name=family_name,
                     timezone=best_timezone,
                     environment=environment,
+                    course_links_by_slug=changed_course_links_by_slug,
                 )
                 await asyncio.sleep(1)
 
@@ -583,6 +626,7 @@ async def _execute_directly(
                     last_name=family_name,
                     timezone=best_timezone,
                     environment=environment,
+                    course_links_by_slug=changed_course_links_by_slug,
                 )
                 await asyncio.sleep(1)
             except DuplicateProfileError as e:
@@ -607,6 +651,7 @@ async def _execute_directly(
                     last_name=family_name,
                     timezone=best_timezone,
                     environment=environment,
+                    course_links_by_slug=changed_course_links_by_slug,
                 )
                 await asyncio.sleep(1)
 
@@ -616,10 +661,10 @@ async def _execute_directly(
             """
             INSERT INTO user_klaviyo_profiles (
                 uid, klaviyo_id, user_id, email, phone_number, first_name, last_name, timezone,
-                environment, created_at, updated_at
+                environment, course_links_by_slug, created_at, updated_at
             )
             SELECT
-                ?, ?, users.id, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, users.id, ?, ?, ?, ?, ?, ?, ?, ?, ?
             FROM users
             WHERE users.sub = ?
             ON CONFLICT (user_id) DO NOTHING
@@ -634,6 +679,7 @@ async def _execute_directly(
                 family_name,
                 best_timezone,
                 environment,
+                json.dumps(course_links_by_slug),
                 now,
                 now,
                 user_sub,
@@ -804,6 +850,7 @@ async def _execute_directly(
         or k_last_name != family_name
         or k_timezone != best_timezone
         or k_environment != environment
+        or changed_course_links_by_slug
     ):
         try:
             await klaviyo.update_profile(
@@ -815,6 +862,7 @@ async def _execute_directly(
                 last_name=family_name,
                 timezone=best_timezone,
                 environment=environment,
+                course_links_by_slug=changed_course_links_by_slug,
             )
             await asyncio.sleep(1)
         except DuplicateProfileError as e:
@@ -837,6 +885,7 @@ async def _execute_directly(
                 last_name=family_name,
                 timezone=best_timezone,
                 environment=environment,
+                course_links_by_slug=changed_course_links_by_slug,
             )
             await asyncio.sleep(1)
 
@@ -850,7 +899,8 @@ async def _execute_directly(
                 last_name = ?,
                 timezone = ?,
                 environment = ?,
-                updated_at = ?
+                updated_at = ?,
+                course_links_by_slug = ?
             WHERE user_klaviyo_profiles.uid = ?
             """,
             (
@@ -861,6 +911,7 @@ async def _execute_directly(
                 best_timezone,
                 environment,
                 time.time(),
+                json.dumps(course_links_by_slug),
                 k_uid,
             ),
         )
@@ -901,10 +952,11 @@ async def _execute_directly(
         internal_id = list_id_to_internal_identifier[list_id_to_add]
         is_sms_list = internal_id.startswith("sms-")
         if is_sms_list and best_phone_number is None:
-            slack = await itgs.slack()
-            await slack.send_web_error_message(
-                f"ensure_user has {list_id_to_add=} for {email=} but {is_sms_list=} and {best_phone_number=}."
-            )
+            if not is_debug_phone_number:
+                slack = await itgs.slack()
+                await slack.send_web_error_message(
+                    f"ensure_user has {list_id_to_add=} for {email=} but {is_sms_list=} and {best_phone_number=}."
+                )
             continue
         await klaviyo.subscribe_profile_to_list(
             profile_id=k_klaviyo_id,

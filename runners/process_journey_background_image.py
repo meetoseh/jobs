@@ -2,6 +2,7 @@
 import os
 import secrets
 import time
+from typing import List, Tuple
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -122,28 +123,32 @@ def get_webp_settings(width: int, height: int) -> dict:
     return {"lossless": False, "quality": 90, "method": 4}
 
 
-TARGETS = [
-    *(
-        ImageTarget(
-            required=True,
-            width=w,
-            height=h,
-            format="jpeg",
-            quality_settings=get_jpg_settings(w, h),
-        )
-        for w, h in RESOLUTIONS
-    ),
-    *(
-        ImageTarget(
-            required=False,
-            width=w,
-            height=h,
-            format="webp",
-            quality_settings=get_webp_settings(w, h),
-        )
-        for w, h in RESOLUTIONS
-    ),
-]
+def make_standard_targets(resolutions: List[Tuple[int, int]]) -> List[ImageTarget]:
+    return [
+        *(
+            ImageTarget(
+                required=True,
+                width=w,
+                height=h,
+                format="jpeg",
+                quality_settings=get_jpg_settings(w, h),
+            )
+            for w, h in resolutions
+        ),
+        *(
+            ImageTarget(
+                required=False,
+                width=w,
+                height=h,
+                format="webp",
+                quality_settings=get_webp_settings(w, h),
+            )
+            for w, h in resolutions
+        ),
+    ]
+
+
+TARGETS = make_standard_targets(RESOLUTIONS)
 
 
 async def execute(

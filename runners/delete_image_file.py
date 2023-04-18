@@ -66,6 +66,12 @@ async def execute(
                         OR json_extract(vip_chat_requests.display_data, '$.background_image_uid') = image_files.uid
                     )
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM courses
+                WHERE
+                    courses.background_image_file_id = image_files.id
+                    OR courses.circle_image_file_id = image_files.id
+            )
         """,
         (uid,),
     )
