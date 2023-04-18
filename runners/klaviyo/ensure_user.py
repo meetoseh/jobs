@@ -520,7 +520,9 @@ async def _execute_directly(
         None if uns_channel != "sms" else uns_preferred_notification_time
     )
 
+    is_debug_phone_number = False
     if best_phone_number == "+15555555555":
+        is_debug_phone_number = True
         best_phone_number = None
 
     changed_course_links_by_slug: Optional[Dict[str, str]] = dict()
@@ -947,10 +949,11 @@ async def _execute_directly(
         internal_id = list_id_to_internal_identifier[list_id_to_add]
         is_sms_list = internal_id.startswith("sms-")
         if is_sms_list and best_phone_number is None:
-            slack = await itgs.slack()
-            await slack.send_web_error_message(
-                f"ensure_user has {list_id_to_add=} for {email=} but {is_sms_list=} and {best_phone_number=}."
-            )
+            if not is_debug_phone_number:
+                slack = await itgs.slack()
+                await slack.send_web_error_message(
+                    f"ensure_user has {list_id_to_add=} for {email=} but {is_sms_list=} and {best_phone_number=}."
+                )
             continue
         await klaviyo.subscribe_profile_to_list(
             profile_id=k_klaviyo_id,
