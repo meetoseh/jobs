@@ -591,6 +591,27 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(5,)),
     ),
+    # we run backups just before daily jobs and just after
+    Job(
+        name="runners.backup_database",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(1,), minutes=(45,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.backup_redis",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(1,), minutes=(45,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.backup_database",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(3,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.backup_redis",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(3,), minutes=(0,), seconds=(0,)),
+    ),
     # BLOCKED UNTIL APPROVED BY TWILIO
     # Job(
     #     name="runners.notifications.send_daily_event_notifications",
