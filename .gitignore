@@ -6,3 +6,5 @@ updater.lock
 *.log
 /tmp
 *.log.*
+sd-venv
+test.webp
