@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import random
 from typing import Dict, List, Literal, Optional, Set, Tuple, Type
 from abc import ABCMeta, abstractmethod
-import torch
 from shareables.journey_audio_with_dynamic_background.p06_transcript import Timestamp
 from shareables.journey_audio_with_dynamic_background.p07_image_descriptions import (
     ImageDescriptions,
@@ -12,6 +11,7 @@ from shareables.shareable_pipeline_exception import ShareablePipelineException
 
 try:
     from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+    import torch
 
     HAVE_STABLE_DIFFUSION = True
 except ImportError:
@@ -22,6 +22,11 @@ import os
 import io
 import logging
 import time
+import requests
+from images import ImageTarget, _make_target
+from temp_files import temp_file
+from urllib.parse import urlencode
+import numpy as np
 
 
 class ImagesError(ShareablePipelineException):
@@ -180,6 +185,142 @@ class StableDiffusionImageGenerator(ImageGenerator):
         return self.pipe(prompt).images[0]
 
 
+class PexelsImageGenerator(ImageGenerator):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        *,
+        api_delay: Optional[float] = 1.0,
+        api_key: Optional[str] = None,
+    ):
+        self.width = width
+        self.height = height
+
+        self.pexels_api_key = (
+            os.environ["OSEH_PEXELS_API_KEY"] if api_key is None else api_key
+        )
+        """The api key used to connect to pexels"""
+
+        self.api_delay = api_delay
+        """The minimum amount of time to wait between api calls, in seconds"""
+
+        self._last_api_call_time: Optional[float] = None
+        """The time.perf_counter() of the last time an api request was made, or
+        None
+        """
+
+    def generate(self, prompt: str) -> Image.Image:
+        if self.api_delay is not None:
+            now = time.perf_counter()
+            if self._last_api_call_time is not None:
+                time_since_last = now - self._last_api_call_time
+                if time_since_last < self.api_delay:
+                    time.sleep(self.api_delay - time_since_last)
+            self._last_api_call_time = now
+
+        response = requests.get(
+            "https://api.pexels.com/v1/search?"
+            + urlencode(
+                {
+                    "query": prompt,
+                    "per_page": 1,
+                    "orientation": "portrait",
+                    "size": "medium",
+                }
+            ),
+            headers={"Authorization": self.pexels_api_key},
+        )
+        if not response.ok:
+            raise Exception(
+                f"Pexels API returned {response.status_code}: {response.text}"
+            )
+
+        data = response.json()
+        url = data["photos"][0]["src"]["original"]
+
+        response = requests.get(
+            url, headers={"Authorization": self.pexels_api_key}, stream=True
+        )
+        if not response.ok:
+            raise Exception(
+                f"Pexels Image GET returned {response.status_code}: {response.text}"
+            )
+
+        with temp_file() as tmp_path, temp_file() as out_path:
+            with open(tmp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=16 * 1024):
+                    f.write(chunk)
+
+            peeked = Image.open(tmp_path)
+            if peeked.width == self.width and peeked.height == self.height:
+                peeked.load()
+                return peeked
+
+            peeked.close()
+
+            target = _make_target(
+                tmp_path,
+                ImageTarget(
+                    required=True,
+                    width=self.width,
+                    height=self.height,
+                    format="webp",
+                    quality_settings={"lossless": False, "quality": 95, "method": 4},
+                ),
+                out_path,
+            )
+
+            if target is None:
+                raise Exception("Failed to produce image target")
+
+            result = Image.open(out_path)
+            if result.width != self.width or result.height != self.height:
+                raise Exception(
+                    f"Expected {self.width}x{self.height}, got {result.width}x{result.height}"
+                )
+
+            result.load()
+            return result
+
+
+class DarkenTopAndBottomImageGenerator(ImageGenerator):
+    """Darkens the top and bottom third of the image using a simple linear
+    gradient.
+    """
+
+    def __init__(self, wrapped: ImageGenerator) -> None:
+        self.width = wrapped.width
+        self.height = wrapped.height
+        self.wrapped = wrapped
+        """The model that is actually generating the images"""
+
+    def generate(self, prompt: str) -> Image:
+        res = self.wrapped.generate(prompt)
+
+        res_as_arr = np.asarray(res).copy()
+
+        third_height = res_as_arr.shape[0] // 3
+        color_multiplier = np.repeat(
+            np.repeat(
+                np.linspace(0.0, 1.0, third_height, dtype=np.float64)[:, np.newaxis],
+                res_as_arr.shape[1],
+                axis=1,
+            )[:, :, np.newaxis],
+            3,
+            axis=2,
+        )
+
+        res_as_arr[:third_height] = (
+            res_as_arr[:third_height].astype(np.float64) * color_multiplier
+        ).astype(np.uint8)
+        res_as_arr[-third_height:] = (
+            res_as_arr[-third_height:].astype(np.float64) * color_multiplier[::-1, :, :]
+        ).astype(np.uint8)
+
+        return Image.fromarray(res_as_arr)
+
+
 GENERATOR_CLASSES_BY_NAME: Dict[str, Type[ImageGenerator]] = {
     "dall-e": DalleImageGenerator,
     "stable-diffusion": StableDiffusionImageGenerator,
@@ -211,7 +352,6 @@ class BlurredBackgroundImageResizer(ImageGenerator):
 
         out = core.resize((self.width, self.height), Image.NEAREST)
         out = out.filter(ImageFilter.GaussianBlur(15))
-        out = ImageEnhance.Brightness(out).enhance(0.6)
 
         out.paste(
             core,
@@ -227,13 +367,16 @@ def create_image_generator(
     width: int,
     height: int,
     *,
-    model: Optional[Literal["stable-diffusion", "dall-e"]] = None,
+    model: Optional[Literal["stable-diffusion", "dall-e", "pexels"]] = None,
 ) -> ImageGenerator:
     """Produces the standard image generator for generating images of the given
     width and height, based on what is actually installed.
     """
     if model is None:
         model = "stable-diffusion" if HAVE_STABLE_DIFFUSION else "dall-e"
+
+    if model == "pexels":
+        return DarkenTopAndBottomImageGenerator(PexelsImageGenerator(width, height))
 
     model_sizes = MODEL_CAPABLE_IMAGE_SIZES[model]
     if width < model_sizes[0][0] or height < model_sizes[0][1]:
@@ -253,7 +396,7 @@ def create_image_generator(
     if width != model_size[0] or height != model_size[1]:
         generator = BlurredBackgroundImageResizer(generator, width, height)
 
-    return generator
+    return DarkenTopAndBottomImageGenerator(generator)
 
 
 def generate_image_from_prompt(prompt: str, width: int, height: int, out: str) -> None:
@@ -286,7 +429,7 @@ def create_images(
     std_image_duration: float = 4.0,
     max_image_duration: float = 5.0,
     max_retries: int = 5,
-    model: Optional[Literal["stable-diffusion", "dall-e"]] = None,
+    model: Optional[Literal["stable-diffusion", "dall-e", "pexels"]] = None,
 ) -> Images:
     """Produces background images of the given width and height using the given
     image descriptions.
