@@ -301,12 +301,12 @@ def create_images(
         height (int): The height of the images to generate
         folder (str): The folder within which to store generated images.
         min_image_duration (float, optional): The minimum amount of time to show
-            each image for. Defaults to 0.5.
+            each image for.
         standard_image_duration (float, optional): When nothing else is pressuring
             us to show an image for a certain amount of time, this is the amount
-            of time to show each image for. Defaults to 2.0.
+            of time to show each image for.
         max_image_duration (float, optional): The maximum amount of time to show
-            each image for. Defaults to 2.5.
+            each image for.
 
     Returns:
         Images: The images to display, broken down by when they are to be displayed.
@@ -338,7 +338,7 @@ def create_images(
             image_descriptions.image_descriptions[current_segment_index][
                 0
             ].end.in_seconds()
-            < next_image_starts_at
+            <= next_image_starts_at
             and current_segment_index < len(image_descriptions.image_descriptions) - 1
         ):
             current_segment_index += 1
@@ -348,6 +348,15 @@ def create_images(
             prompts_remaining_in_segment = set(
                 image_descriptions.image_descriptions[current_segment_index][1]
             )
+
+        current_segment_end = image_descriptions.image_descriptions[
+            current_segment_index
+        ][0].end.in_seconds()
+        time_until_next_segment = current_segment_end - next_image_starts_at
+        image_duration = min(image_duration, time_until_next_segment)
+
+        if time_until_next_segment - image_duration < min_image_duration:
+            image_duration = time_until_next_segment
 
         prompt = random.choice(list(prompts_remaining_in_segment))
         prompts_remaining_in_segment.remove(prompt)

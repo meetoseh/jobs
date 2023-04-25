@@ -309,13 +309,15 @@ def create_image_descriptions(
             f"Creating image descriptions for {timerange} using the following prompt:\n\n{json.dumps(messages, indent=2)}"
         )
         descriptions: List[str] = []
-        min_descriptions = max(1, math.ceil(timerange.get_width_in_seconds() / 3))
-        while len(descriptions) < min_descriptions:
+        target_num_descriptions = max(
+            1, math.ceil(timerange.get_width_in_seconds() / 3)
+        )
+        while len(descriptions) < target_num_descriptions:
             attempt = 0
             while True:
                 if descriptions:
                     logging.info(
-                        f"Not enough descriptions ({len(descriptions)}/{min_descriptions}), getting more..."
+                        f"Not enough descriptions ({len(descriptions)}/{target_num_descriptions}), getting more..."
                     )
 
                 try:
@@ -343,5 +345,5 @@ def create_image_descriptions(
 
             descriptions.extend(new_descriptions)
 
-        result.append((timerange, descriptions))
+        result.append((timerange, descriptions[:target_num_descriptions]))
     return ImageDescriptions(transcript=transcript, image_descriptions=result)

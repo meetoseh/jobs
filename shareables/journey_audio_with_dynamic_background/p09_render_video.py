@@ -300,6 +300,7 @@ class MyFrameGenerator(fg.FrameGenerator):
 
         start_x = (self.frame_size[0] - total_width) // 2
         center_y = 1489
+        bars_bottom_y = center_y + (BAR_MAX_HEIGHT_PX // 2)
 
         for i in range(num_lines):
             bar_height = int(
@@ -313,8 +314,9 @@ class MyFrameGenerator(fg.FrameGenerator):
             )
 
         daily_oseh_y = 1729
-        margin_daily_oseh_to_transcript = 40
         transcript_line_height = 60
+
+        transcript_center_y = bars_bottom_y + (daily_oseh_y - bars_bottom_y) // 2 - 40
 
         transcript_phrase_index = (
             bisect.bisect_right(self.phrase_time_offsets, time_seconds) - 1
@@ -323,8 +325,13 @@ class MyFrameGenerator(fg.FrameGenerator):
 
         caption_wrapped = textwrap.wrap(caption, width=45)
 
-        transcript_height = len(caption_wrapped) * transcript_line_height
-        y = daily_oseh_y - margin_daily_oseh_to_transcript - transcript_height
+        transcript_height = (len(caption_wrapped) - 1) * transcript_line_height + (
+            draw.textbbox(
+                (0, 0), caption_wrapped[-1], font=self.fonts["300 44px Open Sans"]
+            )[3]
+        )
+        y = transcript_center_y - transcript_height // 2
+
         for line in caption_wrapped:
             line_bbox = draw.textbbox(
                 (0, 0),
