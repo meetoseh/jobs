@@ -27,7 +27,7 @@ import time
 import requests
 from images import ImageTarget, _make_target
 from temp_files import temp_file
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, quote
 import numpy as np
 import shutil
 import subprocess
@@ -88,7 +88,7 @@ class Frame:
             "-nostats",
             "-accurate_seek",
             "-ss",
-            str(wrapped_timestamp),
+            f"{wrapped_timestamp:.3f}",
             "-i",
             self.path,
             "-frames:v",
@@ -381,7 +381,8 @@ class PexelsImageGenerator(ImageGenerator):
                     "orientation": "portrait",
                     "size": "medium",
                     "locale": "en-US",
-                }
+                },
+                quote_via=quote,
             ),
             headers={"Authorization": self.pexels_api_key},
         )

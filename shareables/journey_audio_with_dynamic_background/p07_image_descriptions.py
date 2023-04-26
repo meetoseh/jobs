@@ -199,20 +199,22 @@ during the movie. Your suggestions must be 1-3 tags generally describing the
 image contents, suitable to be used as a search query on a stock image website.
 Do not use any proper nouns, such as names of people, places, or brands. Prefer
 nature photography whenever it makes sense, such as mountains, springs, forests,
-or oceans.
+or oceans. Use the tags "Drone Footage", "Aerial Footage", or "Birds Eye View"
+whenever it makes sense. 
+
+Avoid activities, like Yoga, Meditation, Self-care. Avoid emotion words like Zen.
+Prefer tags like Background, Dusk, Clouds, Ocean, Desert, Scenic View, or Rock.
 
 The following are examples of image descriptions which are acceptable:
 
-1. Greeting, Happiness
+1. Background, Springs, Ground Level Shot
 2. Nature, Ocean, Aerial Footage
-3. Drone Footage, Waterfall
-4. Birds Eye View, City
+3. Drone Footage, Waterfall, Daytime
+4. Birds Eye View, City, Full Hd Wallpaper
 5. Burning, Flame, Fireplace
 
-The output should be as a numbered list as in the above example. You must
-provide image descriptions even if no visual component is present in the
-transcript, using an appropriate abstraction. You must always recommend
-images. If nothing fits, make a nature suggestion at random.
+The outputshould be a numbered list as in the above example. You must always
+make a recommendation. If nothing fits, you must still provide an numbered list.
 
 ===
 
@@ -351,7 +353,9 @@ def create_image_descriptions(
             exhausting all retries
     """
     if model is None:
-        from p08_images import HAVE_STABLE_DIFFUSION
+        from shareables.journey_audio_with_dynamic_background.p08_images import (
+            HAVE_STABLE_DIFFUSION,
+        )
 
         model = "stable-diffusion" if HAVE_STABLE_DIFFUSION else "dall-e"
 
@@ -387,6 +391,10 @@ def create_image_descriptions(
                     new_descriptions = parse_image_descriptions(
                         completion.choices[0].message.content
                     )
+                    if model in ("pexels", "pexels-video"):
+                        new_descriptions = [
+                            d.replace(",", "") for d in new_descriptions
+                        ]
                     logging.info(f"Parsed descriptions: {json.dumps(new_descriptions)}")
                     time.sleep(api_delay)
                     break
