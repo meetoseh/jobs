@@ -641,7 +641,7 @@ async def _execute_directly(
                 )
                 await asyncio.sleep(1)
                 await klaviyo.update_profile(
-                    profile_id=new_profile_id, phone_number=None
+                    profile_id=new_profile_id, email=email, phone_number=None
                 )
                 await asyncio.sleep(1)
                 await klaviyo.update_profile(

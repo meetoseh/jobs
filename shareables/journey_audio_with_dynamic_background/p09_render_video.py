@@ -236,10 +236,13 @@ class MyFrameGenerator(fg.FrameGenerator):
 
         if from_img_index == to_img_index:
             result = Image.new("RGB", self.frame_size)
-            bknd = Image.open(self.images.images[from_img_index][1])
+            bknd = self.images.images[from_img_index][1].get_image_at(time_into_image)
             result.paste(bknd, (0, 0))
             bknd.close()
         else:
+            from_img_starts_at = self.images.images[from_img_index][0]
+            to_img_starts_at = self.images.images[to_img_index][0]
+
             cross_fade_starts_at = (
                 self.image_time_offsets[to_img_index] - self.cross_fade_duration / 2
             )
@@ -250,21 +253,33 @@ class MyFrameGenerator(fg.FrameGenerator):
                 0 <= cross_fade_progress <= 1
             ), f"{self.image_time_offsets=}, {to_img_index=}, {self.cross_fade_duration=}, {cross_fade_starts_at=}, {cross_fade_progress=}, {time_seconds=}, {time_into_image=}, {time_until_next_image=}, {image_index=}, {from_img_index=}, {to_img_index=}"
 
-            bknd1 = Image.open(self.images.images[from_img_index][1])
+            time_into_from_img = min(
+                to_img_starts_at - from_img_starts_at,
+                time_seconds - cross_fade_starts_at,
+            )
+            time_into_to_img = max(0, time_seconds - to_img_starts_at)
 
             if cross_fade_progress == 0:
-                bknd1 = Image.open(self.images.images[from_img_index][1])
+                bknd1 = self.images.images[from_img_index][1].get_image_at(
+                    time_into_from_img
+                )
                 result = Image.new("RGB", self.frame_size)
                 result.paste(bknd1, (0, 0))
                 bknd1.close()
             elif cross_fade_progress == 1:
-                bknd2 = Image.open(self.images.images[to_img_index][1])
+                bknd2 = self.images.images[to_img_index][1].get_image_at(
+                    time_into_to_img
+                )
                 result = Image.new("RGB", self.frame_size)
                 result.paste(bknd2, (0, 0))
-                bknd1.close()
+                bknd2.close()
             else:
-                bknd1 = Image.open(self.images.images[from_img_index][1])
-                bknd2 = Image.open(self.images.images[to_img_index][1])
+                bknd1 = self.images.images[from_img_index][1].get_image_at(
+                    time_into_from_img
+                )
+                bknd2 = self.images.images[to_img_index][1].get_image_at(
+                    time_into_to_img
+                )
 
                 result = Image.blend(bknd1, bknd2, cross_fade_progress)
 

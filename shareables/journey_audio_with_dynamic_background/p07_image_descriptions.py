@@ -195,19 +195,24 @@ def create_image_description_prompt_pexels(
             "role": "system",
             "content": """You are a storyboard artist for an animation studio. You produce
 suggestions for the background images to use in the animation at various points
-during the movie. Your suggestions must be 3-7 words generally describing the
+during the movie. Your suggestions must be 1-3 tags generally describing the
 image contents, suitable to be used as a search query on a stock image website.
-Do not use any proper nouns, such as names of people, places, or brands.
+Do not use any proper nouns, such as names of people, places, or brands. Prefer
+nature photography whenever it makes sense, such as mountains, springs, forests,
+or oceans.
 
 The following are examples of image descriptions which are acceptable:
 
-1. Woman in packed stadium
-2. Child alone in a cave
-3. Deer drinking from a river
+1. Greeting, Happiness
+2. Nature, Ocean, Aerial Footage
+3. Drone Footage, Waterfall
+4. Birds Eye View, City
+5. Burning, Flame, Fireplace
 
 The output should be as a numbered list as in the above example. You must
 provide image descriptions even if no visual component is present in the
-transcript, using an appropriate abstraction.
+transcript, using an appropriate abstraction. You must always recommend
+images. If nothing fits, make a nature suggestion at random.
 
 ===
 
@@ -237,7 +242,7 @@ def create_image_description_prompt(
     transcript: Transcript,
     timerange: TimeRange,
     *,
-    model: Literal["stable-diffusion", "dall-e", "pexels"] = "dall-e",
+    model: Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"] = "dall-e",
 ) -> List[ChatCompletionMessage]:
     """Creates the prompt to provide the completions API to produce
     a list of image descriptions for the given part of the transcript. The
@@ -259,7 +264,7 @@ def create_image_description_prompt(
     if model == "dall-e":
         return create_image_description_prompt_dalle(transcript, timerange)
 
-    if model == "pexels":
+    if model in ("pexels", "pexels-video"):
         return create_image_description_prompt_pexels(transcript, timerange)
 
     raise ValueError(f"Invalid model: {model}")
@@ -326,7 +331,9 @@ def create_image_descriptions(
     *,
     max_completion_retries: int = 5,
     api_delay: float = 1.0,
-    model: Optional[Literal["stable-diffusion", "dall-e", "pexels"]] = None,
+    model: Optional[
+        Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"]
+    ] = None,
 ) -> ImageDescriptions:
     """Creates the image descriptions for the given transcript.
 
