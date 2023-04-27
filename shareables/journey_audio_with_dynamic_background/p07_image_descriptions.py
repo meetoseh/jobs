@@ -59,64 +59,6 @@ class ChatCompletionMessage(TypedDict):
     content: str
 
 
-def create_image_description_prompt_stable_diffusion(
-    transcript: Transcript, timerange: TimeRange
-) -> List[ChatCompletionMessage]:
-    return [
-        {
-            "role": "system",
-            "content": """You are a storyboard artist for an animation studio. You produce
-suggestions for the background images to use in the animation at various points
-during the movie. Your suggestions must be a series of | separated tags. 
-At least 5 tags are required, starting with the noun phrase which best describes
-the content of the image. You should include a well-known artist name to indicate
-the style of the image. Prefer human portrait images, nature images, abstract
-scenery, mystical animals, and abstract architecture. Avoid images including written
-text, logos, hands, or feet in the description.
-
-The following are examples of image descriptions which are not acceptable:
-
-1. A person sitting, standing up, or lying down.
-2. An image of a serene nature scene, such as a calm lake or a beach at sunset
-
-The following are examples of image descriptions which are acceptable:
-
-1. Elsa| d & d| fantasy| intricate| elegant| highly detailed| digital painting| artstation| concept art| matte| sharp focus| illustration| hearthstone| art by artgerm and greg rutkowski and alphonse mucha| 8k
-2. strong warrior princess| centered| key visual| intricate| highly detailed| breathtaking beauty| precise lineart| vibrant| comprehensive cinematic| Carne Griffiths| Conrad Roset
-3. photo of 8k ultra realistic harbour| port| boats| sunset| beautiful light| golden hour| full of colour| cinematic lighting| battered| trending on artstation| 4k| hyperrealistic| focused| extreme details| unreal engine 5| cinematic| masterpiece| art by studio ghibli
-4. Children's drawing using pencils an crayons on a white piece of paper| grass flowers butterflies, with pet dragon| forest in background| poorly drawn| Crayola| faber castell
-
-The output should be as a numbered list as in the above examples. You must
-provide image descriptions even if no visual component is present in the
-transcript, using an appropriate abstraction. For example, a person saying
-hello could be described as
-
-1. inside a girl room| cyberpunk vibe| neon glowing lights| sharp focus| photorealistic| unreal engine 5| girl in the bed| window that shows the skyscrapers in the background| deviantart| highly detailed| sharp focus| sci-fi| stunningly beautiful| dystopian| iridescent gold| cinematic lighting| dark
-
-===
-
-You are given the entire transcript of the audio, but you are only responsible
-for the specified section. You must output 5 image descriptions.
-""",
-        },
-        {
-            "role": "user",
-            "content": f"""For the following transcript:
-
-{transcript}
-
-===
-            
-What are the image descriptions for the following section of the transcript?
-
-
-{timerange}
-{next(text for (tr, text) in transcript.phrases if tr == timerange)}
-""",
-        },
-    ]
-
-
 def create_image_description_prompt_dalle(
     transcript: Transcript, timerange: TimeRange
 ) -> List[ChatCompletionMessage]:
@@ -244,7 +186,7 @@ def create_image_description_prompt(
     transcript: Transcript,
     timerange: TimeRange,
     *,
-    model: Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"] = "dall-e",
+    model: Literal["dall-e", "pexels", "pexels-video"] = "dall-e",
 ) -> List[ChatCompletionMessage]:
     """Creates the prompt to provide the completions API to produce
     a list of image descriptions for the given part of the transcript. The
@@ -260,9 +202,6 @@ def create_image_description_prompt(
     Returns:
         str: the prompt to provide to the completions api
     """
-    if model == "stable-diffusion":
-        return create_image_description_prompt_stable_diffusion(transcript, timerange)
-
     if model == "dall-e":
         return create_image_description_prompt_dalle(transcript, timerange)
 
@@ -333,9 +272,7 @@ def create_image_descriptions(
     *,
     max_completion_retries: int = 5,
     api_delay: float = 1.0,
-    model: Optional[
-        Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"]
-    ] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
 ) -> ImageDescriptions:
     """Creates the image descriptions for the given transcript.
 
@@ -353,11 +290,7 @@ def create_image_descriptions(
             exhausting all retries
     """
     if model is None:
-        from shareables.journey_audio_with_dynamic_background.p08_images import (
-            HAVE_STABLE_DIFFUSION,
-        )
-
-        model = "stable-diffusion" if HAVE_STABLE_DIFFUSION else "dall-e"
+        model = "dall-e"
 
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
     result: List[Tuple[TimeRange, List[str]]] = []

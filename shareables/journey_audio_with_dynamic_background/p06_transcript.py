@@ -221,7 +221,10 @@ def parse_vtt_transcript(raw: str) -> Transcript:
 
 
 def create_transcript(
-    source_audio_path: str, duration: Optional[int] = None
+    source_audio_path: str,
+    duration: Optional[int] = None,
+    *,
+    instructor: Optional[str] = None,
 ) -> Transcript:
     """Creates a transcript of the audio file at the given path. This should
     be passed the source audio file; it will be transcoded as necessary. If
@@ -286,7 +289,16 @@ def create_transcript(
         try:
             with open(target_filepath, "rb") as f:
                 transcript: str = openai.Audio.translate(
-                    "whisper-1", f, api_key=openai_api_key, response_format="vtt"
+                    "whisper-1",
+                    f,
+                    api_key=openai_api_key,
+                    response_format="vtt",
+                    language="en",
+                    prompt=(
+                        f"A transcript of a class with {instructor}."
+                        if instructor
+                        else None
+                    ),
                 )
         except Exception:
             raise TranscriptError("OpenAI Transcription via API failed")

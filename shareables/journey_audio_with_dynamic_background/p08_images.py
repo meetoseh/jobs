@@ -5,19 +5,11 @@ import random
 import secrets
 from typing import Dict, List, Literal, Optional, Set, Tuple, Type
 from abc import ABCMeta, abstractmethod
-from shareables.journey_audio_with_dynamic_background.p06_transcript import Timestamp
 from shareables.journey_audio_with_dynamic_background.p07_image_descriptions import (
     ImageDescriptions,
 )
 from shareables.shareable_pipeline_exception import ShareablePipelineException
 
-try:
-    from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
-    import torch
-
-    HAVE_STABLE_DIFFUSION = True
-except ImportError:
-    HAVE_STABLE_DIFFUSION = False
 from PIL import Image, ImageFilter, UnidentifiedImageError
 import openai
 import os
@@ -40,7 +32,6 @@ class ImagesError(ShareablePipelineException):
 
 MODEL_CAPABLE_IMAGE_SIZES: Dict[str, List[Tuple[int, int]]] = {
     "dall-e": ((256, 256), (512, 512), (1024, 1024)),
-    "stable-diffusion": ((768, 768),),
 }
 
 
@@ -300,31 +291,6 @@ class DalleImageGenerator(ImageGenerator):
             io.BytesIO(base64.b64decode(bytes(response.data[0].b64_json, "utf-8")))
         )
 
-        filename = f"{secrets.token_urlsafe(8)}.webp"
-        filepath = os.path.join(folder, filename)
-        img.save(filepath, "webp", optimize=True, quality=95, method=4)
-        return Frame(path=filepath, style="image", framerate=None, duration=None)
-
-
-class StableDiffusionImageGenerator(ImageGenerator):
-    def __init__(self, width: int, height: int):
-        assert (width, height) in MODEL_CAPABLE_IMAGE_SIZES["stable-diffusion"]
-        self.width = width
-        self.height = height
-
-        pipe = StableDiffusionPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-2-1",
-            torch_dtype=torch.float16,
-            local_files_only=os.environ["ENVIRONMENT"] != "dev",
-        )
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-        pipe = pipe.to("cuda")
-
-        self.pipe = pipe
-        """The actual pipeline used to generate images"""
-
-    def generate(self, prompt: str, folder: str) -> Frame:
-        img = self.pipe(prompt).images[0]
         filename = f"{secrets.token_urlsafe(8)}.webp"
         filepath = os.path.join(folder, filename)
         img.save(filepath, "webp", optimize=True, quality=95, method=4)
@@ -855,7 +821,6 @@ class DarkenTopAndBottomImageGenerator(TransformationImageGenerator):
 
 GENERATOR_CLASSES_BY_NAME: Dict[str, Type[ImageGenerator]] = {
     "dall-e": DalleImageGenerator,
-    "stable-diffusion": StableDiffusionImageGenerator,
 }
 
 
@@ -897,15 +862,13 @@ def create_image_generator(
     width: int,
     height: int,
     *,
-    model: Optional[
-        Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"]
-    ] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
 ) -> ImageGenerator:
     """Produces the standard image generator for generating images of the given
     width and height, based on what is actually installed.
     """
     if model is None:
-        model = "stable-diffusion" if HAVE_STABLE_DIFFUSION else "dall-e"
+        model = "dall-e"
 
     if model == "pexels":
         return DarkenTopAndBottomImageGenerator(PexelsImageGenerator(width, height))
@@ -966,9 +929,7 @@ def create_images(
     std_image_duration: float = 4.0,
     max_image_duration: float = 5.0,
     max_retries: int = 5,
-    model: Optional[
-        Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"]
-    ] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
 ) -> Images:
     """Produces background images of the given width and height using the given
     image descriptions.

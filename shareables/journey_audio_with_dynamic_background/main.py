@@ -62,7 +62,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        choices=["stable-diffusion", "dall-e", "pexels", "pexels-video"],
+        choices=["dall-e", "pexels", "pexels-video"],
         help="The model to use for image generation",
     )
     args = parser.parse_args()
@@ -82,7 +82,7 @@ def run_pipeline(
     title: str,
     instructor: str,
     duration: Optional[int],
-    model: Optional[Literal["stable-diffusion", "dall-e", "pexels", "pexels-video"]],
+    model: Optional[Literal["dall-e", "pexels", "pexels-video"]],
     dest_folder: str = os.path.join(
         "tmp", "shareables", "journey_audio_with_dynamic_background"
     ),
@@ -150,7 +150,7 @@ def run_pipeline(
         f"Audio visualization: {audio_visualization.shape=}, {audio_visualization.dtype=}, {audio_visualization.min()=}, {audio_visualization.max()=}, {audio_visualization.mean()=}"
     )
 
-    transcript = create_transcript(source, duration=duration)
+    transcript = create_transcript(source, duration=duration, instructor=instructor)
     logging.debug(f"Transcript:\n\n{transcript}")
 
     image_descriptions = create_image_descriptions(transcript, model=model)
