@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 import math
 import re
-from typing import List, Literal, Optional, Tuple, TypedDict
+from typing import List, Literal, Optional, Set, Tuple, TypedDict
 import openai
 from shareables.journey_audio_with_dynamic_background.p06_transcript import (
     TimeRange,
@@ -135,28 +135,26 @@ def create_image_description_prompt_pexels(
     return [
         {
             "role": "system",
-            "content": """You are a storyboard artist for an animation studio. You produce
-suggestions for the background images to use in the animation at various points
-during the movie. Your suggestions must be 1-3 tags generally describing the
-image contents, suitable to be used as a search query on a stock image website.
-Do not use any proper nouns, such as names of people, places, or brands. Prefer
-nature photography whenever it makes sense, such as mountains, springs, forests,
-or oceans. Use the tags "Drone Footage", "Aerial Footage", or "Birds Eye View"
-whenever it makes sense. 
-
-Avoid activities, like Yoga, Meditation, Self-care. Avoid emotion words like Zen.
-Prefer tags like Background, Dusk, Clouds, Ocean, Desert, Scenic View, or Rock.
+            "content": """You produce suggestions for abstract nature background images to use in a visualization
+of a talk at various points during the transcript. Your suggestions must be a
+numbered list where each item contains 2 tags generally describing the image
+contents. These should be broad descriptions of the type of shot or the contents
+in the shot. Since these images are going to come from stock photo websites and
+not drawn, avoid pictures of people or specific objects as it will cause confusion.
+For example, it's confusing to have a picture of a person talking, when it's not the
+person talking in the video. However, we can't just have a black screen so we always
+need something to show. If it doesn't matter what we show, just use a generic
+term like Beautiful or Nature, which generally results in a pretty video. Be creative:
+think beyond the literal meaning of the words. A person meditating is focusing inward,
+so use terms that focus inward like Cave, Interior, or Tunnel.
 
 The following are examples of image descriptions which are acceptable:
 
-1. Background, Springs, Ground Level Shot
-2. Nature, Ocean, Aerial Footage
-3. Drone Footage, Waterfall, Daytime
-4. Birds Eye View, City, Full Hd Wallpaper
-5. Burning, Flame, Fireplace
-
-The outputshould be a numbered list as in the above example. You must always
-make a recommendation. If nothing fits, you must still provide an numbered list.
+1. Spring, Beautiful
+2. Ocean, Aerial Footage
+3. Astronomy, Galaxy
+4. Birds Eye View, City
+5. Flame, Fireplace
 
 ===
 
@@ -301,7 +299,7 @@ def create_image_descriptions(
         logging.info(
             f"Creating image descriptions for {timerange} using the following prompt:\n\n{json.dumps(messages, indent=2)}"
         )
-        descriptions: List[str] = []
+        descriptions: Set[str] = set()
         target_num_descriptions = max(
             1, math.ceil(timerange.get_width_in_seconds() / 3)
         )
@@ -340,7 +338,8 @@ def create_image_descriptions(
                     logging.info("Failed to parse completion, retrying...")
                     time.sleep(api_delay)
 
-            descriptions.extend(new_descriptions)
+            for desc in new_descriptions:
+                descriptions.add(desc)
 
-        result.append((timerange, descriptions[:target_num_descriptions]))
+        result.append((timerange, list(descriptions)[:target_num_descriptions]))
     return ImageDescriptions(transcript=transcript, image_descriptions=result)

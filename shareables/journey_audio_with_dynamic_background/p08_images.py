@@ -5,12 +5,13 @@ import random
 import secrets
 from typing import Dict, List, Literal, Optional, Set, Tuple, Type
 from abc import ABCMeta, abstractmethod
+from lib.redis_api_limiter import ratelimit_using_redis
 from shareables.journey_audio_with_dynamic_background.p07_image_descriptions import (
     ImageDescriptions,
 )
 from shareables.shareable_pipeline_exception import ShareablePipelineException
 
-from PIL import Image, ImageFilter, UnidentifiedImageError
+from PIL import Image, ImageEnhance, ImageFilter, UnidentifiedImageError
 import openai
 import os
 import io
@@ -20,9 +21,12 @@ import requests
 from images import ImageTarget, _make_target
 from temp_files import temp_file
 from urllib.parse import urlencode, urlparse, quote
+from itgs import Itgs
 import numpy as np
 import shutil
 import subprocess
+
+from videos import VideoGenericInfo, get_video_generic_info
 
 
 class ImagesError(ShareablePipelineException):
@@ -47,15 +51,8 @@ class Frame:
     style: Literal["image", "video"]
     """The type of image this is. Either an image or a video"""
 
-    framerate: Optional[float]
-    """The framerate, in frames per second. Only applicable for video
-    frames.
-    """
-
-    duration: Optional[float]
-    """The duration of the video, in seconds. None if this is an image.
-    If the video is displayed longer than its duration, it should loop.
-    """
+    video_info: Optional[VideoGenericInfo]
+    """Information about the video, if this is a video, otherwise None"""
 
     def get_image_at(self, timestamp: float) -> Image.Image:
         """Gets a PIL image representing this frame at the given timestamp in seconds
@@ -69,7 +66,7 @@ class Frame:
         assert self.style == "video"
         ffmpeg = shutil.which("ffmpeg")
 
-        wrapped_timestamp = timestamp % self.duration
+        wrapped_timestamp = timestamp % self.video_info.duration
 
         cmd = [
             ffmpeg,
@@ -103,41 +100,10 @@ class Frame:
             return Image.open(io.BytesIO(result.stdout), formats=["bmp"])
         except UnidentifiedImageError:
             logging.warning(
-                f"Failed to identify image at {timestamp=} from {self.path=} ({self.duration=}) using {wrapped_timestamp=}"
+                f"Failed to identify image at {timestamp=} from {self.path=} ({self.video_info=}) using {wrapped_timestamp=}"
             )
 
-            # probably we want the last frame; let's grab that. But in order
-            # to do so we need to know how many frames are in the video
-            ffprobe = shutil.which("ffprobe")
-            cmd = [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-count_frames",
-                "-show_entries",
-                "stream=nb_read_frames",
-                "-print_format",
-                "json",
-                self.path,
-            ]
-            logging.debug(
-                f"Running {json.dumps(cmd)} to get last frame of {self.path=}"
-            )
-            result = subprocess.run(cmd, capture_output=True)
-            if result.returncode != 0:
-                raise Exception(
-                    "ffprobe failed\n\nstdout: ```\n"
-                    + result.stdout.decode("utf-8")
-                    + "\n```\n\nstderr: ```\n"
-                    + result.stderr.decode("utf-8")
-                    + "\n```"
-                )
-
-            result_json = json.loads(result.stdout.decode("utf-8"))
-            n_frames = result_json["streams"][0]["nb_read_frames"]
-
+            # probably we want the last frame; let's grab that.
             cmd = [
                 ffmpeg,
                 "-hide_banner",
@@ -147,7 +113,7 @@ class Frame:
                 "-i",
                 self.path,
                 "-vf",
-                f"select=eq(n,{n_frames-1})",
+                f"select=eq(n,{self.video_info.n_frames-1})",
                 "-frames:v",
                 "1",
                 "-c:v",
@@ -160,7 +126,7 @@ class Frame:
             result = subprocess.run(cmd, capture_output=True)
             if result.returncode != 0:
                 raise ImagesError(
-                    f"ffmpeg exited with code {result.returncode} when trying to get frame at {timestamp} (last frame, {n_frames=}) "
+                    f"ffmpeg exited with code {result.returncode} when trying to get frame at {timestamp} (last frame, {self.video_info.n_frames - 1=}) "
                     f"from {self.path} using {json.dumps(cmd)}: \n\n```\n{result.stderr.decode()}\n```\n\n```\n{result.stdout}\n```\n\n"
                 )
             return Image.open(io.BytesIO(result.stdout), formats=["bmp"])
@@ -231,7 +197,7 @@ class ImageGenerator(metaclass=ABCMeta):
     """The height of the images to generate. Readonly"""
 
     @abstractmethod
-    def generate(self, prompt: str, folder: str) -> Frame:
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
         """Generates a new image using the given prompt, at the width and
         height that this generator is capable of. The frame is written
         to a file within the given folder, and the path to the file is
@@ -251,7 +217,6 @@ class DalleImageGenerator(ImageGenerator):
         width: int,
         height: int,
         *,
-        api_delay: Optional[float] = 1.0,
         api_key: Optional[str] = None,
     ):
         assert (width, height) in MODEL_CAPABLE_IMAGE_SIZES["dall-e"]
@@ -263,22 +228,10 @@ class DalleImageGenerator(ImageGenerator):
         )
         """The api key used to connect to openai"""
 
-        self.api_delay = api_delay
-        """The minimum amount of time to wait between api calls, in seconds"""
-
-        self._last_api_call_time: Optional[float] = None
-        """The time.perf_counter() of the last time an api request was made, or
-        None
-        """
-
-    def generate(self, prompt: str, folder: str) -> Frame:
-        if self.api_delay is not None:
-            now = time.perf_counter()
-            if self._last_api_call_time is not None:
-                time_since_last = now - self._last_api_call_time
-                if time_since_last < self.api_delay:
-                    time.sleep(self.api_delay - time_since_last)
-            self._last_api_call_time = now
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
+        await ratelimit_using_redis(
+            itgs, key="external_apis:api_limiter:dall-e", time_between_requests=5
+        )
 
         response = openai.Image.create(
             api_key=self.openai_api_key,
@@ -294,7 +247,7 @@ class DalleImageGenerator(ImageGenerator):
         filename = f"{secrets.token_urlsafe(8)}.webp"
         filepath = os.path.join(folder, filename)
         img.save(filepath, "webp", optimize=True, quality=95, method=4)
-        return Frame(path=filepath, style="image", framerate=None, duration=None)
+        return Frame(path=filepath, style="image", video_info=None)
 
 
 class PexelsImageGenerator(ImageGenerator):
@@ -303,7 +256,6 @@ class PexelsImageGenerator(ImageGenerator):
         width: int,
         height: int,
         *,
-        api_delay: Optional[float] = 1.0,
         api_key: Optional[str] = None,
     ):
         self.width = width
@@ -314,28 +266,16 @@ class PexelsImageGenerator(ImageGenerator):
         )
         """The api key used to connect to pexels"""
 
-        self.api_delay = api_delay
-        """The minimum amount of time to wait between api calls, in seconds"""
-
-        self._last_api_call_time: Optional[float] = None
-        """The time.perf_counter() of the last time an api request was made, or
-        None
-        """
-
-    def generate(self, prompt: str, folder: str) -> Frame:
-        if self.api_delay is not None:
-            now = time.perf_counter()
-            if self._last_api_call_time is not None:
-                time_since_last = now - self._last_api_call_time
-                if time_since_last < self.api_delay:
-                    time.sleep(self.api_delay - time_since_last)
-            self._last_api_call_time = now
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
+        await ratelimit_using_redis(
+            itgs, key="external_apis:api_limiter:pexels", time_between_requests=40
+        )
 
         img = self._generate_img(prompt)
         filename = f"{secrets.token_urlsafe(8)}.webp"
         filepath = os.path.join(folder, filename)
         img.save(filepath, "webp", optimize=True, quality=95, method=4)
-        return Frame(path=filepath, style="image", framerate=None, duration=None)
+        return Frame(path=filepath, style="image", video_info=None)
 
     def _generate_img(self, prompt: str) -> Image.Image:
         response = requests.get(
@@ -344,7 +284,12 @@ class PexelsImageGenerator(ImageGenerator):
                 {
                     "query": prompt,
                     "per_page": 1,
-                    "orientation": "portrait",
+                    "page": random.randint(1, 20),
+                    "orientation": (
+                        "landscape"
+                        if self.width > self.height
+                        else ("portrait" if self.height > self.width else "square")
+                    ),
                     "size": "medium",
                     "locale": "en-US",
                 },
@@ -419,7 +364,6 @@ class PexelsVideosImageGenerator(ImageGenerator):
         width: int,
         height: int,
         *,
-        api_delay: Optional[float] = 40.0,
         api_key: Optional[str] = None,
     ):
         self.width = width
@@ -430,28 +374,21 @@ class PexelsVideosImageGenerator(ImageGenerator):
         )
         """The api key used to connect to pexels"""
 
-        self.api_delay = api_delay
-        """The minimum amount of time to wait between api calls, in seconds"""
-
-        self._last_api_call_time: Optional[float] = None
-        """The time.perf_counter() of the last time an api request was made, or
-        None
-        """
-
-    def generate(self, prompt: str, folder: str) -> Frame:
-        if self.api_delay is not None:
-            now = time.perf_counter()
-            if self._last_api_call_time is not None:
-                time_since_last = now - self._last_api_call_time
-                if time_since_last < self.api_delay:
-                    time.sleep(self.api_delay - time_since_last)
-            self._last_api_call_time = now
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
+        await ratelimit_using_redis(
+            itgs, key="external_apis:api_limiter:pexels", time_between_requests=40
+        )
 
         raw_video_infos = self._generate_raw_video(prompt)
 
         for raw_video_info in raw_video_infos:
             iden = secrets.token_urlsafe(8)
             raw_path = os.path.join(folder, f"{iden}-raw.mp4")
+            await ratelimit_using_redis(
+                itgs,
+                key="external_apis:api_limiter:pexels",
+                time_between_requests=40,
+            )
             with open(raw_path, "wb") as f:
                 response = requests.get(raw_video_info.url, stream=True)
                 if not response.ok:
@@ -460,9 +397,14 @@ class PexelsVideosImageGenerator(ImageGenerator):
                             f"Retrying video at {raw_video_info.url} ({response.status_code=}) in 60s"
                         )
                         time.sleep(60)
+                        await ratelimit_using_redis(
+                            itgs,
+                            key="external_apis:api_limiter:pexels",
+                            time_between_requests=40,
+                        )
                         response = requests.get(raw_video_info.url, stream=True)
                         if not response.ok:
-                            if response.status in (404, 410):
+                            if response.status_code in (404, 410):
                                 logging.warning(
                                     f"Skipping video at {raw_video_info.url} ({response.status_code=}), after 180s"
                                 )
@@ -480,47 +422,13 @@ class PexelsVideosImageGenerator(ImageGenerator):
                 for chunk in response.iter_content(chunk_size=16 * 1024):
                     f.write(chunk)
 
-            ffprobe = shutil.which("ffprobe")
-            cmd = [
-                ffprobe,
-                "-v",
-                "warning",
-                "-print_format",
-                "json",
-                "-select_streams",
-                "v",
-                "-show_entries",
-                "stream=r_frame_rate,duration",
-                raw_path,
-            ]
-            logging.info(f"Running command: {json.dumps(cmd)}")
-            result = subprocess.run(cmd, capture_output=True)
-            if result.returncode != 0:
-                raise Exception(
-                    "ffprobe failed\n\nstdout: ```\n"
-                    + result.stdout.decode("utf-8")
-                    + "\n```\n\nstderr: ```\n"
-                    + result.stderr.decode("utf-8")
-                    + "\n```"
-                )
-
-            info = json.loads(result.stdout.decode("utf-8"))
-            true_duration = float(info["streams"][0]["duration"])
-            framerate_frac: str = info["streams"][0]["r_frame_rate"]
-
-            num, denom = framerate_frac.split("/")
-            framerate = float(num) / float(denom)
+            info = get_video_generic_info(raw_path)
 
             if (
                 raw_video_info.width == self.width
                 and raw_video_info.height == self.height
             ):
-                return Frame(
-                    path=raw_path,
-                    style="video",
-                    framerate=framerate,
-                    duration=true_duration,
-                )
+                return Frame(path=raw_path, style="video", video_info=info)
 
             out_path = os.path.join(folder, f"{iden}-transformed.mp4")
             ffmpeg = shutil.which("ffmpeg")
@@ -562,48 +470,13 @@ class PexelsVideosImageGenerator(ImageGenerator):
                     + "\n```"
                 )
 
-            cmd = [
-                ffprobe,
-                "-v",
-                "warning",
-                "-print_format",
-                "json",
-                "-select_streams",
-                "v",
-                "-show_entries",
-                "stream=r_frame_rate,duration",
-                out_path,
-            ]
-            logging.info(f"Running command: {json.dumps(cmd)}")
-            result = subprocess.run(cmd, capture_output=True)
-            if result.returncode != 0:
-                raise Exception(
-                    "ffprobe failed\n\nstdout: ```\n"
-                    + result.stdout.decode("utf-8")
-                    + "\n```\n\nstderr: ```\n"
-                    + result.stderr.decode("utf-8")
-                    + "\n```"
-                )
-
-            info = json.loads(result.stdout.decode("utf-8"))
-            true_duration = float(info["streams"][0]["duration"])
-            framerate_frac: str = info["streams"][0]["r_frame_rate"]
-
-            num, denom = framerate_frac.split("/")
-            framerate = float(num) / float(denom)
-
-            return Frame(
-                path=out_path,
-                style="video",
-                framerate=framerate,
-                duration=true_duration,
-            )
+            info = get_video_generic_info(out_path)
+            return Frame(path=out_path, style="video", video_info=info)
 
         raise Exception(f"Could not find usable videos for prompt {prompt=}")
 
     def _generate_raw_video(self, prompt: str) -> List[PexelVideo]:
         """Finds a few videos on pexels that matches the prompt and meets the size requirements."""
-        # TODO: This currently is optimized for the 1080x1920 size
         response = requests.get(
             "https://api.pexels.com/videos/search?"
             + urlencode(
@@ -613,7 +486,11 @@ class PexelsVideosImageGenerator(ImageGenerator):
                     "page": random.randint(1, 10),
                     "size": "medium",
                     "locale": "en-US",
-                    "orientation": "portrait",
+                    "orientation": (
+                        "landscape"
+                        if self.width > self.height
+                        else ("portrait" if self.height > self.width else "square")
+                    ),
                 }
             ),
             headers={"Authorization": self.pexels_api_key},
@@ -671,7 +548,7 @@ class DummyGenerator(ImageGenerator):
         self.height = height
         self.frame = frame
 
-    def generate(self, prompt: str, folder: str) -> Frame:
+    async def generate(self, prompt: str, folder: str) -> Frame:
         return self.frame
 
 
@@ -687,8 +564,8 @@ class TransformationImageGenerator(ImageGenerator):
         self.wrapped = wrapped
         """The model that is actually generating the images"""
 
-    def generate(self, prompt: str, folder: str) -> Frame:
-        inner_frame = self.wrapped.generate(prompt, folder)
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
+        inner_frame = await self.wrapped.generate(itgs, prompt, folder)
 
         if inner_frame.style == "image":
             img = Image.open(inner_frame.path)
@@ -733,7 +610,7 @@ class TransformationImageGenerator(ImageGenerator):
             "-s",
             f"{self.width}x{self.height}",
             "-r",
-            str(inner_frame.framerate),
+            str(inner_frame.video_info.framerate),
             "-i",
             "pipe:0",
             "-pix_fmt",
@@ -777,12 +654,8 @@ class TransformationImageGenerator(ImageGenerator):
         if writer_code != 0:
             raise Exception(f"ffmpeg exited with code {writer_code}")
 
-        return Frame(
-            path=outpath,
-            style="video",
-            framerate=inner_frame.framerate,
-            duration=inner_frame.duration,
-        )
+        info = get_video_generic_info(outpath)
+        return Frame(path=outpath, style="video", video_info=info)
 
     @abstractmethod
     def transform_image(self, res: Image.Image) -> Image.Image:
@@ -817,6 +690,11 @@ class DarkenTopAndBottomImageGenerator(TransformationImageGenerator):
         ).astype(np.uint8)
 
         return Image.fromarray(res_as_arr)
+
+
+class DarkenImageGenerator(TransformationImageGenerator):
+    def transform_image(self, res: Image.Image) -> Image.Image:
+        return ImageEnhance.Brightness(res).enhance(0.6)
 
 
 GENERATOR_CLASSES_BY_NAME: Dict[str, Type[ImageGenerator]] = {
@@ -871,12 +749,10 @@ def create_image_generator(
         model = "dall-e"
 
     if model == "pexels":
-        return DarkenTopAndBottomImageGenerator(PexelsImageGenerator(width, height))
+        return DarkenImageGenerator(PexelsImageGenerator(width, height))
 
     if model == "pexels-video":
-        return DarkenTopAndBottomImageGenerator(
-            PexelsVideosImageGenerator(width, height)
-        )
+        return DarkenImageGenerator(PexelsVideosImageGenerator(width, height))
 
     model_sizes = MODEL_CAPABLE_IMAGE_SIZES[model]
     if width < model_sizes[0][0] or height < model_sizes[0][1]:
@@ -896,7 +772,7 @@ def create_image_generator(
     if width != model_size[0] or height != model_size[1]:
         generator = BlurredBackgroundImageResizer(generator, width, height)
 
-    return DarkenTopAndBottomImageGenerator(generator)
+    return DarkenImageGenerator(generator)
 
 
 def generate_image_from_prompt(prompt: str, width: int, height: int, out: str) -> None:
@@ -919,11 +795,12 @@ def generate_image_from_prompt(prompt: str, width: int, height: int, out: str) -
     create_image_generator(width, height).generate(prompt).save(out, format="webp")
 
 
-def create_images(
+async def create_images(
     image_descriptions: ImageDescriptions,
     width: int,
     height: int,
     *,
+    itgs: Itgs,
     folder: str,
     min_image_duration: float = 3.0,
     std_image_duration: float = 4.0,
@@ -1006,7 +883,7 @@ def create_images(
 
         for attempt in range(max_retries):
             try:
-                frame = generator.generate(prompt, folder)
+                frame = await generator.generate(itgs, prompt, folder)
                 break
             except Exception as e:
                 logging.info(
@@ -1030,10 +907,36 @@ def create_images(
                 image_duration = time_until_next_segment
 
             # 3. don't loop the video
-            image_duration = min(image_duration, frame.duration)
+            image_duration = min(image_duration, frame.video_info.duration)
 
             # 4. don't go past the end of the segment
             image_duration = min(image_duration, time_until_next_segment)
+
+            # if that means we're using less than 10 seconds, and the video
+            # could take us through the next segment, go through the next
+            # segment instead
+            if (
+                image_duration < 10
+                and current_segment_index
+                < len(image_descriptions.image_descriptions) - 1
+                and (
+                    image_descriptions.image_descriptions[current_segment_index + 1][
+                        0
+                    ].end.in_seconds()
+                    - next_image_starts_at
+                )
+                < frame.video_info.duration
+            ):
+                image_duration = (
+                    image_descriptions.image_descriptions[current_segment_index + 1][
+                        0
+                    ].end.in_seconds()
+                    - next_image_starts_at
+                )
+
+            # alternatively, don't show videos less than 5s as it's jarring
+            if image_duration < 5 and frame.video_info.duration >= 5:
+                image_duration = 5
 
         next_image_starts_at += image_duration
 

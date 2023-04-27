@@ -1,13 +1,14 @@
 """Entry point for testing this pipeline"""
 
 import argparse
+import asyncio
 import logging
 import shutil
 from typing import Literal, Optional
 from shareables.journey_audio.p01_crop_and_normalize import crop_and_normalize
 import os
 import scipy.fft
-
+from itgs import Itgs
 from shareables.journey_audio.p02_load import load
 from shareables.journey_audio.p03_sliding_window_repeated_fft import (
     sliding_window_repeated_fft,
@@ -68,7 +69,11 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG)
 
-    run_pipeline(args.source, args.title, args.instructor, args.duration, args.model)
+    asyncio.run(
+        run_pipeline(
+            args.source, args.title, args.instructor, args.duration, args.model
+        )
+    )
 
 
 @dataclass
@@ -77,7 +82,7 @@ class RunPipelineResult:
     """Where the output file was written to"""
 
 
-def run_pipeline(
+async def run_pipeline(
     source: str,
     title: str,
     instructor: str,
@@ -88,7 +93,8 @@ def run_pipeline(
     ),
 ) -> RunPipelineResult:
     """Runs the pipeline on the source audio file at the given location,
-    storing the result in the given folder.
+    storing the result in the given folder. This isn't properly asyncio
+    most of the time, but does use it in parts.
 
     This is intended to be suitable both for testing (via the main function)
     and for use in jobs.
@@ -163,9 +169,10 @@ def run_pipeline(
 
     os.makedirs(images_folder, exist_ok=True)
 
-    images = create_images(
-        image_descriptions, 1080, 1920, folder=images_folder, model=model
-    )
+    async with Itgs() as itgs:
+        images = await create_images(
+            image_descriptions, 1080, 1920, itgs=itgs, folder=images_folder, model=model
+        )
 
     video_only_path = os.path.join(dest_folder, "video_only.mp4")
     if os.path.exists(video_only_path):

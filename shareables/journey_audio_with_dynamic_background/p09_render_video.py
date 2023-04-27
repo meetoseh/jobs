@@ -314,7 +314,7 @@ class MyFrameGenerator(fg.FrameGenerator):
         total_width = (num_lines * BAR_WIDTH) + ((num_lines - 1) * BAR_SPACING)
 
         start_x = (self.frame_size[0] - total_width) // 2
-        center_y = 1489
+        center_y = self.frame_size[1] // 2
         bars_bottom_y = center_y + (BAR_MAX_HEIGHT_PX // 2)
 
         for i in range(num_lines):
@@ -331,7 +331,7 @@ class MyFrameGenerator(fg.FrameGenerator):
         daily_oseh_y = 1729
         transcript_line_height = 60
 
-        transcript_center_y = bars_bottom_y + (daily_oseh_y - bars_bottom_y) // 2 - 40
+        transcript_center_y = bars_bottom_y + 90
 
         transcript_phrase_index = (
             bisect.bisect_right(self.phrase_time_offsets, time_seconds) - 1

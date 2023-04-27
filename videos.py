@@ -1,3 +1,4 @@
+from fractions import Fraction
 import json
 import subprocess
 import time
@@ -309,3 +310,112 @@ def _encode_video(
         duration=float(info["format"]["duration"]),
         bit_rate=int(info["format"]["bit_rate"]),
     )
+
+
+@dataclass
+class VideoGenericInfo:
+    framerate: Fraction
+    """The framerate of the video, expressed as an exact fraction"""
+    duration: float
+    """The duration of the video in seconds, approximate"""
+    width: int
+    """The width of the video in pixels"""
+    height: int
+    """The height of the video in pixels"""
+    bit_rate: int
+    """The average bitrate of the video in bits per second"""
+    n_frames: int
+    """The number of frames in the video"""
+
+
+def get_video_generic_info(path: str) -> VideoGenericInfo:
+    ffprobe = shutil.which("ffprobe")
+    cmd = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v",
+        "-count_frames",
+        "-show_entries",
+        "stream=nb_read_frames,r_frame_rate,width,height",
+        "-show_format",
+        "-print_format",
+        "json",
+        path,
+    ]
+    logging.debug(f"Running command: {json.dumps(cmd)}")
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        raise Exception(
+            "ffprobe failed\n\nstdout: ```\n"
+            + result.stdout.decode("utf-8")
+            + "\n```\n\nstderr: ```\n"
+            + result.stderr.decode("utf-8")
+            + "\n```"
+        )
+
+    result_json = json.loads(result.stdout.decode("utf-8"))
+    stream = next(
+        (
+            stream
+            for stream in result_json["streams"]
+            if isinstance(stream["nb_read_frames"], int)
+        ),
+        result_json["streams"][0],
+    )
+    n_frames = stream["nb_read_frames"]
+
+    if not isinstance(n_frames, int):
+        try:
+            n_frames = int(n_frames)
+        except ValueError:
+            raise ValueError(
+                f"ffprobe returned a non-integer for {n_frames=} on {path=}: {result.stdout=}"
+            )
+
+    if n_frames <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {n_frames=} on {path=}: {result.stdout=}"
+        )
+
+    duration = float(result_json["format"]["duration"])
+    if duration <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {duration=} on {path=}: {result.stdout=}"
+        )
+
+    width = int(stream["width"])
+    if width <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {width=} on {path=}: {result.stdout=}"
+        )
+
+    height = int(stream["height"])
+    if height <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {height=} on {path=}: {result.stdout=}"
+        )
+
+    bit_rate = int(result_json["format"]["bit_rate"])
+    if bit_rate <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {bit_rate=} on {path=}: {result.stdout=}"
+        )
+
+    framerate = Fraction(stream["r_frame_rate"])
+    if framerate <= 0:
+        raise ValueError(
+            f"ffprobe returned a non-positive for {framerate=} on {path=}: {result.stdout=}"
+        )
+
+    result = VideoGenericInfo(
+        framerate=framerate,
+        duration=duration,
+        width=width,
+        height=height,
+        bit_rate=bit_rate,
+        n_frames=n_frames,
+    )
+    logging.debug(f"Video info for {path=}: {result=}")
+    return result
