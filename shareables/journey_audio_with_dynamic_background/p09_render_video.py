@@ -11,6 +11,19 @@ from temp_files import temp_file
 import psutil
 import textwrap
 import bisect
+import cairosvg
+import os
+
+LANDSCAPE_OUTRO_DURATION = 3
+"""
+When rendering videos in landscape mode we go to our branded outro for this
+duration in seconds
+"""
+
+LANDSCAPE_OUTRO_CROSSFADE_DURATION = 0.5
+"""
+When going to the outro, how long to cross-fade for from the last image
+"""
 
 
 def render_video(
@@ -154,6 +167,9 @@ class MyFrameGenerator(fg.FrameGenerator):
         """If the image time offsets have been loaded on this process, the loaded
         offsets. Otherwise None."""
 
+        self.outro_cached: Optional[Image.Image] = None
+        """If the outro image has already been generated, the generated image."""
+
     @property
     def duration(self) -> float:
         """Duration in milliseconds"""
@@ -206,10 +222,36 @@ class MyFrameGenerator(fg.FrameGenerator):
     def generate_at(self, time_ms):
         return fg.img_to_bytes(self.generate_at_pil(time_ms))
 
-    def generate_at_pil(self, time_ms: float) -> Image:
+    def generate_at_pil(self, time_ms: float, *, suppress_outro: bool = False) -> Image:
         frame_index = round((time_ms * self.framerate) / 1000)
 
         time_seconds = time_ms / 1000
+        time_until_end_seconds = (self.duration - time_ms) / 1000
+
+        if (
+            not suppress_outro
+            and (self.frame_size[0] > self.frame_size[1])
+            and time_until_end_seconds
+            < LANDSCAPE_OUTRO_DURATION + LANDSCAPE_OUTRO_CROSSFADE_DURATION / 2
+        ):
+            crossfade_starts_at_seconds = (
+                self.duration / 1000
+                - LANDSCAPE_OUTRO_DURATION
+                - LANDSCAPE_OUTRO_CROSSFADE_DURATION / 2
+            )
+            crossfade_ends_at_seconds = (
+                crossfade_starts_at_seconds + LANDSCAPE_OUTRO_CROSSFADE_DURATION
+            )
+            if time_seconds > crossfade_ends_at_seconds:
+                return self.generate_outro()
+
+            fading_from = self.generate_at_pil(time_ms, suppress_outro=True)
+            fading_to = self.generate_outro()
+
+            fade_progress = (
+                time_seconds - crossfade_starts_at_seconds
+            ) / LANDSCAPE_OUTRO_CROSSFADE_DURATION
+            return Image.blend(fading_from, fading_to, fade_progress)
 
         image_index = bisect.bisect_right(self.image_time_offsets, time_seconds) - 1
         time_into_image = time_seconds - self.image_time_offsets[image_index]
@@ -405,3 +447,53 @@ class MyFrameGenerator(fg.FrameGenerator):
         )
 
         return result
+
+    def generate_outro(self) -> Image.Image:
+        """Generates the standard oseh outro image"""
+        if self.outro_cached is not None:
+            return self.outro_cached
+
+        svg_width = round((224 / 1920) * self.frame_size[0])
+        svg_height = round((219.63 / 941.22) * svg_width)
+
+        with temp_file(".png") as rasterized_path:
+            cairosvg.svg2png(
+                url=os.path.join(
+                    "shareables",
+                    "journey_audio_with_dynamic_background",
+                    "assets",
+                    "Oseh_Wordmark_Color.svg",
+                ),
+                write_to=rasterized_path,
+                output_width=svg_width,
+                output_height=svg_height,
+            )
+
+            logo = Image.open(rasterized_path)
+            logo.load()
+
+        outro = Image.new("RGB", self.frame_size, (255, 255, 255))
+        outro.paste(
+            logo,
+            (
+                (self.frame_size[0] - svg_width) // 2,
+                (self.frame_size[1] - svg_height) // 2,
+            ),
+            logo,
+        )
+
+        oseh_com_text = "oseh.com"
+        oseh_com_font = self.fonts["300 44px Open Sans"]
+
+        draw = ImageDraw.Draw(outro)
+        bbox = draw.textbbox((0, 0), oseh_com_text, font=oseh_com_font)
+
+        oseh_com_x = (self.frame_size[0] - bbox[2]) // 2
+        oseh_com_y = self.frame_size[1] - 80 - bbox[3]
+
+        draw.text(
+            (oseh_com_x, oseh_com_y), oseh_com_text, fill=(0, 0, 0), font=oseh_com_font
+        )
+
+        self.outro_cached = outro
+        return outro

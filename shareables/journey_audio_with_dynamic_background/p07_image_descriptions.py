@@ -273,6 +273,7 @@ def create_image_descriptions(
     max_completion_retries: int = 5,
     api_delay: float = 1.0,
     model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
+    min_seconds_per_image: float = 3.0,
 ) -> ImageDescriptions:
     """Creates the image descriptions for the given transcript.
 
@@ -281,6 +282,10 @@ def create_image_descriptions(
         max_completion_retries (int, optional): The maximum number of times to retry the completion. We
             will retry with a different temperature, following the pattern 1,1.1,0.9,1.2,0.8,1.3,0.7,...
         api_delay (float, optional): How long to wait between openai requests.
+        model (str, optional): The model to use to generate the image descriptions. If not provided,
+            we will use the dall-e model.
+        min_seconds_per_image (float, optional): We ensure there are enough images that if every
+            image was only shown for this many seconds, there would still be enough images.
 
     Returns:
         ImageDescriptions: The image descriptions for the given transcript
@@ -303,7 +308,7 @@ def create_image_descriptions(
         )
         descriptions: Set[str] = set()
         target_num_descriptions = max(
-            1, math.ceil(timerange.get_width_in_seconds() / 3)
+            1, math.ceil(timerange.get_width_in_seconds() / min_seconds_per_image)
         )
         while len(descriptions) < target_num_descriptions:
             attempt = 0

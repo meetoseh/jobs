@@ -78,6 +78,11 @@ def main():
         default=1920,
         help="The height of the video to generate, in pixels",
     )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Configures the pipeline to use faster settings, for testing purposes",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG)
 
@@ -90,6 +95,7 @@ def main():
             args.model,
             width=args.width,
             height=args.height,
+            fast=args.fast,
         )
     )
 
@@ -111,6 +117,7 @@ async def run_pipeline(
     ),
     width: int = 1080,
     height: int = 1920,
+    fast: bool = False,
 ) -> RunPipelineResult:
     """Runs the pipeline on the source audio file at the given location,
     storing the result in the given folder. This isn't properly asyncio
@@ -181,7 +188,9 @@ async def run_pipeline(
     transcript = create_transcript(source, duration=duration, instructor=instructor)
     logging.debug(f"Transcript:\n\n{transcript}")
 
-    image_descriptions = create_image_descriptions(transcript, model=model)
+    image_descriptions = create_image_descriptions(
+        transcript, model=model, **({"min_seconds_per_image": 10} if fast else {})
+    )
     logging.debug(f"Image descriptions:\n\n{image_descriptions}")
 
     images_folder = os.path.join(dest_folder, "images")
@@ -199,6 +208,16 @@ async def run_pipeline(
             itgs=itgs,
             folder=images_folder,
             model=model,
+            **(
+                {
+                    "min_image_duration": 10,
+                    "max_image_duration": 30,
+                    "std_image_duration": 20,
+                    "max_retries": 2,
+                }
+                if fast
+                else {}
+            ),
         )
 
     video_only_path = os.path.join(dest_folder, "video_only.mp4")

@@ -737,6 +737,37 @@ class BlurredBackgroundImageResizer(TransformationImageGenerator):
         return out
 
 
+class CropImageGenerator(TransformationImageGenerator):
+    """Generates a smaller image by cropping the center of the image generated
+    by the underlying model.
+    """
+
+    def __init__(self, wrapped: ImageGenerator, width: int, height: int) -> None:
+        assert wrapped.width >= width
+        assert wrapped.height >= height
+        self.wrapped = wrapped
+        """The model that is actually generating the images"""
+
+        self.width = width
+        """The width of the images to generate"""
+
+        self.height = height
+        """The height of the images to generate"""
+
+    def transform_image(self, core: Image.Image) -> Image.Image:
+        if core.width == self.width and core.height == self.height:
+            return core
+
+        return core.crop(
+            (
+                (core.width - self.width) // 2,
+                (core.height - self.height) // 2,
+                (core.width + self.width) // 2,
+                (core.height + self.height) // 2,
+            )
+        )
+
+
 def create_image_generator(
     width: int,
     height: int,
@@ -771,7 +802,18 @@ def create_image_generator(
         model_size[1],
     )
     if width != model_size[0] or height != model_size[1]:
-        generator = BlurredBackgroundImageResizer(generator, width, height)
+        if width >= model_size[0] and height >= model_size[1]:
+            generator = BlurredBackgroundImageResizer(generator, width, height)
+        elif width <= model_size[0] and height <= model_size[1]:
+            generator = CropImageGenerator(generator, width, height)
+        else:
+            # crop one dimension, blur the other
+            if width >= model_size[0]:
+                generator = CropImageGenerator(generator, width, model_size[1])
+            else:
+                generator = CropImageGenerator(generator, model_size[0], height)
+
+            generator = BlurredBackgroundImageResizer(generator, width, height)
 
     return DarkenImageGenerator(generator)
 
