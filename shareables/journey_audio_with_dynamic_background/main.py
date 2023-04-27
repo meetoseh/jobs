@@ -66,12 +66,30 @@ def main():
         choices=["dall-e", "pexels", "pexels-video"],
         help="The model to use for image generation",
     )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=1080,
+        help="The width of the video to generate, in pixels",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=1920,
+        help="The height of the video to generate, in pixels",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG)
 
     asyncio.run(
         run_pipeline(
-            args.source, args.title, args.instructor, args.duration, args.model
+            args.source,
+            args.title,
+            args.instructor,
+            args.duration,
+            args.model,
+            width=args.width,
+            height=args.height,
         )
     )
 
@@ -91,6 +109,8 @@ async def run_pipeline(
     dest_folder: str = os.path.join(
         "tmp", "shareables", "journey_audio_with_dynamic_background"
     ),
+    width: int = 1080,
+    height: int = 1920,
 ) -> RunPipelineResult:
     """Runs the pipeline on the source audio file at the given location,
     storing the result in the given folder. This isn't properly asyncio
@@ -99,7 +119,9 @@ async def run_pipeline(
     This is intended to be suitable both for testing (via the main function)
     and for use in jobs.
     """
-    logging.info(f"shareables.journey_audio.main.run_pipeline({source=})")
+    logging.info(
+        f"shareables.journey_audio.main.run_pipeline({source=}, {dest_folder=})"
+    )
 
     if not os.path.exists(source):
         logging.error(f"Source audio file not found at {source}")
@@ -171,7 +193,12 @@ async def run_pipeline(
 
     async with Itgs() as itgs:
         images = await create_images(
-            image_descriptions, 1080, 1920, itgs=itgs, folder=images_folder, model=model
+            image_descriptions,
+            width,
+            height,
+            itgs=itgs,
+            folder=images_folder,
+            model=model,
         )
 
     video_only_path = os.path.join(dest_folder, "video_only.mp4")
@@ -187,8 +214,8 @@ async def run_pipeline(
         audio_visualization=audio_visualization,
         destination_path=video_only_path,
         framerate=60,
-        width=1080,
-        height=1920,
+        width=width,
+        height=height,
     )
     logging.debug("Done rendering video without audio")
 

@@ -146,7 +146,9 @@ person talking in the video. However, we can't just have a black screen so we al
 need something to show. If it doesn't matter what we show, just use a generic
 term like Beautiful or Nature, which generally results in a pretty video. Be creative:
 think beyond the literal meaning of the words. A person meditating is focusing inward,
-so use terms that focus inward like Cave, Interior, or Tunnel.
+so use terms that focus inward like Cave, Interior, or Tunnel. Note that some terms
+often result in really weird pseudo-inappropriate videos, like "Hands" or "Feet", so
+avoid those.
 
 The following are examples of image descriptions which are acceptable:
 

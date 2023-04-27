@@ -502,6 +502,7 @@ class PexelsVideosImageGenerator(ImageGenerator):
 
         res: List[PexelVideo] = []
         data = response.json()
+        logging.debug(f"pexels response for {prompt=}: {json.dumps(data)}")
         for raw_video in data["videos"]:
             if raw_video["width"] < self.width or raw_video["height"] < self.height:
                 logging.debug(

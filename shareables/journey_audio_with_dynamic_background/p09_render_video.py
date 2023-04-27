@@ -289,26 +289,51 @@ class MyFrameGenerator(fg.FrameGenerator):
         draw = ImageDraw.Draw(result)
 
         y = 160
+        if self.frame_size[1] < 1920:
+            y = 60
+
         for idx, line in enumerate(self.titleLines):
             if idx > 0:
                 y += 80
 
+            x = 104
+
+            if self.frame_size == (1920, 1080):
+                # center align
+                bbox = draw.textbbox(
+                    (0, 0), line, font=self.fonts["300 72px Open Sans"]
+                )
+                x = (self.frame_size[0] - bbox[2]) // 2
+
             draw.text(
-                (104, y),
+                (x, y),
                 line,
                 fill=(255, 255, 255),
                 font=self.fonts["300 72px Open Sans"],
             )
 
         y += 114
+        subtitle = f"with {self.instructor_name}"
+        x = 104
+
+        if self.frame_size == (1920, 1080):
+            # center align
+            bbox = draw.textbbox(
+                (0, 0), subtitle, font=self.fonts["300 44px italic Open Sans"]
+            )
+            x = (self.frame_size[0] - bbox[2]) // 2
+
         draw.text(
-            (104, y),
-            f"with {self.instructor_name}",
+            (x, y),
+            subtitle,
             fill=(255, 255, 255),
             font=self.fonts["300 44px italic Open Sans"],
         )
         y += 391 - 274
-        draw.line((80, y, 1000, y), fill=(255, 255, 255, 125), width=1)
+
+        draw.line(
+            (80, y, self.frame_size[0] - 80, y), fill=(255, 255, 255, 125), width=1
+        )
 
         num_lines = self.audio_visualization.shape[1]
         total_width = (num_lines * BAR_WIDTH) + ((num_lines - 1) * BAR_SPACING)
@@ -328,10 +353,8 @@ class MyFrameGenerator(fg.FrameGenerator):
                 fill=(255, 255, 255),
             )
 
-        daily_oseh_y = 1729
+        daily_oseh_y = self.frame_size[1] - 191
         transcript_line_height = 60
-
-        transcript_center_y = bars_bottom_y + 90
 
         transcript_phrase_index = (
             bisect.bisect_right(self.phrase_time_offsets, time_seconds) - 1
@@ -339,13 +362,16 @@ class MyFrameGenerator(fg.FrameGenerator):
         caption = self.transcript.phrases[transcript_phrase_index][1]
 
         caption_wrapped = textwrap.wrap(caption, width=45)
-
-        transcript_height = (len(caption_wrapped) - 1) * transcript_line_height + (
-            draw.textbbox(
-                (0, 0), caption_wrapped[-1], font=self.fonts["300 44px Open Sans"]
-            )[3]
-        )
-        y = transcript_center_y - transcript_height // 2
+        if self.frame_size == (1920, 1080):
+            y = center_y + 60
+        else:
+            transcript_center_y = bars_bottom_y + 90
+            transcript_height = (len(caption_wrapped) - 1) * transcript_line_height + (
+                draw.textbbox(
+                    (0, 0), caption_wrapped[-1], font=self.fonts["300 44px Open Sans"]
+                )[3]
+            )
+            y = transcript_center_y - transcript_height // 2
 
         for line in caption_wrapped:
             line_bbox = draw.textbbox(
@@ -362,11 +388,20 @@ class MyFrameGenerator(fg.FrameGenerator):
             )
             y += transcript_line_height
 
+        x = 104
+        my_daily_oseh_text = "My daily #oseh"
+        my_daily_oseh_font = self.fonts["300 44px Open Sans"]
+
+        if self.frame_size == (1920, 1080):
+            # center align
+            bbox = draw.textbbox((0, 0), my_daily_oseh_text, font=my_daily_oseh_font)
+            x = (self.frame_size[0] - bbox[2]) // 2
+
         draw.text(
-            (102, daily_oseh_y),
-            "My daily #oseh",
+            (x, daily_oseh_y),
+            my_daily_oseh_text,
             fill=(255, 255, 255),
-            font=self.fonts["300 44px Open Sans"],
+            font=my_daily_oseh_font,
         )
 
         return result
