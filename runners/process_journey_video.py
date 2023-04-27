@@ -43,7 +43,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             instructors.name,
             audio_contents.uid,
             audio_contents.original_sha512,
-            audio_s3_files.key,
+            audio_s3_files.key
         FROM journeys
         JOIN instructors ON instructors.id = journeys.instructor_id
         JOIN content_files AS audio_contents ON audio_contents.id = journeys.audio_content_file_id
