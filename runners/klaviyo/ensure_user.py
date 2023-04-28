@@ -401,8 +401,7 @@ async def _execute_directly(
             user_klaviyo_profiles.timezone,
             user_klaviyo_profiles.environment,
             user_klaviyo_profiles.klaviyo_id,
-            user_klaviyo_profiles.course_links_by_slug,
-            user_notification_settings.daily_event_enabled
+            user_klaviyo_profiles.course_links_by_slug
         FROM users
         LEFT OUTER JOIN user_notification_settings ON (
             user_notification_settings.user_id = users.id
@@ -466,9 +465,6 @@ async def _execute_directly(
     k_environment: Optional[str] = response.results[0][14]
     k_klaviyo_id: Optional[str] = response.results[0][15]
     k_course_links_by_slug_raw: Optional[str] = response.results[0][16]
-    uns_daily_event_enabled: Optional[bool] = (
-        bool(response.results[0][17]) if response.results[0][17] is not None else None
-    )
 
     if email == "anonymous@example.com":
         logging.warning(
@@ -548,31 +544,20 @@ async def _execute_directly(
         "users",
         *(
             ["sms-morning"]
-            if uns_daily_event_enabled
-            and (
+            if (
                 sms_notification_time == "morning"
                 or (is_outside_flow and sms_notification_time == "any")
             )
             else []
         ),
-        *(
-            ["sms-afternoon"]
-            if uns_daily_event_enabled and sms_notification_time == "afternoon"
-            else []
-        ),
-        *(
-            ["sms-evening"]
-            if uns_daily_event_enabled and sms_notification_time == "evening"
-            else []
-        ),
+        *(["sms-afternoon"] if sms_notification_time == "afternoon" else []),
+        *(["sms-evening"] if sms_notification_time == "evening" else []),
     ]
     dont_remove_internal_ids = set(
         [
             *(
                 ["sms-morning"]
-                if uns_daily_event_enabled
-                and sms_notification_time == "any"
-                and is_outside_flow
+                if sms_notification_time == "any" and is_outside_flow
                 else []
             ),
         ]
@@ -781,11 +766,7 @@ async def _execute_directly(
             )
             return
 
-        if (
-            uns_preferred_notification_time is not None
-            and uns_daily_event_enabled
-            and pv_phone_number is not None
-        ):
+        if uns_preferred_notification_time is not None and pv_phone_number is not None:
             logging.info(
                 f"Since {user_sub=} had a notification time ({uns_preferred_notification_time=}) "
                 "with daily event enabled, and had a phone number verified, we are handling a "
@@ -802,8 +783,7 @@ async def _execute_directly(
             logging.info(
                 f"Despite creating a profile for {user_sub=}, not necessary to update "
                 f"notification time stats, since either {uns_preferred_notification_time=}, "
-                f", {uns_daily_event_enabled=}, or {pv_phone_number=} would prevent them "
-                "from receiving notifications"
+                f", or {pv_phone_number=} would prevent them from receiving notifications"
             )
 
         await klaviyo.unsuppress_email(email)

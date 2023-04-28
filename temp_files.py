@@ -5,6 +5,14 @@ import secrets
 import shutil
 
 
+def get_temp_file() -> str:
+    """Gets a path to a random file which is in a folder that exists. This does not
+    manage cleaning the file on your behalf
+    """
+    os.makedirs("tmp", exist_ok=True)
+    return os.path.join("tmp", secrets.token_hex(16))
+
+
 @contextmanager
 def temp_file(ext: str = "") -> Generator[str, None, None]:
     """Creates a temporary file and deletes it when done; yields the path to the file.

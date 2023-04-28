@@ -33,7 +33,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         SELECT users.sub FROM users, user_notification_settings
         WHERE
             users.id = user_notification_settings.user_id
-            AND user_notification_settings.daily_event_enabled = 1
             AND NOT EXISTS (
                 SELECT 1 FROM user_klaviyo_profiles
                 WHERE user_klaviyo_profiles.user_id = users.id
