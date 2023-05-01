@@ -401,7 +401,7 @@ async def assign_emotions_for_journey(
         transcript (Transcript, None): The transcript, or None to have it fetched
             from the database
     """
-    if transcript is not None:
+    if transcript is None:
         transcript = await fetch_transcript_for_content_file(
             itgs, content_file_uid=content_file_uid, consistency="none"
         )
