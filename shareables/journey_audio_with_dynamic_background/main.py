@@ -185,11 +185,16 @@ async def run_pipeline(
         f"Audio visualization: {audio_visualization.shape=}, {audio_visualization.dtype=}, {audio_visualization.min()=}, {audio_visualization.max()=}, {audio_visualization.mean()=}"
     )
 
-    transcript = create_transcript(source, duration=duration, instructor=instructor)
+    transcript = await create_transcript(
+        itgs, source, duration=duration, instructor=instructor
+    )
     logging.debug(f"Transcript:\n\n{transcript}")
 
-    image_descriptions = create_image_descriptions(
-        transcript, model=model, **({"min_seconds_per_image": 10} if fast else {})
+    image_descriptions = await create_image_descriptions(
+        itgs,
+        transcript=transcript,
+        model=model,
+        **({"min_seconds_per_image": 10} if fast else {}),
     )
     logging.debug(f"Image descriptions:\n\n{image_descriptions}")
 

@@ -6,12 +6,12 @@ from dataclasses import dataclass
 import json
 import math
 import re
-from typing import List, Literal, Optional, Set, Tuple, TypedDict
+from typing import List, Literal, Optional, Set, Tuple
 import openai
-from shareables.journey_audio_with_dynamic_background.p06_transcript import (
-    TimeRange,
-    Transcript,
-)
+from itgs import Itgs
+from lib.chatgpt.model import ChatCompletionMessage
+from lib.redis_api_limiter import ratelimit_using_redis
+from lib.transcripts.model import TimeRange, Transcript
 from shareables.shareable_pipeline_exception import ShareablePipelineException
 import time
 import logging
@@ -52,11 +52,6 @@ class ImageDescriptions:
             for j, description in enumerate(descriptions):
                 result.write(f"   {chr(ord('a') + j)}. {description}\n")
         return result.getvalue()
-
-
-class ChatCompletionMessage(TypedDict):
-    role: Literal["user", "system", "assistant"]
-    content: str
 
 
 def create_image_description_prompt_dalle(
@@ -267,11 +262,10 @@ def _temperature_for_attempt(attempt: int) -> float:
     return 1.0 + (attempt * 0.1) * (-1 if attempt % 2 == 0 else 1)
 
 
-def create_image_descriptions(
-    transcript: Transcript,
-    *,
+async def create_image_descriptions(
+    itgs: Itgs,
+    *transcript: Transcript,
     max_completion_retries: int = 5,
-    api_delay: float = 1.0,
     model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
     min_seconds_per_image: float = 3.0,
 ) -> ImageDescriptions:
@@ -300,8 +294,6 @@ def create_image_descriptions(
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
     result: List[Tuple[TimeRange, List[str]]] = []
     for timerange, _ in transcript.phrases:
-        if result:
-            time.sleep(api_delay)
         messages = create_image_description_prompt(transcript, timerange, model=model)
         logging.info(
             f"Creating image descriptions for {timerange} using the following prompt:\n\n{json.dumps(messages, indent=2)}"
@@ -319,6 +311,11 @@ def create_image_descriptions(
                     )
 
                 try:
+                    await ratelimit_using_redis(
+                        itgs,
+                        key="external_apis:api_limiter:chatgpt",
+                        time_between_requests=3,
+                    )
                     completion = openai.ChatCompletion.create(
                         model="gpt-3.5-turbo",
                         messages=messages,
@@ -334,7 +331,6 @@ def create_image_descriptions(
                             d.replace(",", "") for d in new_descriptions
                         ]
                     logging.info(f"Parsed descriptions: {json.dumps(new_descriptions)}")
-                    time.sleep(api_delay)
                     break
                 except Exception:
                     attempt += 1
@@ -343,7 +339,6 @@ def create_image_descriptions(
                             f"Unable to create image descriptions for {timerange}"
                         )
                     logging.info("Failed to parse completion, retrying...")
-                    time.sleep(api_delay)
 
             for desc in new_descriptions:
                 descriptions.add(desc)
