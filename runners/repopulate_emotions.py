@@ -16,6 +16,7 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 from lib.basic_redis_lock import basic_redis_lock
+from lib.emotions.emotion_content import purge_emotion_content_statistics_everywhere
 from lib.redis_api_limiter import ratelimit_using_redis
 from lib.transcripts.db import fetch_transcript_for_content_file
 from lib.transcripts.model import Transcript
@@ -29,22 +30,22 @@ category = JobCategory.HIGH_RESOURCE_COST
 
 
 # Unhappy emotions or feelings that you might come to Oseh to resolve
-EMOTIONS = [
-    "angry",
-    "annoyed",
-    "anxious",
-    "awake",
-    "tense",
-    "noisy",
-    "sad",
-    "closed",
-    "lost",
-    "disconnected",
-    "fear",
-    "shame",
-    "guilt",
+EMOTIONS: List[Tuple[str, str]] = [
+    ("angry", "calm down"),
+    ("annoyed", "be patient"),
+    ("anxious", "be calm"),
+    ("awake", "go to sleep"),
+    ("tense", "relax"),
+    ("noisy", "simmer down"),
+    ("sad", "cheer up"),
+    ("closed", "open up"),
+    ("lost", "find yourself"),
+    ("disconnected", "connect"),
+    ("fear", "be brave"),
+    ("shame", "be proud"),
+    ("guilt", "be proud"),
 ]
-EMOTIONS_SET = frozenset(EMOTIONS)
+EMOTIONS_SET = frozenset(emotion for (emotion, _) in EMOTIONS)
 PROMPT_VERSION = "1.0.0"
 # semver for create_prompt_for_journey
 
@@ -62,7 +63,7 @@ def create_prompt_for_journey(
         transcript (Transcript): The transcript of the journey
     """
     numbered_tags_lines = []
-    for i, emotion in enumerate(EMOTIONS):
+    for i, (emotion, _) in enumerate(EMOTIONS):
         numbered_tags_lines.append(f"{i + 1}. {emotion}")
     numbered_tags = "\n".join(numbered_tags_lines)
 
@@ -313,6 +314,7 @@ async def store_emotions_for_journey(
             f"Unable to associate all emotions with journey {uid=}: only {response[1].rows_affected=} stored"
         )
 
+    await purge_emotion_content_statistics_everywhere(itgs)
     logging.info(
         f"Stored {len(emotions)} emotions for journey {title} by {instructor} ({uid=}): {emotions}"
     )
@@ -456,9 +458,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         logging.info(f"Removed {cursor.rows_affected or 0} old emotions")
 
         logging.debug("Uploading new emotions...")
-        values_list = ", ".join(["(?)"] * len(EMOTIONS))
+        values_list = ", ".join(["(?, ?)"] * len(EMOTIONS))
         response = await cursor.execute(
-            f"INSERT INTO emotions (word) VALUES {values_list}", EMOTIONS
+            f"INSERT INTO emotions (word, antonym) VALUES {values_list}",
+            [a for e in EMOTIONS for a in e],
         )
         if response.rows_affected != len(EMOTIONS):
             raise ValueError(
@@ -498,7 +501,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         )
         emotion_counts = {row[0]: row[1] for row in response.results}
 
-        for emotion in EMOTIONS:
+        for emotion, _ in EMOTIONS:
             if emotion not in emotion_counts:
                 emotion_counts[emotion] = 0
 

@@ -1,6 +1,7 @@
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
+from lib.emotions.emotion_content import purge_emotion_content_statistics_everywhere
 from lib.transcripts.db import fetch_transcript_for_content_file
 from runners.repopulate_emotions import assign_emotions_for_journey
 from runners.generate_journey_transcript import execute as generate_journey_transcript
@@ -77,6 +78,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         instructor=instructor_name,
         transcript=transcript,
     )
+    await purge_emotion_content_statistics_everywhere(itgs)
 
 
 if __name__ == "__main__":
