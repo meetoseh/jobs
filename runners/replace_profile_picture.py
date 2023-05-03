@@ -48,10 +48,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, s3_key: str):
                 TARGETS,
                 itgs=itgs,
                 gd=gd,
-                max_width=4096,
-                max_height=4096,
-                max_area=2048 * 2048,
-                max_file_size=1024 * 1024 * 50,
+                max_width=8192,
+                max_height=8192,
+                max_area=4096 * 4096,
+                max_file_size=1024 * 1024 * 512,
                 name_hint="admin-profile_picture",
             )
         except ProcessImageAbortedException:
