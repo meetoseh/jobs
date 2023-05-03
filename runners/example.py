@@ -19,3 +19,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, message: str):
         message (str): the only keyword argument for this job; to be printed out
     """
     logging.info(message)
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        message = input("Message: ")
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue("runners.example", message=message)
+
+    asyncio.run(main())

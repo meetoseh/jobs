@@ -3,7 +3,7 @@ import io
 from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
-from shareables.journey_audio_with_dynamic_background.p06_transcript import Transcript
+from lib.transcripts.model import Transcript
 from shareables.journey_audio_with_dynamic_background.p08_images import Images
 import pympanim.frame_gen as fg
 import pympanim.worker as pmaw
