@@ -41,13 +41,29 @@ EMOTIONS: List[Tuple[str, str, Set[str]]] = [
         {"relaxed", "relaxation", "relax", "peaceful", "peace", "at peace"},
     ),
     ("hopeful", "be hopeful", {"hope", "hopeful", "hopefulness"}),
-    ("positive", "be positive", {"positive", "positivity", "uplifted"}),
-    ("focused", "be focused", {"focus", "focused"}),
+    ("positive", "be positive", {"positive", "positivity", "uplifted", "renewed"}),
+    ("focused", "be focused", {"focus", "focused", "reflective", "clear"}),
     ("energized", "be energized", {"energized", "energize", "energetic"}),
-    ("inspired", "be inspired", {"inspired", "inspiration", "grateful", "curious"}),
-    ("creative", "be creative", {"creative", "creativity"}),
-    ("connected", "be connected", {"connected", "connection", "connect", "intimate"}),
-    ("open", "be open", {"open", "openness", "spiritual"}),
+    (
+        "inspired",
+        "be inspired",
+        {
+            "inspired",
+            "inspiration",
+            "grateful",
+            "curious",
+            "renewed",
+            "empowered",
+            "motivated",
+        },
+    ),
+    ("creative", "be creative", {"creative", "creativity", "playful"}),
+    (
+        "connected",
+        "be connected",
+        {"connected", "connection", "connect", "intimate", "connectedness"},
+    ),
+    ("open", "be open", {"open", "openness", "spiritual", "growth"}),
     (
         "grounded",
         "be grounded",
@@ -61,10 +77,14 @@ EMOTIONS: List[Tuple[str, str, Set[str]]] = [
             "groundedness",
         },
     ),
-    ("loved", "feel loved", {"loved", "love", "loving"}),
-    ("balanced", "be balanced", {"balanced", "balance", "balanceful"}),
+    ("loved", "feel loved", {"loved", "love", "loving", "self-love"}),
+    ("balanced", "be balanced", {"balanced", "balance", "balanceful", "centered"}),
     ("content", "be content", {"contentful", "content"}),
-    ("supported", "be supported", {"supported", "nurtured", "nurture", "support"}),
+    (
+        "supported",
+        "be supported",
+        {"supported", "nurtured", "nurture", "support", "empowered"},
+    ),
     ("valued", "feel valued", {"value", "valued", "worthy", "worthiness"}),
     (
         "safe",
@@ -80,9 +100,9 @@ EMOTIONS: List[Tuple[str, str, Set[str]]] = [
             "steady",
         },
     ),
-    ("confident", "be confident", {"confident", "confidence"}),
+    ("confident", "be confident", {"confident", "confidence", "assertive"}),
 ]
-PROMPT_VERSION = "1.0.1"
+PROMPT_VERSION = "1.0.2"
 # semver for create_prompt_for_journey
 
 
@@ -111,8 +131,8 @@ def create_prompt_for_journey(
             "content": f"""Your role in this task is to determine what feelings
 the class evokes. You must output a numbered list containing at least 2
 emotions. You must only choose amongst the specified emotions. The classes are
-designed such that there are always at least two matching emotions, so you must
-select at least two emotions to get full credit.
+designed such that there are always at least three matching emotions, so you must
+select at least three emotions to get full credit.
 
 The feelings that classes can resolve are:
 
@@ -124,10 +144,11 @@ The following is an example of a valid response:
 
 This class asks you to connect with your inner child, which is generally associated
 with feelings of being playful, happy, and care-free. Hence, the class is designed
-to resolve the following feelings:
+to evoke the following feelings:
 
-1. happy
+1. valued
 2. loved
+3. creative
 """,
         },
         {
