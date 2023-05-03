@@ -32,36 +32,57 @@ from temp_files import temp_file
 category = JobCategory.HIGH_RESOURCE_COST
 
 EMOTIONS: List[Tuple[str, str, Set[str]]] = [
-    ("calm", "calm down", "calm"),
+    ("calm", "calm down", {"calm", "chill", "chilled", "calming"}),
     ("compassionate", "be compassionate", {"compassion", "compassionate"}),
-    ("chill", "chill out", {"chill", "chilled"}),
-    ("satisfied", "be satisfied", {"satisfied", "satisfaction"}),
+    ("chill", "chill out", {"chill", "chilled", "calm", "calming"}),
     (
         "relaxed",
         "relax",
         {"relaxed", "relaxation", "relax", "peaceful", "peace", "at peace"},
     ),
     ("hopeful", "be hopeful", {"hope", "hopeful", "hopefulness"}),
-    ("positive", "be positive", {"positive", "positivity"}),
+    ("positive", "be positive", {"positive", "positivity", "uplifted"}),
     ("focused", "be focused", {"focus", "focused"}),
     ("energized", "be energized", {"energized", "energize", "energetic"}),
-    ("patient", "be patient", {"patient", "patience"}),
-    ("inspired", "be inspired", {"inspired", "inspiration"}),
+    ("inspired", "be inspired", {"inspired", "inspiration", "grateful", "curious"}),
     ("creative", "be creative", {"creative", "creativity"}),
-    ("purpose", "find purpose", {"purpose", "purposeful", "purposefulness"}),
-    ("connected", "be connected", {"connected", "connection", "connect"}),
-    ("open", "be open", {"open", "openness"}),
-    ("free", "be free", {"free", "freedom"}),
-    ("grounded", "be grounded", {"grounded", "grounding"}),
-    ("loved", "feel loved", {"loved", "love"}),
+    ("connected", "be connected", {"connected", "connection", "connect", "intimate"}),
+    ("open", "be open", {"open", "openness", "spiritual"}),
+    (
+        "grounded",
+        "be grounded",
+        {
+            "grounded",
+            "grounding",
+            "grateful",
+            "humble",
+            "humility",
+            "present",
+            "groundedness",
+        },
+    ),
+    ("loved", "feel loved", {"loved", "love", "loving"}),
     ("balanced", "be balanced", {"balanced", "balance", "balanceful"}),
-    ("heard", "be heard", {"heard"}),
     ("content", "be content", {"contentful", "content"}),
     ("supported", "be supported", {"supported", "nurtured", "nurture", "support"}),
-    ("valued", "feel valued", {"value", "valued"}),
-    ("safe", "be safe", {"safe", "secure", "secured", "security"}),
+    ("valued", "feel valued", {"value", "valued", "worthy", "worthiness"}),
+    (
+        "safe",
+        "be safe",
+        {
+            "safe",
+            "secure",
+            "secured",
+            "security",
+            "vulnerable",
+            "inner strength",
+            "strong",
+            "steady",
+        },
+    ),
+    ("confident", "be confident", {"confident", "confidence"}),
 ]
-PROMPT_VERSION = "1.0.0"
+PROMPT_VERSION = "1.0.1"
 # semver for create_prompt_for_journey
 
 
@@ -473,7 +494,7 @@ async def assign_emotions_for_journey(
         )
         slack = await itgs.slack()
         await slack.send_web_error_message(
-            f"Failed to assign emotions for {title} by {instructor} (`{journey_uid}`) using transcript:\n\n```\n{transcript=}\n```",
+            f"Failed to assign emotions for {title} by {instructor} (`{journey_uid}`) using transcript:\n\n```\n{transcript}\n```",
             preview=f"Failed to assign emotions for {title}",
         )
         return
@@ -586,7 +607,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                     files = await itgs.files()
                     with open(path, "rb") as f:
-                        await files.upload(f, bucket=files.default_bucket, key=key)
+                        await files.upload(
+                            f, bucket=files.default_bucket, key=key, sync=True
+                        )
 
                     await slack.send_ops_message(
                         f"Tags that were dropped were stored at {key=} ({len(dropped)} emotions)"
