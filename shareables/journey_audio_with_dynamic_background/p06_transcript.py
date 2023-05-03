@@ -49,7 +49,7 @@ async def create_transcript(
             computed.
     """
     if source_audio_hash is None:
-        source_audio_hash = await hash_content_sync(source_audio_path)
+        source_audio_hash = hash_content_sync(source_audio_path)
 
     conn = await itgs.conn()
     cursor = conn.cursor()

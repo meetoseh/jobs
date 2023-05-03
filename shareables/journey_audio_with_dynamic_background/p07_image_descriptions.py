@@ -264,7 +264,8 @@ def _temperature_for_attempt(attempt: int) -> float:
 
 async def create_image_descriptions(
     itgs: Itgs,
-    *transcript: Transcript,
+    *,
+    transcript: Transcript,
     max_completion_retries: int = 5,
     model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
     min_seconds_per_image: float = 3.0,

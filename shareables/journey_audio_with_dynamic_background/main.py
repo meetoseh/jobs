@@ -185,27 +185,27 @@ async def run_pipeline(
         f"Audio visualization: {audio_visualization.shape=}, {audio_visualization.dtype=}, {audio_visualization.min()=}, {audio_visualization.max()=}, {audio_visualization.mean()=}"
     )
 
-    transcript = await create_transcript(
-        itgs, source, duration=duration, instructor=instructor
-    )
-    logging.debug(f"Transcript:\n\n{transcript}")
-
-    image_descriptions = await create_image_descriptions(
-        itgs,
-        transcript=transcript,
-        model=model,
-        **({"min_seconds_per_image": 10} if fast else {}),
-    )
-    logging.debug(f"Image descriptions:\n\n{image_descriptions}")
-
-    images_folder = os.path.join(dest_folder, "images")
-    if os.path.exists(images_folder):
-        logging.debug("Removing old images folder")
-        shutil.rmtree(images_folder)
-
-    os.makedirs(images_folder, exist_ok=True)
-
     async with Itgs() as itgs:
+        transcript = await create_transcript(
+            itgs, source, duration=duration, instructor=instructor
+        )
+        logging.debug(f"Transcript:\n\n{transcript}")
+
+        image_descriptions = await create_image_descriptions(
+            itgs,
+            transcript=transcript,
+            model=model,
+            **({"min_seconds_per_image": 10} if fast else {}),
+        )
+        logging.debug(f"Image descriptions:\n\n{image_descriptions}")
+
+        images_folder = os.path.join(dest_folder, "images")
+        if os.path.exists(images_folder):
+            logging.debug("Removing old images folder")
+            shutil.rmtree(images_folder)
+
+        os.makedirs(images_folder, exist_ok=True)
+
         images = await create_images(
             image_descriptions,
             width,
