@@ -109,12 +109,13 @@ async def _get_node_leader_using_weak_select(
     us to the leader, otherwise it should answer the request.
     """
     async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=timeout)
+        timeout=aiohttp.ClientTimeout(total=timeout),
     ) as session:
         response = await session.post(
             f"http://{ip}:{port}/db/query?redirect&level=weak",
             json=[["SELECT 1"]],
             headers={"Content-Type": "application/json"},
+            allow_redirects=False,
         )
 
         if response.status >= 200 and response.status <= 299:
