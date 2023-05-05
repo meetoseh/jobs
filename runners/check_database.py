@@ -112,7 +112,7 @@ async def _get_node_leader_using_weak_select(
         timeout=aiohttp.ClientTimeout(total=timeout)
     ) as session:
         response = await session.post(
-            f"http://{ip}:{port}/db/query?level=weak&redirect",
+            f"http://{ip}:{port}/db/query?redirect&level=weak",
             json=[["SELECT 1"]],
             headers={"Content-Type": "application/json"},
         )
