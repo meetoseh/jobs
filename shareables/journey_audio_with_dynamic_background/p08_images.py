@@ -113,7 +113,7 @@ class Frame:
                 "-i",
                 self.path,
                 "-vf",
-                f"select=eq(n,{self.video_info.n_frames-1})",
+                f"select='eq(n,{self.video_info.n_frames-1})'",
                 "-frames:v",
                 "1",
                 "-c:v",
