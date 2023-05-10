@@ -1,5 +1,6 @@
 import base64
 from dataclasses import dataclass
+from fractions import Fraction
 import json
 import random
 import secrets
@@ -19,12 +20,15 @@ import logging
 import time
 import requests
 from images import ImageTarget, _make_target
-from temp_files import temp_file
+from temp_files import temp_dir, temp_file
 from urllib.parse import urlencode, urlparse, quote
 from itgs import Itgs
 import numpy as np
 import shutil
 import subprocess
+import asyncio
+import yaml
+import logging.config
 
 from videos import VideoGenericInfo, get_video_generic_info
 
@@ -539,6 +543,162 @@ class PexelsVideosImageGenerator(ImageGenerator):
         return res
 
 
+class StabilityAIImageGenerator(ImageGenerator):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        *,
+        initial_width: int = 384,
+        initial_height: int = 640,
+        engine_id: str = "stable-diffusion-xl-beta-v2-2-2",
+        upscaler_id: str = "esrgan-v1-x2plus",
+        style_preset: str = "digital-art",
+        api_key: Optional[str] = None,
+    ) -> None:
+        self.width: int = width
+        self.height: int = height
+        self.initial_width: int = initial_width
+        self.initial_height: int = initial_height
+        self.engine_id: str = engine_id
+        self.upscaler_id: str = upscaler_id
+        self.style_preset: str = style_preset
+        self.api_key: str = (
+            api_key if api_key is not None else os.environ["OSEH_STABILITY_AI_KEY"]
+        )
+
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
+        logging.info(
+            f"Requesting {self.initial_width}x{self.initial_height} image using stability ai "
+            f'engine {self.engine_id}, style preset {self.style_preset}, and prompt "{prompt}"'
+        )
+        started_at = time.time()
+        response = requests.post(
+            f"https://api.stability.ai/v1/generation/{self.engine_id}/text-to-image",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            json={
+                "text_prompts": [
+                    {
+                        "text": prompt,
+                    }
+                ],
+                "width": self.initial_width,
+                "height": self.initial_height,
+                "style_preset": self.style_preset,
+                "samples": 1,
+            },
+        )
+        if not response.ok:
+            logging.warn(
+                f"Stability AI returned {response.status_code}: {response.text}"
+            )
+            response.raise_for_status()
+
+        data = response.json()
+        base_image_bas64 = data["artifacts"][0]["base64"]
+        image_path = os.path.join(folder, f"{secrets.token_urlsafe(16)}.png")
+        with open(image_path, "wb") as f:
+            f.write(base64.b64decode(base_image_bas64))
+
+        img = Image.open(image_path)
+        assert (
+            img.width == self.initial_width and img.height == self.initial_height
+        ), f"expected {self.initial_width}x{self.initial_height} image, got {img.width}x{img.height}"
+        assert img.mode == "RGB", f"expected RGB image, got {img.mode}"
+        assert img.format == "PNG", f"expected PNG image, got {img.format}"
+        img.close()
+
+        img_width = self.initial_width
+        img_height = self.initial_height
+
+        while img_width < self.width or img_height < self.height:
+            logging.info(
+                f"Upscaling image from {img_width}x{img_height} to {img_width*2}x{img_height*2} "
+                f"using stability-ai upscaler engine {self.upscaler_id}"
+            )
+            with open(image_path, "rb") as f:
+                response = requests.post(
+                    f"https://api.stability.ai/v1/generation/{self.upscaler_id}/image-to-image/upscale",
+                    headers={
+                        "Accept": "image/png",
+                        "Authorization": f"Bearer {self.api_key}",
+                    },
+                    files={
+                        "image": f,
+                    },
+                )
+
+            response.raise_for_status()
+            img = Image.open(io.BytesIO(response.content))
+            assert (
+                img.width == img_width * 2 and img.height == img_height * 2
+            ), f"expected {img_width*2}x{img_height*2} image, got {img.width}x{img.height}"
+            assert img.mode == "RGB", f"expected RGB image, got {img.mode}"
+            assert img.format == "PNG", f"expected PNG image, got {img.format}"
+            img.save(image_path)
+            img.close()
+
+            img_width *= 2
+            img_height *= 2
+
+        if img_width != self.width or img_height != self.height:
+            current_aspect_ratio = Fraction(img_width, img_height)
+            target_aspect_ratio = Fraction(self.width, self.height)
+            if current_aspect_ratio != target_aspect_ratio:
+                if current_aspect_ratio < target_aspect_ratio:
+                    # the image is too tall; crop from top and bottom
+                    crop_to_height = int(img_width / target_aspect_ratio)
+                    crop_to = (
+                        0,
+                        (img_height - crop_to_height) // 2,
+                        img_width,
+                        (img_height + crop_to_height) // 2,
+                    )
+                else:
+                    # the image is too wide; crop from left and right
+                    crop_to_width = int(img_height * target_aspect_ratio)
+                    crop_to = (
+                        (img_width - crop_to_width) // 2,
+                        0,
+                        (img_width + crop_to_width) // 2,
+                        img_height,
+                    )
+
+                logging.info(
+                    f"Cropping image from {img_width}x{img_height} to {crop_to[2]-crop_to[0]}x{crop_to[3]-crop_to[1]} "
+                    f"starting at ({crop_to[0]},{crop_to[1]})"
+                )
+                img = Image.open(image_path)
+                img.load()
+                img = img.crop(crop_to)
+                img.save(image_path)
+                img.close()
+                img_width = crop_to[2] - crop_to[0]
+                img_height = crop_to[3] - crop_to[1]
+
+        if img_width != self.width or img_height != self.height:
+            logging.info(
+                f"Resizing image from {img_width}x{img_height} to {self.width}x{self.height}"
+            )
+            img = Image.open(image_path)
+            img.load()
+            img = img.resize((self.width, self.height), Image.LANCZOS)
+            img.save(image_path)
+            img.close()
+            img_width = self.width
+            img_height = self.height
+
+        time_taken = time.time() - started_at
+        logging.info(
+            f"Finished generating {img_width}x{img_height} image using stability ai in {time_taken:.3f}s"
+        )
+        return Frame(path=image_path, style="image", video_info=None)
+
+
 class DummyGenerator(ImageGenerator):
     """A dummy generator that just returns the same frame every time, for
     testing purposes.
@@ -772,7 +932,7 @@ def create_image_generator(
     width: int,
     height: int,
     *,
-    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video", "stability-ai"]] = None,
 ) -> ImageGenerator:
     """Produces the standard image generator for generating images of the given
     width and height, based on what is actually installed.
@@ -785,6 +945,9 @@ def create_image_generator(
 
     if model == "pexels-video":
         return DarkenImageGenerator(PexelsVideosImageGenerator(width, height))
+
+    if model == "stability-ai":
+        return DarkenImageGenerator(StabilityAIImageGenerator(width, height))
 
     model_sizes = MODEL_CAPABLE_IMAGE_SIZES[model]
     if width < model_sizes[0][0] or height < model_sizes[0][1]:
@@ -818,7 +981,9 @@ def create_image_generator(
     return DarkenImageGenerator(generator)
 
 
-def generate_image_from_prompt(prompt: str, width: int, height: int, out: str) -> None:
+def generate_image_from_prompt(
+    prompt: str, width: int, height: int, model: str, out: str
+) -> None:
     """Generates an image from the given prompt at the given width. The model that
     we use can only produce images of certain sizes, so in order to produce
     an image which is larger, this will expand with a blurred and darkened background
@@ -835,7 +1000,20 @@ def generate_image_from_prompt(prompt: str, width: int, height: int, out: str) -
         out (str): The file to write the result to. Always writes a webp file, regardless
             of the extension of the file.
     """
-    create_image_generator(width, height).generate(prompt).save(out, format="webp")
+    with open("logging.yaml") as f:
+        logging_config = yaml.safe_load(f)
+
+    logging.config.dictConfig(logging_config)
+
+    async def _inner():
+        with temp_dir() as folder:
+            async with Itgs() as itgs:
+                frame = await create_image_generator(
+                    width, height, model=model
+                ).generate(itgs, prompt, folder)
+                os.rename(frame.path, out)
+
+    asyncio.run(_inner())
 
 
 async def create_images(
@@ -849,7 +1027,7 @@ async def create_images(
     std_image_duration: float = 4.0,
     max_image_duration: float = 5.0,
     max_retries: int = 5,
-    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video", "stability-ai"]] = None,
 ) -> Images:
     """Produces background images of the given width and height using the given
     image descriptions.

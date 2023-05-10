@@ -72,23 +72,28 @@ async def create_transcript(
         cache = await itgs.local_cache()
         cache_key = f"transcripts:{source_audio_hash}".encode("ascii")
         raw_transcript = cache.get(cache_key)
-        if raw_transcript is None:
-            transcript = await _create_transcript(
-                itgs,
-                source_audio_path,
-                duration=duration,
-                prompt=f"A class from {instructor}."
-                if instructor is not None
-                else None,
-            )
-            cache.set(
-                cache_key,
-                f"WEBVTT\n\n{transcript.transcript}".encode("utf-8"),
-                expire=60 * 60 * 24 * 7,
-            )
-            return transcript
+        if raw_transcript is not None:
+            try:
+                return parse_vtt_transcript(raw_transcript.decode("utf-8"))
+            except Exception:
+                logging.warning(
+                    f"Failed to parse cached transcript:\n\n{raw_transcript}",
+                    exc_info=True,
+                )
+                cache.delete(cache_key)
 
-        return parse_vtt_transcript(raw_transcript.decode("utf-8"))
+        transcript = await _create_transcript(
+            itgs,
+            source_audio_path,
+            duration=duration,
+            prompt=f"A class from {instructor}." if instructor is not None else None,
+        )
+        cache.set(
+            cache_key,
+            f"WEBVTT\n\n{transcript.transcript}".encode("utf-8"),
+            expire=60 * 60 * 24 * 7,
+        )
+        return transcript.transcript
 
     content_file_uid: str = response.results[0][0]
     transcript = await fetch_transcript_for_content_file(itgs, content_file_uid)

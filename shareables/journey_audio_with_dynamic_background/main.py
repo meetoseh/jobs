@@ -63,7 +63,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        choices=["dall-e", "pexels", "pexels-video"],
+        choices=["dall-e", "pexels", "pexels-video", "stability-ai"],
         help="The model to use for image generation",
     )
     parser.add_argument(
@@ -111,7 +111,7 @@ async def run_pipeline(
     title: str,
     instructor: str,
     duration: Optional[int],
-    model: Optional[Literal["dall-e", "pexels", "pexels-video"]],
+    model: Optional[Literal["dall-e", "pexels", "pexels-video", "stability-ai"]],
     dest_folder: str = os.path.join(
         "tmp", "shareables", "journey_audio_with_dynamic_background"
     ),

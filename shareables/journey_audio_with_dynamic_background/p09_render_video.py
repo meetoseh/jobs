@@ -398,8 +398,9 @@ class MyFrameGenerator(fg.FrameGenerator):
         daily_oseh_y = self.frame_size[1] - 191
         transcript_line_height = 60
 
-        transcript_phrase_index = (
-            bisect.bisect_right(self.phrase_time_offsets, time_seconds) - 1
+        transcript_phrase_index = min(
+            max(bisect.bisect_right(self.phrase_time_offsets, time_seconds) - 1, 0),
+            len(self.phrase_time_offsets) - 1,
         )
         caption = self.transcript.phrases[transcript_phrase_index][1]
 

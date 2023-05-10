@@ -92,9 +92,71 @@ to use vector art, storybook, or watercolor & pen.
 
 The following are examples of image descriptions which are acceptable:
 
-1. Woman on stage with large audience in chairs, bright, energetic, monemental, ordered, defined, gold, copper, Victoriana, professional lighting, storybook
+1. Woman on stage with large audience in chairs, bright, energetic, monumental, ordered, defined, gold, copper, Victoriana, professional lighting, storybook
 2. Child alone in a cave, muted, bleak, washed-out, curvaceous, earthy, chaotic, stone, dark, mystery, twilight, slow shutter speed, watercolor & pen
 3. Deer drinking from a rocky river, light, peaceful, comforting, natural, organic, chaotic, stone, dark, mystery, dusk, sunset, sunrise - warm lighting, strong shadows, watercolor & pen
+
+The output should be as a numbered list as in the above example. You must
+provide image descriptions even if no visual component is present in the
+transcript, using an appropriate abstraction.
+
+===
+
+You are given the entire transcript of the audio, but you are only responsible
+for the specified section. You must output 5 image descriptions.
+""",
+        },
+        {
+            "role": "user",
+            "content": f"""For the following transcript:
+
+{transcript}
+
+===
+            
+What are the image descriptions for the following section of the transcript?
+
+
+{timerange}
+{next(text for (tr, text) in transcript.phrases if tr == timerange)}
+""",
+        },
+    ]
+
+
+def create_image_description_prompt_stability_ai(
+    transcript: Transcript, timerange: TimeRange
+) -> List[ChatCompletionMessage]:
+    return [
+        {
+            "role": "system",
+            "content": """You are a storyboard artist for an animation studio. You produce
+suggestions for the background images to use in the animation at various points
+during the movie. Your suggestions must be a series of comma separated tags. 
+
+Each prompt includes tags from each of the following categories:
+
+The first tag is always the general description. For example, "Monumental
+old ruins tower of a dark misty forest"
+
+Include emotional prompt words, which have mood and energy. For example,
+these are positive mood, low energy words: "light, peaceful, calm, serene".
+These are negative mood, high energy words: "dark, ghostly, shocking, terrifying".
+Include several of only one category of emotional prompt words.
+
+Include several of only one category of size and structure words. For example,
+for big and free use curvaceous, swirling, organic. For small and structured,
+use ornate, delicate, neat, precise.
+
+Include several of only one category of lighting. For example, for golden hour use
+dusk, sunset, sunrise, warm lighting. For overcast use cloudy, foggy, misty,
+flat lighting.
+
+The following are examples of image descriptions which are acceptable:
+
+1. Woman on stage with large audience in chairs, bright, energetic, monumental, ordered, defined, professional lighting
+2. Child alone in a cave, muted, bleak, washed-out, curvaceous, twilight, slow shutter speed
+3. Deer drinking from a rocky river, light, peaceful, comforting, natural, organic, dusk, sunset, sunrise - warm lighting, strong shadows
 
 The output should be as a numbered list as in the above example. You must
 provide image descriptions even if no visual component is present in the
@@ -181,7 +243,7 @@ def create_image_description_prompt(
     transcript: Transcript,
     timerange: TimeRange,
     *,
-    model: Literal["dall-e", "pexels", "pexels-video"] = "dall-e",
+    model: Literal["dall-e", "pexels", "pexels-video", "stability-ai"] = "dall-e",
 ) -> List[ChatCompletionMessage]:
     """Creates the prompt to provide the completions API to produce
     a list of image descriptions for the given part of the transcript. The
@@ -202,6 +264,9 @@ def create_image_description_prompt(
 
     if model in ("pexels", "pexels-video"):
         return create_image_description_prompt_pexels(transcript, timerange)
+
+    if model == "stability-ai":
+        return create_image_description_prompt_stability_ai(transcript, timerange)
 
     raise ValueError(f"Invalid model: {model}")
 
@@ -267,7 +332,7 @@ async def create_image_descriptions(
     *,
     transcript: Transcript,
     max_completion_retries: int = 5,
-    model: Optional[Literal["dall-e", "pexels", "pexels-video"]] = None,
+    model: Optional[Literal["dall-e", "pexels", "pexels-video", "stability-ai"]] = None,
     min_seconds_per_image: float = 3.0,
 ) -> ImageDescriptions:
     """Creates the image descriptions for the given transcript.

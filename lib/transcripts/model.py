@@ -10,7 +10,7 @@ class Timestamp:
     milliseconds: int
 
     def __str__(self) -> str:
-        return f"{self.hours}:{self.minutes}:{self.seconds}.{self.milliseconds}"
+        return f"{self.hours}:{self.minutes}:{self.seconds}.{self.milliseconds:03d}"
 
     @classmethod
     def from_seconds(kls, seconds: float):
