@@ -634,6 +634,13 @@ JOBS: List[Job] = (
             pst, days_of_week=("sat",), hours=(0,), minutes=(10,), seconds=(0,)
         ),
     ),
+    Job(
+        name="runners.slack_stats.emotion_selections",
+        kwargs=tuple(),
+        interval=JobInterval(
+            pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 
