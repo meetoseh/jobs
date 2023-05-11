@@ -622,6 +622,18 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(0,)),
     ),
+    Job(
+        name="runners.process_missing_emotions",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(5,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.process_missing_videos",
+        kwargs=tuple(),
+        interval=JobInterval(
+            pst, days_of_week=("sat",), hours=(0,), minutes=(10,), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 
