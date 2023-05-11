@@ -93,6 +93,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         FROM emotions, emotion_users
         WHERE
             emotions.id = emotion_users.emotion_id
+            AND json_extract(emotion_users.status, '$.type') = 'joined'
         GROUP BY emotions.id
         """
     )
@@ -137,6 +138,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         FROM emotions, emotion_users
         WHERE
             emotions.id = emotion_users.emotion_id
+            AND json_extract(emotion_users.status, '$.type') = 'joined'
             AND emotion_users.created_at > ?
         GROUP BY emotions.id
         """,
