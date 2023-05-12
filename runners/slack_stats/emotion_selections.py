@@ -9,6 +9,7 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 import pytz
+from lib.redis_api_limiter import ratelimit_using_redis
 import unix_dates
 import asyncio
 import openai
@@ -75,7 +76,20 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         emotion_word_to_content_count
     ), "Duplicate emotion words found"
 
-    total_num_eligible_content = sum(row[1] for row in emotion_word_to_content_count)
+    response = await cursor.execute(
+        """
+        SELECT
+            COUNT(*)
+        FROM journeys
+        WHERE
+            journeys.deleted_at IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM course_journeys
+                WHERE course_journeys.journey_id = journeys.id
+            )
+        """
+    )
+    total_num_eligible_content = response.results[0][0]
 
     emotion_word_to_content_count.sort(key=lambda x: x[1], reverse=True)
 
@@ -221,6 +235,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
     try:
         openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+        await ratelimit_using_redis(
+            itgs,
+            key="external_apis:api_limiter:chatgpt",
+            time_between_requests=3,
+        )
         summary_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
