@@ -1064,6 +1064,8 @@ async def create_images(
     current_segment_index = 0
     prompts_remaining_in_segment: Set[str] = set()
 
+    last_error: Optional[Exception] = None
+
     while next_image_starts_at < video_duration - min_image_duration:
         image_duration = (
             random.triangular(
@@ -1099,21 +1101,28 @@ async def create_images(
         if time_until_next_segment - image_duration < min_image_duration:
             image_duration = time_until_next_segment
 
-        prompt = random.choice(list(prompts_remaining_in_segment))
-        prompts_remaining_in_segment.remove(prompt)
+        found_frame = False
+        while not found_frame:
+            if not prompts_remaining_in_segment:
+                err_msg = f"Ran out of prompts to attempt for segment; original prompts: {image_descriptions.image_descriptions[current_segment_index][1]}"
+                if last_error is not None:
+                    raise ImagesError(err_msg) from last_error
+                else:
+                    raise ImagesError(err_msg)
 
-        for attempt in range(max_retries):
-            try:
-                frame = await generator.generate(itgs, prompt, folder)
-                break
-            except Exception as e:
-                logging.info(
-                    f"Failing to generate image (attempt {attempt+1}/{max_retries})"
-                )
-                if attempt == max_retries - 1:
-                    raise ImagesError(
-                        f"Failed to generate image after {max_retries} attempts"
-                    ) from e
+            prompt = random.choice(list(prompts_remaining_in_segment))
+            prompts_remaining_in_segment.remove(prompt)
+
+            for attempt in range(max_retries):
+                try:
+                    frame = await generator.generate(itgs, prompt, folder)
+                    found_frame = True
+                    break
+                except Exception as e:
+                    last_error = e
+                    logging.info(
+                        f"Failing to generate image (attempt {attempt+1}/{max_retries})"
+                    )
 
         prompts.append(prompt)
         images.append((next_image_starts_at, frame))

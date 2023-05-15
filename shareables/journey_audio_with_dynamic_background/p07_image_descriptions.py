@@ -365,8 +365,9 @@ async def create_image_descriptions(
             f"Creating image descriptions for {timerange} using the following prompt:\n\n{json.dumps(messages, indent=2)}"
         )
         descriptions: Set[str] = set()
-        target_num_descriptions = max(
-            1, math.ceil(timerange.get_width_in_seconds() / min_seconds_per_image)
+        target_num_descriptions = (
+            max(1, math.ceil(timerange.get_width_in_seconds() / min_seconds_per_image))
+            + 2
         )
         while len(descriptions) < target_num_descriptions:
             attempt = 0
