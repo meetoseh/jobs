@@ -30,8 +30,6 @@ async def execute(
         journey_uid (str): The uid of the journey the user is entering the lobby for
         action (str): The action message to include in the slack message
     """
-    if os.environ["ENVIRONMENT"] == "dev":
-        return
 
     conn = await itgs.conn()
     cursor = conn.cursor("none")
@@ -45,7 +43,9 @@ async def execute(
             users.family_name,
             users.created_at,
             profile_image_files.uid,
-            attributed_utms.canonical_query_param
+            attributed_utms.canonical_query_param,
+            attributed_journeys.title,
+            attributed_journey_links.code
         FROM users
         LEFT OUTER JOIN image_files AS profile_image_files ON 
             EXISTS (
@@ -85,6 +85,36 @@ async def execute(
                     )
             )
         )
+        LEFT OUTER JOIN journey_public_links AS attributed_journey_links ON (
+            EXISTS (
+                SELECT 1 FROM journey_public_link_views, visitor_users
+                WHERE
+                    journey_public_link_views.journey_public_link_id = attributed_journey_links.id
+                    AND journey_public_link_views.visitor_id = visitor_users.visitor_id
+                    AND visitor_users.user_id = users.id
+                    AND journey_public_link_views.created_at <= users.created_at
+                    AND NOT EXISTS (
+                        SELECT 1 FROM 
+                            journey_public_links AS other_journey_public_links,
+                            journey_public_link_views AS other_journey_public_link_views, 
+                            visitor_users AS other_visitor_users
+                        WHERE
+                            other_journey_public_links.id != attributed_journey_links.id
+                            AND other_journey_public_link_views.journey_public_link_id = other_journey_public_links.id
+                            AND other_journey_public_link_views.visitor_id = other_visitor_users.visitor_id
+                            AND other_visitor_users.user_id = users.id
+                            AND other_journey_public_link_views.created_at <= users.created_at
+                            AND (
+                                other_journey_public_link_views.created_at > journey_public_link_views.created_at
+                                OR (
+                                    other_journey_public_link_views.created_at = journey_public_link_views.created_at
+                                    AND other_journey_public_links.uid > attributed_journey_links.uid
+                                )
+                            )
+                    )
+            )
+        )
+        LEFT OUTER JOIN journeys AS attributed_journeys ON attributed_journeys.id = attributed_journey_links.journey_id
         WHERE users.sub = ?
         """,
         (user_sub,),
@@ -101,6 +131,8 @@ async def execute(
     created_at: float = response.results[0][4]
     profile_image_file_uid: Optional[str] = response.results[0][5]
     attributed_source: Optional[str] = response.results[0][6]
+    attributed_journey_title: Optional[str] = response.results[0][7]
+    attributed_journey_link_code: Optional[str] = response.results[0][8]
 
     response = await cursor.execute(
         """
@@ -161,6 +193,13 @@ async def execute(
             f"email: `{email}`",
             f"joined: {pretty_joined}",
             *([f"source: `{attributed_source}`"] if attributed_source else []),
+            *(
+                [
+                    f"source journey: `{attributed_journey_title}` (via code {attributed_journey_link_code})"
+                    if attributed_journey_title
+                    else []
+                ]
+            ),
             f"sub: `{user_sub}`",
         ]
     )
@@ -199,6 +238,9 @@ async def execute(
     ]
 
     logging.debug(f"Posting to slack: {blocks}")
+
+    if os.environ["ENVIRONMENT"] == "dev":
+        return
 
     slack = await itgs.slack()
     await slack.send_oseh_classes_blocks(blocks, preview=f"{name} is {action}!")
