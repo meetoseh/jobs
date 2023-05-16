@@ -196,9 +196,9 @@ async def execute(
             *(
                 [
                     f"source journey: `{attributed_journey_title}` (via code {attributed_journey_link_code})"
-                    if attributed_journey_title
-                    else []
                 ]
+                if attributed_journey_title
+                else []
             ),
             f"sub: `{user_sub}`",
         ]
