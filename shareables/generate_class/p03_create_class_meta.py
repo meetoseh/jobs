@@ -69,9 +69,10 @@ def create_prompt(
 evokes {input.emotion.lower()}. Your class should be about a minute long, start
 with introducing yourself, Amado Chip, and end with a farewell such as Goodbye
 or Thanks for practicing with me. Give yourself plenty of time for each phrase,
-and be short and succinct: less is often more. In total, your class will have four parts: a
-title and description for metadata, an entrance question before the class, and
-then the transcript for what is said during the class.
+saying less is often more impactful. Do not reference the entrance question in
+the transcript. In total, your class will have four parts: a title and
+description for metadata, an entrance question before the class, and then the
+transcript for what is said during the class.
 
 Here are {len(input.journeys_with_transcripts)} examples of {input.category.lower()} classes that evoke {input.emotion.lower()}:
 
