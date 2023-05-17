@@ -133,7 +133,12 @@ async def run_pipeline(
         inputs = (
             parse_inputs_from_file(inputs_path)
             if inputs_path is not None
-            else await p01.select_classes(itgs, folder=dest_folder, gd=gd)
+            else await p01.select_classes(
+                itgs,
+                folder=dest_folder,
+                gd=gd,
+                exclude_categories={"Sound Bath", "Instrumental", "Soundscape"},
+            )
         )
         logging.debug(f"Selected inputs: {inputs=}, augmenting with transcripts...")
         inputs = await p02.generate_transcripts(itgs, journeys=inputs, gd=gd)
