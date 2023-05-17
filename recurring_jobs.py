@@ -644,16 +644,12 @@ JOBS: List[Job] = (
     Job(
         name="runners.create_ai_journey",
         kwargs=tuple(),
-        interval=JobInterval(
-            pst, hours=(3,), minutes=(5,), seconds=(0,)
-        ),
+        interval=JobInterval(pst, hours=(3,), minutes=(5,), seconds=(0,)),
     ),
     Job(
         name="runners.content_marketing.post_on_reddit",
         kwargs=tuple(),
-        interval=JobInterval(
-            pst, hours=(8,), minutes=(0,), seconds=(0,)
-        ),
+        interval=JobInterval(pst, hours=(8,), minutes=(0,), seconds=(0,)),
     ),
 )
 """The jobs that should be run."""
