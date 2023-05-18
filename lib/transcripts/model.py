@@ -20,6 +20,10 @@ class Timestamp:
         milliseconds = int((seconds % 1) * 1000)
         return kls(hours, minutes, seconds, milliseconds)
 
+    @classmethod
+    def from_dict(kls, raw: dict):
+        return kls(**raw)
+
     def in_seconds(self) -> float:
         return (
             self.hours * 60 * 60
@@ -96,6 +100,13 @@ class TimeRange:
     def get_width_in_seconds(self) -> float:
         return self.end.in_seconds() - self.start.in_seconds()
 
+    @classmethod
+    def from_dict(c, raw: dict):
+        return c(
+            start=Timestamp.from_dict(raw["start"]),
+            end=Timestamp.from_dict(raw["end"]),
+        )
+
 
 def parse_vtt_timerange(line: str) -> TimeRange:
     """Parses a timerange in vtt format, for example,
@@ -139,6 +150,10 @@ class Transcript:
                 if len(text) > 0
             ]
         )
+
+    @classmethod
+    def from_dict(c, raw: dict):
+        return c(phrases=[(TimeRange.from_dict(p[0]), p[1]) for p in raw["phrases"]])
 
 
 def parse_vtt_transcript(raw: str) -> Transcript:

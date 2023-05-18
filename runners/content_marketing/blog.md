@@ -1,0 +1,10 @@
+- name: plain text
+- slug: plain text
+- thumbnail image: image - resolutions
+- main image: image - resolutions
+- title: plain text
+- summary: plain text
+- post body: rich text
+- category: Mindfulness/Health/Oseh News/Science
+- category 2: optional
+- meta description
