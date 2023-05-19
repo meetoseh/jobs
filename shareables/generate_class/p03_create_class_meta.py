@@ -101,7 +101,7 @@ for Prompt Options. For 1-10 prompts, do not include Prompt Options.
         },
         {
             "role": "user",
-            "content": f"Generate a new {input.category.lower()} class that evokes {input.emotion.lower()}",
+            "content": f"Generate a new {input.category.lower()} class by Amado Chip that evokes {input.emotion.lower()}",
         },
     ]
 
