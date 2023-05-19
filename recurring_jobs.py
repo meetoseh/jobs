@@ -651,6 +651,11 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(8,), minutes=(0,), seconds=(0,)),
     ),
+    Job(
+        name="runners.content_marketing.post_on_mastodon",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(8,), minutes=(0,), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 
