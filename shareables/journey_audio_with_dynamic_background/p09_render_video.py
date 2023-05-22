@@ -373,9 +373,9 @@ class MyFrameGenerator(fg.FrameGenerator):
         # )
         y += 391 - 274
 
-        draw.line(
-            (80, y, self.frame_size[0] - 80, y), fill=(255, 255, 255, 125), width=1
-        )
+        # draw.line(
+        #     (80, y, self.frame_size[0] - 80, y), fill=(255, 255, 255, 125), width=1
+        # )
 
         num_lines = self.audio_visualization.shape[1]
         total_width = (num_lines * BAR_WIDTH) + ((num_lines - 1) * BAR_SPACING)
