@@ -347,12 +347,12 @@ class MyFrameGenerator(fg.FrameGenerator):
                 )
                 x = (self.frame_size[0] - bbox[2]) // 2
 
-            draw.text(
-                (x, y),
-                line,
-                fill=(255, 255, 255),
-                font=self.fonts["300 72px Open Sans"],
-            )
+            # draw.text(
+            #     (x, y),
+            #     line,
+            #     fill=(255, 255, 255),
+            #     font=self.fonts["300 72px Open Sans"],
+            # )
 
         y += 114
         subtitle = f"with {self.instructor_name}"
@@ -365,12 +365,12 @@ class MyFrameGenerator(fg.FrameGenerator):
             )
             x = (self.frame_size[0] - bbox[2]) // 2
 
-        draw.text(
-            (x, y),
-            subtitle,
-            fill=(255, 255, 255),
-            font=self.fonts["300 44px italic Open Sans"],
-        )
+        # draw.text(
+        #     (x, y),
+        #     subtitle,
+        #     fill=(255, 255, 255),
+        #     font=self.fonts["300 44px italic Open Sans"],
+        # )
         y += 391 - 274
 
         draw.line(
@@ -440,12 +440,12 @@ class MyFrameGenerator(fg.FrameGenerator):
             bbox = draw.textbbox((0, 0), my_daily_oseh_text, font=my_daily_oseh_font)
             x = (self.frame_size[0] - bbox[2]) // 2
 
-        draw.text(
-            (x, daily_oseh_y),
-            my_daily_oseh_text,
-            fill=(255, 255, 255),
-            font=my_daily_oseh_font,
-        )
+        # draw.text(
+        #     (x, daily_oseh_y),
+        #     my_daily_oseh_text,
+        #     fill=(255, 255, 255),
+        #     font=my_daily_oseh_font,
+        # )
 
         return result
 
