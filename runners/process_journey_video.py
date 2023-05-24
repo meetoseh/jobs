@@ -156,7 +156,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                 journey_title,
                 instructor_name,
                 duration=None,
-                model="stability-ai",
+                model="pexels-video",
                 dest_folder=destination_dir,
             )
 
