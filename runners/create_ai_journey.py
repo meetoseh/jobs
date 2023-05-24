@@ -3,6 +3,7 @@ import dataclasses
 import json
 import os
 import secrets
+from typing import Optional
 import aiohttp
 from error_middleware import handle_warning
 from itgs import Itgs
@@ -23,13 +24,19 @@ import requests
 category = JobCategory.HIGH_RESOURCE_COST
 
 
-async def execute(itgs: Itgs, gd: GracefulDeath):
+async def execute(itgs: Itgs, gd: GracefulDeath, *, only_in_env: Optional[str] = None):
     """Creates a new AI journey and saves it to the database.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically
     """
+    if only_in_env is not None and os.environ["ENVIRONMENT"] != only_in_env:
+        logging.debug(
+            f"Skipping create_ai_journey request for {only_in_env} since we're in {os.environ['ENVIRONMENT']}"
+        )
+        return
+
     with temp_dir() as dest_folder:
         logging.info(f"Generating new journey into {dest_folder}...")
 

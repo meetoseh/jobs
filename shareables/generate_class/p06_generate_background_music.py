@@ -229,12 +229,12 @@ def combine_using_crossfade(*, segments: List[Music], folder: str, out: str):
             f"[a01][2]acrossfade=d={segments[1].fade_after:.3f}:c1=tri:c2=tri"
         )
     else:
-        filter_complex = f'"[0][1]acrossfade=d={segments[0].fade_after:.3f}:c1=tri:c2=tri[a01]; ' + (
+        filter_complex = f"[0][1]acrossfade=d={segments[0].fade_after:.3f}:c1=tri:c2=tri[a01]; " + (
             "; ".join(
                 f"[a{idx:02d}][{idx + 1}]acrossfade=d={segment.fade_after:.3f}:c1=tri:c2=tri[a{idx + 1:02d}]"
                 for idx, segment in zip(range(1, len(segments) - 2), segments[1:-2])
             )
-            + f'; [a{len(segments) - 2:02d}][{len(segments) - 1}]acrossfade=d={segments[-2].fade_after:.3f}:c1=tri:c2=tri"'
+            + f"; [a{len(segments) - 2:02d}][{len(segments) - 1}]acrossfade=d={segments[-2].fade_after:.3f}:c1=tri:c2=tri"
         )
 
     ffmpeg = shutil.which("ffmpeg")

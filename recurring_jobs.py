@@ -643,7 +643,7 @@ JOBS: List[Job] = (
     ),
     Job(
         name="runners.create_ai_journey",
-        kwargs=tuple(),
+        kwargs=(("only_in_env", "production"),),
         interval=JobInterval(pst, hours=(3,), minutes=(5,), seconds=(0,)),
     ),
     Job(
