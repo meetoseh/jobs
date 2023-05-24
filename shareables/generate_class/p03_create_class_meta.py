@@ -96,7 +96,8 @@ Title: <title>
 
 Valid "Prompt Type"s are: word, 1-10, colors. For word prompts, include a comma-separated list of
 options for Prompt Option. For color prompts, include a comma-separated list of 6-digit hex colors
-for Prompt Options. For 1-10 prompts, do not include Prompt Options.
+for Prompt Options. For 1-10 prompts, do not include Prompt Options. The Prompt cannot exceed 75 
+characters in length.
 """,
         },
         {
@@ -182,6 +183,12 @@ def parse_completion(message: str, emotion: str, category: str) -> GeneratedClas
                 p.strip() for p in parts["Prompt Options"].split(",") if p.strip() != ""
             ],
         )
+
+        if any(len(opt) > 45 for opt in prompt.options):
+            raise ValueError("Prompt options must be less than 45 characters")
+        if len(prompt.options) < 2:
+            raise ValueError("Must have at least 2 prompt options")
+
     elif parts["Prompt Type"] == "1-10":
         prompt = InputJourneyPromptNumeric(
             style="numeric", text=parts["Prompt"], min=1, max=10, step=1
@@ -214,6 +221,11 @@ def parse_completion(message: str, emotion: str, category: str) -> GeneratedClas
         transcript = "WEBVTT\n\n" + transcript
 
     parsed_transcript = parse_vtt_transcript(transcript)
+
+    if len(prompt.text) > 75:
+        raise ValueError(
+            f"Prompt is too long: {len(prompt.text)=} > 75 for {prompt.text=}"
+        )
 
     return GeneratedClassMeta(
         title=parts["Title"],
