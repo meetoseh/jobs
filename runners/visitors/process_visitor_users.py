@@ -13,6 +13,7 @@ from lib.stats.set_if_lower import (
     set_if_lower_unsafe,
 )
 import lib.visitors.deltas
+import lib.visitors.interests
 import lib.utms.parse
 import unix_dates
 import pytz
@@ -287,3 +288,18 @@ async def execute(
                 )
 
             await pipe.execute()
+
+        await lib.visitors.interests.copy_interests_from_visitor_to_user(
+            itgs, visitor_uid=next_entry.visitor_uid, user_sub=next_entry.user_sub
+        )
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue("runners.visitors.process_visitor_users")
+
+    asyncio.run(main())
