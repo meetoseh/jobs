@@ -282,3 +282,14 @@ async def execute(
                 )
 
             await pipe.execute()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue("runners.visitors.process_visitor_utms")
+
+    asyncio.run(main())
