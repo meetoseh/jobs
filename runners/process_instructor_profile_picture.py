@@ -51,7 +51,11 @@ async def execute(
 
         try:
             await process_instructor_profile_picture(
-                itgs, gd, stitched_path=stitched_path, instructor_uid=instructor_uid
+                itgs,
+                gd,
+                stitched_path=stitched_path,
+                instructor_uid=instructor_uid,
+                uploaded_by_user_sub=uploaded_by_user_sub,
             )
         except ProcessImageAbortedException:
             return await bounce()
