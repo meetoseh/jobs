@@ -101,8 +101,9 @@ EMOTIONS: List[Tuple[str, str, Set[str]]] = [
         },
     ),
     ("confident", "be confident", {"confident", "confidence", "assertive"}),
+    ("sleepy", "feel sleepy", {"sleepy", "sleep", "sleepiness"}),
 ]
-PROMPT_VERSION = "1.0.2"
+PROMPT_VERSION = "1.0.3"
 # semver for create_prompt_for_journey
 
 
