@@ -417,10 +417,14 @@ async def _upload_all(
         ),
     ]
 
+    logging.debug(
+        f"Uploading {len(remaining)} files to s3, with up to {parallelism} at a time"
+    )
     pending: Set[asyncio.Task] = set()
     while remaining or pending:
         while remaining and len(pending) < parallelism:
             local_filepath, s3_file = remaining.pop()
+            logging.debug(f"Uploading {local_filepath} to s3")
             pending.add(
                 asyncio.create_task(
                     upload_s3_file_and_put_in_purgatory(
@@ -432,7 +436,12 @@ async def _upload_all(
                 )
             )
 
-        _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        logging.debug(
+            f"{len(done)} tasks completed, {len(pending)} uploads still pending"
+        )
+
+    logging.debug(f"Finished uploading to s3; {remaining=}, {pending=}")
 
 
 async def _upsert_prepared(
