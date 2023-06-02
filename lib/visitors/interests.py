@@ -123,6 +123,7 @@ async def copy_interests_from_visitor_to_user(
                             AND ui.created_at >= ?
                             AND ui.deleted_at IS NULL
                     )
+                    AND user_interests.deleted_at IS NULL
                 """,
                 (
                     json.dumps({"type": "replaced"}),
