@@ -14,6 +14,7 @@ from content import (
     hash_content_using_pool,
     upload_s3_file_and_put_in_purgatory,
 )
+from error_middleware import handle_contextless_error
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from dataclasses import dataclass
@@ -421,6 +422,7 @@ async def _upload_all(
         f"Uploading {len(remaining)} files to s3, with up to {parallelism} at a time"
     )
     pending: Set[asyncio.Task] = set()
+    errored: Set[asyncio.Task] = set()
     while remaining or pending:
         while remaining and len(pending) < parallelism:
             local_filepath, s3_file = remaining.pop()
@@ -437,11 +439,24 @@ async def _upload_all(
             )
 
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            if task.exception() is not None:
+                logging.error(f"Error uploading file to s3", exc_info=task.exception())
+                errored.add(task)
+            else:
+                await task
+
         logging.debug(
-            f"{len(done)} tasks completed, {len(pending)} uploads still pending"
+            f"{len(done)} tasks completed, {len(pending)} uploads still pending ({len(errored)} errored so far)"
         )
 
-    logging.debug(f"Finished uploading to s3; {remaining=}, {pending=}")
+    logging.debug(
+        f"Finished uploading to s3; {remaining=}, {pending=}, {len(errored)=}"
+    )
+    if errored:
+        raise ProcessAudioAbortedException(
+            f"Failed to upload {len(errored)} files to s3"
+        )
 
 
 async def _upsert_prepared(
@@ -638,10 +653,32 @@ async def _upsert_prepared(
             )
             continue
 
-        assert (
-            response.items[1].rows_affected is not None
-            and response.items[1].rows_affected > 0
-        )
+        if (
+            response.items[1].rows_affected is None
+            or response.items[1].rows_affected < 1
+        ):
+            await handle_contextless_error(
+                extra_info=f"failed to store part for {content_file_uid=}, but "
+                f"{mp4.export.uid=} was created; this means the s3 file "
+                f"{mp4.export.parts[0].s3_file.uid=} wasn't uploaded properly"
+            )
+            response = await cursor.execute(
+                """
+                DELETE FROM content_file_exports
+                WHERE
+                    content_file_exports.uid = ?
+                """,
+                (mp4.export.uid,),
+            )
+            if response.rows_affected is None or response.rows_affected < 1:
+                await handle_contextless_error(
+                    extra_info=f"failed to delete {mp4.export.uid=} after "
+                    f"failed part insert"
+                )
+            raise ProcessAudioAbortedException(
+                f"s3 file {mp4.export.parts[0].s3_file.uid=} wasn't uploaded properly"
+            )
+
         await redis.zrem(
             "files:purgatory",
             json.dumps(
