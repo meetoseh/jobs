@@ -10,7 +10,7 @@ import aiofiles
 import logging
 from jobs import JobCategory
 
-category = JobCategory.HIGH_RESOURCE_COST
+category = JobCategory.LOW_RESOURCE_COST
 
 
 def get_jpg_settings(width: int, height: int) -> dict:
