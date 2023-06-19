@@ -53,9 +53,7 @@ async def execute(
     base_url = os.environ["ROOT_FRONTEND_URL"]
     user_url = f"{base_url}/admin/user?sub={user_sub}"
 
-    message = (
-        f"{name} {'liked' if liked else 'unliked'} {title} (<{user_url}|view user>)"
-    )
+    message = f"{name} {'favorited' if liked else 'unfavorited'} {title} (<{user_url}|view user>)"
 
     logging.info(f"notify_user_changed_likes: {message}")
     if os.environ["ENVIRONMENT"] != "production":
