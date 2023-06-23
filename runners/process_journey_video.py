@@ -15,6 +15,11 @@ category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
+    """Suppressed for now to save on resources. See execute_real for the real implementation."""
+    ...
+
+
+async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
     """Produces a new video for the journey with the given uid, uploads
     it to S3, then queues process_finished_journey_video_sample to re-encode and
     store in the database.
