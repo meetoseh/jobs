@@ -5,7 +5,7 @@ from error_middleware import handle_warning
 from jobs import JobCategory
 from temp_files import temp_file, temp_dir
 from content import hash_content_sync, upload_s3_file_and_put_in_purgatory, S3File
-import shareables.journey_audio_with_dynamic_background.main
+import shareables.journey_audio.main
 import secrets
 import socket
 import time
@@ -15,11 +15,6 @@ category = JobCategory.HIGH_RESOURCE_COST
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
-    """Suppressed for now to save on resources. See execute_real for the real implementation."""
-    ...
-
-
-async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
     """Produces a new video for the journey with the given uid, uploads
     it to S3, then queues process_finished_journey_video_sample to re-encode and
     store in the database.
@@ -48,11 +43,25 @@ async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             instructors.name,
             audio_contents.uid,
             audio_contents.original_sha512,
-            audio_s3_files.key
+            audio_s3_files.key,
+            background_images.uid,
+            background_s3_files.key
         FROM journeys
         JOIN instructors ON instructors.id = journeys.instructor_id
         JOIN content_files AS audio_contents ON audio_contents.id = journeys.audio_content_file_id
         LEFT OUTER JOIN s3_files AS audio_s3_files ON audio_s3_files.id = audio_contents.original_s3_file_id
+        JOIN image_files AS background_images ON background_images.id = journeys.darkened_background_image_file_id
+        LEFT OUTER JOIN s3_files AS background_s3_files ON (
+            EXISTS (
+                SELECT 1 FROM image_file_exports
+                WHERE
+                    image_file_exports.image_file_id = background_images.id
+                    AND image_file_exports.format = 'webp'
+                    AND image_file_exports.width = 1080
+                    AND image_file_exports.height = 1920
+                    AND image_file_exports.s3_file_id = background_s3_files.id
+            )
+        )
         WHERE
             journeys.uid = ?
         """,
@@ -71,6 +80,8 @@ async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
     # may null sha512 later
     audio_sha512: Optional[str] = response.results[0][3]
     audio_key: Optional[str] = response.results[0][4]
+    background_uid: str = response.results[0][5]
+    background_key: Optional[str] = response.results[0][6]
 
     if audio_key is None:
         # the original has been lost, we will find the highest quality mp4 export
@@ -129,7 +140,7 @@ async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         del audio_export_uid
         audio_sha512 = None
 
-    with temp_file() as audio_source_path:
+    with temp_file() as audio_source_path, temp_file() as background_source_path:
         files = await itgs.files()
 
         with open(audio_source_path, "wb") as f:
@@ -150,18 +161,27 @@ async def execute_real(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             await bounce()
             return
 
+        with open(background_source_path, "wb") as f:
+            await files.download(
+                f, bucket=files.default_bucket, key=background_key, sync=True
+            )
+
+        if gd.received_term_signal:
+            await bounce()
+            return
+
         slack = await itgs.slack()
         await slack.send_ops_message(
             f"Producing full journey video for {journey_uid=}, {journey_title=}, {instructor_name=} on {socket.gethostname()}"
         )
         started_at = time.time()
         with temp_dir() as destination_dir:
-            result = await shareables.journey_audio_with_dynamic_background.main.run_pipeline(
+            result = shareables.journey_audio.main.run_pipeline(
                 audio_source_path,
+                background_source_path,
                 journey_title,
                 instructor_name,
                 duration=None,
-                model="pexels-video",
                 dest_folder=destination_dir,
             )
 

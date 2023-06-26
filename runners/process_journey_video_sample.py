@@ -149,7 +149,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         )
         return
 
-    with temp_file() as audio_source_path, temp_file() as background_source_path, temp_file() as cropped_background_source_path:
+    with temp_file() as audio_source_path, temp_file() as background_source_path:
         files = await itgs.files()
 
         with open(audio_source_path, "wb") as f:
