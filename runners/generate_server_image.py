@@ -23,6 +23,10 @@ def get_jpg_settings(width: int, height: int) -> dict:
     return {"quality": 85, "optimize": True, "progressive": True}
 
 
+def get_png_settings(width: int, height: int):
+    return {"optimize": True}
+
+
 def get_webp_settings(width: int, height: int) -> dict:
     if width * height < 500 * 500:
         return {"lossless": True, "quality": 100, "method": 6}
@@ -42,6 +46,7 @@ async def execute(
     file_s3_key: str,
     file_resolutions: List[Tuple[int, int]],
     job_uid: str,
+    transparency: bool = False,
 ):
     """Generates an image file with the given uid using the original file located at the
     given key in s3, marking the resulting image as public. Sends a message to
@@ -60,6 +65,7 @@ async def execute(
         file_resolutions (List[Tuple[int, int]]): The resolutions to generate as a list
             of (width, height)
         job_uid (str): The uid to use to send a message to ps:job:{job_uid} when done
+        transparency (bool, optional): Whether or not the image needs to support transparency.
     """
 
     async def bounce():
@@ -75,14 +81,27 @@ async def execute(
 
     targets: List[ImageTarget] = [
         *(
-            ImageTarget(
-                required=True,
-                width=w,
-                height=h,
-                format="jpeg",
-                quality_settings=get_jpg_settings(w, h),
+            (
+                ImageTarget(
+                    required=True,
+                    width=w,
+                    height=h,
+                    format="jpeg",
+                    quality_settings=get_jpg_settings(w, h),
+                )
+                for w, h in file_resolutions
             )
-            for w, h in file_resolutions
+            if not transparency
+            else (
+                ImageTarget(
+                    required=True,
+                    width=w,
+                    height=h,
+                    format="png",
+                    quality_settings=get_png_settings(w, h),
+                )
+                for w, h in file_resolutions
+            )
         ),
         *(
             ImageTarget(
