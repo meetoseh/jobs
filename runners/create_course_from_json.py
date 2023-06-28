@@ -151,6 +151,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, course_data: str):
         if response.rows_affected is None or response.rows_affected != 1:
             raise Exception(f"failed to insert course journey {i=}, {journey_uid=}")
 
+        response = await cursor.execute(
+            "UPDATE journeys SET deleted_at = NULL WHERE uid = ? AND deleted_at IS NOT NULL",
+            (journey_uid,),
+        )
+        if response.rows_affected is not None and response.rows_affected > 0:
+            logging.info(
+                f"restored journey {journey_uid=} as it is now used in the course"
+            )
+
 
 if __name__ == "__main__":
     import asyncio
