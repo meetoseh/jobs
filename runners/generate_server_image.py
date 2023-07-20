@@ -47,6 +47,7 @@ async def execute(
     file_resolutions: List[Tuple[int, int]],
     job_uid: str,
     transparency: bool = False,
+    focal_point: Tuple[float, float] = (0.5, 0.5),
 ):
     """Generates an image file with the given uid using the original file located at the
     given key in s3, marking the resulting image as public. Sends a message to
@@ -66,6 +67,9 @@ async def execute(
             of (width, height)
         job_uid (str): The uid to use to send a message to ps:job:{job_uid} when done
         transparency (bool, optional): Whether or not the image needs to support transparency.
+        focal_point (Tuple[float, float], optional): The focal point of the image as a
+            percentage of the width and height. Defaults to (0.5, 0.5). When cropping, we
+            will attempt to keep this point in the center of the cropped image.
     """
 
     async def bounce():
@@ -138,6 +142,7 @@ async def execute(
                 max_file_size=1024 * 1024 * 512,
                 name_hint=file_name,
                 force_uid=file_uid,
+                focal_point=focal_point,
             )
         except ProcessImageAbortedException:
             return await bounce()

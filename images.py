@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+import math
 from typing import AsyncGenerator, Any, Dict, List, Optional, Set, Tuple
 from content import hash_content
 from error_middleware import handle_error, handle_warning
@@ -125,6 +126,7 @@ async def process_image(
     max_file_size: int,
     name_hint: str,
     force_uid: Optional[str] = None,
+    focal_point: Tuple[float, float] = (0.5, 0.5),
 ) -> ImageFile:
     """Processes the user-provided image which we have available at the given filepath
     and generates the given targets.
@@ -164,6 +166,9 @@ async def process_image(
         name_hint (str): A hint for the name of the image file.
         force_uid (str): If specified, we will use this uid for the image file if there is
             no collision on the hash of the file
+        focal_point (Tuple[float, float]): The focal point of the image, as a percentage
+            of the width and height. Defaults to the center of the image. When cropping,
+            we will attempt to keep this point at the center of the image.
 
     Returns:
         ImageFile: The image file that was processed
@@ -193,7 +198,12 @@ async def process_image(
         )
         if response.results:
             return await _add_missing_targets(
-                rasterized, targets, uid=response.results[0][0], itgs=itgs, gd=gd
+                rasterized,
+                targets,
+                uid=response.results[0][0],
+                focal_point=focal_point,
+                itgs=itgs,
+                gd=gd,
             )
 
         return await _make_new_image(
@@ -204,6 +214,7 @@ async def process_image(
             itgs=itgs,
             gd=gd,
             force_uid=force_uid,
+            focal_point=focal_point,
         )
 
 
@@ -212,6 +223,7 @@ async def _add_missing_targets(
     targets: List[ImageTarget],
     *,
     uid: str,
+    focal_point: Tuple[float, float],
     itgs: Itgs,
     gd: GracefulDeath,
 ) -> ImageFile:
@@ -275,7 +287,11 @@ async def _add_missing_targets(
     os.makedirs(tmp_folder)
     try:
         local_image_file_exports = await _make_targets(
-            local_filepath, missing_targets, tmp_folder=tmp_folder, gd=gd
+            local_filepath,
+            missing_targets,
+            focal_point=focal_point,
+            tmp_folder=tmp_folder,
+            gd=gd,
         )
         if gd.received_term_signal:
             raise ProcessImageAbortedException("Received term signal")
@@ -291,7 +307,7 @@ async def _add_missing_targets(
                     """
                     INSERT INTO image_file_exports (
                         uid, image_file_id, s3_file_id, width, height,
-                        left_cut_px, right_cut_px, top_cut_px, bottom_cut_px,
+                        top_cut_px, right_cut_px, bottom_cut_px, left_cut_px,
                         format, quality_settings, created_at
                     )
                     SELECT
@@ -457,6 +473,7 @@ async def _make_new_image(
     *,
     name: str,
     sha512: str,
+    focal_point: Tuple[float, float],
     itgs: Itgs,
     gd: GracefulDeath,
     force_uid: Optional[str] = None,
@@ -472,7 +489,13 @@ async def _make_new_image(
     os.makedirs(tmp_folder)
     try:
         local_image_file_exports, original = await asyncio.gather(
-            _make_targets(local_filepath, targets, tmp_folder=tmp_folder, gd=gd),
+            _make_targets(
+                local_filepath,
+                targets,
+                focal_point=focal_point,
+                tmp_folder=tmp_folder,
+                gd=gd,
+            ),
             _upload_original(
                 local_filepath, image_file_uid=image_file_uid, now=now, itgs=itgs
             ),
@@ -523,7 +546,7 @@ async def _make_new_image(
                         """
                         INSERT INTO image_file_exports (
                             uid, image_file_id, s3_file_id, width, height,
-                            left_cut_px, right_cut_px, top_cut_px, bottom_cut_px,
+                            top_cut_px, right_cut_px, bottom_cut_px, left_cut_px,
                             format, quality_settings, created_at
                         )
                         SELECT
@@ -802,6 +825,7 @@ async def _make_targets(
     local_filepath: str,
     targets: List[ImageTarget],
     *,
+    focal_point: Tuple[float, float],
     tmp_folder: str,
     gd: GracefulDeath,
 ) -> List[LocalImageFileExport]:
@@ -825,7 +849,12 @@ async def _make_targets(
 
                 running.add(
                     _make_target_with_idx_as_future_from_pool(
-                        pool, local_filepath, target, tmp_folder, target_idx
+                        pool,
+                        local_filepath,
+                        target,
+                        tmp_folder,
+                        target_idx,
+                        focal_point,
                     )
                 )
 
@@ -856,6 +885,7 @@ def _make_target_with_idx_as_future_from_pool(
     target: ImageTarget,
     tmp_folder: str,
     idx: int,
+    focal_point: Tuple[float, float],
 ) -> asyncio.Future:
     loop = asyncio.get_event_loop()
     future = loop.create_future()
@@ -873,6 +903,7 @@ def _make_target_with_idx_as_future_from_pool(
             target,
             os.path.join(tmp_folder, f"{idx}.{target.format}"),
             idx,
+            focal_point,
         ),
         callback=_on_done,
         error_callback=_on_error,
@@ -885,14 +916,20 @@ def _make_target_with_idx(
     target: ImageTarget,
     tmp_filepath: str,
     idx: int,
+    focal_point: Tuple[float, float],
 ) -> Tuple[int, Optional[LocalImageFileExport]]:
-    return (idx, _make_target(local_filepath, target, tmp_filepath))
+    return (idx, _make_target(local_filepath, target, tmp_filepath, focal_point))
+
+
+def clamp(min_: int, max_: int, value: int) -> int:
+    return max(min_, min(max_, value))
 
 
 def _make_target(
     local_filepath: str,
     target: ImageTarget,
     target_filepath: str,  # where to store the target
+    focal_point: Tuple[float, float],
 ) -> Optional[LocalImageFileExport]:  # None = not possible
     with Image.open(local_filepath) as img:
         if img.width < target.width or img.height < target.height:
@@ -914,11 +951,19 @@ def _make_target(
 
         required_x_crop = img.width - cropped_width
         required_y_crop = img.height - cropped_height
+
+        top_crop = clamp(
+            0, required_y_crop, math.floor(required_y_crop * focal_point[1])
+        )
+        left_crop = clamp(
+            0, required_x_crop, math.floor(required_x_crop * focal_point[0])
+        )
+
         crops: Tuple[int, int, int, int] = (  # top/right/bottom/left
-            required_y_crop // 2,
-            required_x_crop - (required_x_crop // 2),
-            required_y_crop - (required_y_crop // 2),
-            required_x_crop // 2,
+            top_crop,
+            required_x_crop - left_crop,
+            required_y_crop - top_crop,
+            left_crop,
         )
 
         if any(crop > 0 for crop in crops):
