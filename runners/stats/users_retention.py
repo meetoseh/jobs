@@ -74,7 +74,7 @@ async def rollover_to_rqlite(itgs: Itgs, period_days: int, unix_date: int) -> No
     redis = await itgs.redis()
 
     retrieved_at = time.time()
-    retrieved_for = unix_dates.unix_date_to_date(retrieved_at)
+    retrieved_for = unix_dates.unix_date_to_date(unix_date)
     async with redis.pipeline(transaction=False) as pipe:
         for retained_str in ("true", "false"):
             key = f"stats:retention:{period_days}day:{retained_str}:{unix_date}"
