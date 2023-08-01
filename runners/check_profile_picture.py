@@ -104,6 +104,20 @@ TARGETS = [
     ),
     ImageTarget(
         required=False,
+        width=135,
+        height=135,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=135,
+        height=135,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=False,
         width=256,
         height=256,
         format="webp",
