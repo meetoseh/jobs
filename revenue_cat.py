@@ -1,9 +1,10 @@
 """This module assists with working with entitlements from RevenueCat"""
-from typing import Dict, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 import aiohttp
-import logging
+
+from error_middleware import handle_error
 
 
 class Entitlement(BaseModel):
@@ -62,7 +63,7 @@ class Subscriber(BaseModel):
     last_seen: datetime = Field()
     entitlements: Dict[str, Entitlement] = Field()
     subscriptions: Dict[str, Subscription] = Field()
-    non_subscriptions: Dict[str, NonSubscription] = Field()
+    non_subscriptions: Dict[str, List[NonSubscription]] = Field()
     subscriber_attributes: Dict[str, SubscriberAttribute] = Field(default_factory=dict)
 
 
@@ -120,7 +121,13 @@ class RevenueCat:
             resp.raise_for_status()
             text = await resp.text()
 
-        return CustomerInfo.parse_raw(text, content_type="application/json")
+        try:
+            return CustomerInfo.parse_raw(text, content_type="application/json")
+        except Exception as e:
+            await handle_error(
+                e, extra_info=f"for {revenue_cat_id=} and response {text=}"
+            )
+            raise Exception("Error parsing response from RevenueCat")
 
     async def set_customer_attributes(
         self, *, revenue_cat_id: str, attributes: Dict[str, str]
@@ -174,11 +181,19 @@ class RevenueCat:
             resp.raise_for_status()
 
     async def create_stripe_purchase(
-        self, *, revenue_cat_id: str, stripe_checkout_session_id: str
-    ) -> None:
+        self,
+        *,
+        revenue_cat_id: str,
+        stripe_checkout_session_id: str,
+        is_restore: bool = False,
+    ) -> CustomerInfo:
         """Informs revenuecat that the user has finished a stripe checkout session.
         This should occur either after the checkout.session.completed event or
         after the user indicates they completed the flow.
+
+        Specifying is_restore=True will cause the default restore behavior, usually
+        meaning that if the checkout session was used to apply entitlements to another
+        user already, those entitlements are removed and added to this user.
         """
 
         async with self.session.post(
@@ -186,6 +201,7 @@ class RevenueCat:
             json={
                 "app_user_id": revenue_cat_id,
                 "fetch_token": stripe_checkout_session_id,
+                "is_restore": is_restore,
                 "attributes": {},
             },
             headers={
@@ -197,10 +213,9 @@ class RevenueCat:
         ) as resp:
             if not resp.ok:
                 text = await resp.text()
-                logging.warning(
-                    f"create_stripe_purchase failed; {revenue_cat_id=}, stripe_checkout_session_id={stripe_checkout_session_id}, {resp.status=}, {text=}"
-                )
             resp.raise_for_status()
+            data = await resp.text("utf-8")
+            return CustomerInfo.parse_raw(data, content_type="application/json")
 
     async def grant_promotional_entitlement(
         self,
