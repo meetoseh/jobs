@@ -641,21 +641,11 @@ JOBS: List[Job] = (
             pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
         ),
     ),
-    # Job(
-    #     name="runners.create_ai_journey",
-    #     kwargs=(("only_in_env", "production"),),
-    #     interval=JobInterval(pst, hours=(3,), minutes=(5,), seconds=(0,)),
-    # ),
-    # Job(
-    #     name="runners.content_marketing.post_on_reddit",
-    #     kwargs=tuple(),
-    #     interval=JobInterval(pst, hours=(8,), minutes=(0,), seconds=(0,)),
-    # ),
-    # Job(
-    #     name="runners.content_marketing.post_on_mastodon",
-    #     kwargs=tuple(),
-    #     interval=JobInterval(pst, hours=(8,), minutes=(0,), seconds=(0,)),
-    # ),
+    Job(
+        name="runners.stats.daily_push_token_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 
