@@ -4,13 +4,11 @@ rqlite, since that is done by the jobs repo.
 
 This is not an exhausitive list of callbacks: see also interactive_prompts/lib/stats.py
 """
-import time
-from typing import List, Literal, Optional, Union
+from typing import Literal
 from itgs import Itgs
+from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import pytz
 import unix_dates
-import hashlib
-import redis.asyncio.client
 
 
 RETENTION_PERIOD_DAYS = [0, 1, 7, 30, 90]
@@ -46,9 +44,9 @@ async def on_user_created(itgs: Itgs, sub: str, created_at: float) -> None:
 
     async with redis.pipeline() as pipe:
         pipe.multi()
+        await set_if_lower(pipe, "stats:users:monthly:earliest", unix_month)
         await pipe.incr("stats:users:count")
         await pipe.incr(f"stats:users:monthly:{unix_month}:count")
-        await set_if_lower(pipe, "stats:users:monthly:earliest", unix_month)
         await pipe.incr(f"stats:daily_new_users:{unix_date}")
         await set_if_lower(pipe, "stats:daily_new_users:earliest", unix_date)
         for period_days in RETENTION_PERIOD_DAYS:
@@ -101,10 +99,14 @@ async def on_interactive_prompt_session_started(
 
     async with redis.pipeline() as pipe:
         pipe.multi()
-        await pipe.sadd(f"stats:daily_active_users:{started_at_unix_date}", sub)
+
+        # The order here matters; set_if_lower will fail if the script was
+        # flushed since the last call, but won't rollback earlier calls
         await set_if_lower(
             pipe, "stats:daily_active_users:earliest", started_at_unix_date
         )
+        await pipe.sadd(f"stats:daily_active_users:{started_at_unix_date}", sub)
+
         await pipe.sadd(f"stats:monthly_active_users:{started_at_unix_month}", sub)
         await set_if_lower(
             pipe, "stats:monthly_active_users:earliest", started_at_unix_month
@@ -147,8 +149,7 @@ async def on_notification_time_updated(
     """Tracks that the given user changed their notification preference. This
     should only be called if the user really will receive notifications at the
     new preference, i.e., they have a user klaviyo profile, phone number, and
-    daily event notifications enabled (or this was true and the new preference
-    is "unset")
+    notifications enabled (or this was true and the new preference is "unset")
 
     Updates the following keys, which are described in docs/redis/keys.md
 
@@ -192,70 +193,3 @@ async def on_notification_time_updated(
             pipe, b"stats:daily_user_notification_settings:earliest", unix_date
         )
         await pipe.execute()
-
-
-SET_IF_LOWER_LUA_SCRIPT = """
-local key = KEYS[1]
-local value = ARGV[1]
-
-local current_value = redis.call("GET", key)
-if (current_value ~= false) and (tonumber(current_value) <= tonumber(value)) then
-    return 0
-end
-
-redis.call("SET", key, value)
-return 1
-"""
-
-SET_IF_LOWER_LUA_SCRIPT_HASH = hashlib.sha1(
-    SET_IF_LOWER_LUA_SCRIPT.encode("utf-8")
-).hexdigest()
-
-
-_last_set_if_lower_ensured_at: Optional[float] = None
-
-
-async def ensure_set_if_lower_script_exists(redis: redis.asyncio.client.Redis) -> None:
-    """Ensures the set_if_lower lua script is loaded into redis."""
-    global _last_set_if_lower_ensured_at
-
-    now = time.time()
-    if _last_set_if_lower_ensured_at is not None and (
-        now - _last_set_if_lower_ensured_at < 5
-    ):
-        return
-
-    loaded: List[bool] = await redis.script_exists(SET_IF_LOWER_LUA_SCRIPT_HASH)
-    if not loaded[0]:
-        correct_hash = await redis.script_load(SET_IF_LOWER_LUA_SCRIPT)
-        assert (
-            correct_hash == SET_IF_LOWER_LUA_SCRIPT_HASH
-        ), f"{correct_hash=} != {SET_IF_LOWER_LUA_SCRIPT_HASH=}"
-
-    if _last_set_if_lower_ensured_at is None or _last_set_if_lower_ensured_at < now:
-        _last_set_if_lower_ensured_at = now
-
-
-async def set_if_lower(
-    redis: redis.asyncio.client.Redis, key: Union[str, bytes], val: int
-) -> Optional[bool]:
-    """Updates the value in the given key to the given value iff
-    the key is unset or the value is lower than the current value.
-
-    Args:
-        redis (redis.asyncio.client.Redis): The redis client
-        key (str): The key to update
-        val (int): The value to update to
-
-    Returns:
-        bool, None: True if the value was updated, False otherwise. None if executed
-            within a transaction, since the result is not known until the
-            transaction is executed.
-
-    Raises:
-        NoScriptError: If the script is not loaded into redis
-    """
-    res = await redis.evalsha(SET_IF_LOWER_LUA_SCRIPT_HASH, 1, key, val)
-    if res is redis:
-        return None
-    return bool(res)

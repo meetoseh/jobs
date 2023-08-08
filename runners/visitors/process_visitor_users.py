@@ -8,10 +8,7 @@ import logging
 import time
 from jobs import JobCategory
 from functools import lru_cache
-from lib.stats.set_if_lower import (
-    ensure_set_if_lower_script_exists,
-    set_if_lower_unsafe,
-)
+from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import lib.visitors.deltas
 import lib.visitors.interests
 import lib.utms.parse
@@ -223,7 +220,7 @@ async def execute(
         async with redis.pipeline() as pipe:
             pipe.multi()
 
-            await set_if_lower_unsafe(
+            await set_if_lower(
                 pipe,
                 b"stats:visitors:daily:earliest",
                 str(seen_at_unix_date).encode("ascii"),
