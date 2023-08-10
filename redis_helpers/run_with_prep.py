@@ -1,10 +1,13 @@
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, TypeVar
 from redis.exceptions import NoScriptError
 
 
+T = TypeVar("T")
+
+
 async def run_with_prep(
-    prep: Callable[[bool], Awaitable[None]], func: Callable[[], Awaitable[None]]
-) -> None:
+    prep: Callable[[bool], Awaitable[None]], func: Callable[[], Awaitable[T]]
+) -> T:
     """Runs `prep`, then tries to run `func`, catching NoScriptError and retrying 1
     time. The first call to prep is with `False` and the second run is with `True`.
 
@@ -14,7 +17,7 @@ async def run_with_prep(
     """
     await prep(False)
     try:
-        await func()
+        return await func()
     except NoScriptError:
         await prep(True)
-        await func()
+        return await func()
