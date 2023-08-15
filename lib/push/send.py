@@ -12,11 +12,8 @@ explanation plus statistics for the entire flow are available in
 """
 from typing import Optional
 from itgs import Itgs
-from lib.push.message_attempt_info import (
-    MessageAttemptToSend,
-    MessageContents,
-    JobCallback,
-)
+from lib.shared.job_callback import JobCallback
+from lib.push.message_attempt_info import MessageAttemptToSend, MessageContents
 import secrets
 import time
 import lib.push.ticket_stats

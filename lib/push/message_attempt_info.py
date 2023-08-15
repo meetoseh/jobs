@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, Tuple, Union
+from lib.shared.job_callback import JobCallback
 import gzip
 import base64
 
@@ -15,13 +16,6 @@ class MessageContents(BaseModel):
     title: str = Field(description="The title of the notification")
     body: str = Field(description="The body of the notification")
     channel_id: str = Field(description="Which android channel to post the message on")
-
-
-class JobCallback(BaseModel):
-    name: str = Field(description="the name of the job")
-    kwargs: dict = Field(
-        description="Additional keyword arguments for the job, must be trivially json serializable"
-    )
 
 
 class MessageAttemptToSend(BaseModel):
@@ -42,12 +36,8 @@ class MessageAttemptToSend(BaseModel):
     )
     push_token: str = Field(description="The push token to send to")
     contents: MessageContents = Field(description="The contents of the message")
-    failure_job: JobCallback = Field(
-        description="The job callback in case of failure, passed attempt_raw and info_raw"
-    )
-    success_job: JobCallback = Field(
-        description="The job callback in case of success, passed attempt_raw"
-    )
+    failure_job: JobCallback = Field(description="The job callback in case of failure")
+    success_job: JobCallback = Field(description="The job callback in case of success")
 
 
 class PushTicket(BaseModel):
@@ -100,12 +90,8 @@ class MessageAttemptToCheck(BaseModel):
     )
     push_token: str = Field(description="The push token to send to")
     contents: MessageContents = Field(description="The contents of the message")
-    failure_job: JobCallback = Field(
-        description="The job callback in case of failure, passed attempt_raw and info_raw"
-    )
-    success_job: JobCallback = Field(
-        description="The job callback in case of success, passed attempt_raw and result_raw"
-    )
+    failure_job: JobCallback = Field(description="The job callback in case of failure")
+    success_job: JobCallback = Field(description="The job callback in case of success")
 
 
 class MessageAttemptSuccess(BaseModel):
@@ -114,7 +100,7 @@ class MessageAttemptSuccess(BaseModel):
     )
     uid: str = Field(description="The unique identifier for this message attempt")
     initially_queued_at: float = Field(
-        description="When this first joined the success cold set in seconds since the epoch"
+        description="When this first joined the to send queue in seconds since the epoch"
     )
     push_token: str = Field(description="The push token to send to")
     contents: MessageContents = Field(description="The contents of the message")

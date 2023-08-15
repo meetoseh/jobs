@@ -661,6 +661,16 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(30,)),
     ),
+    Job(
+        name="runners.stats.daily_sms_send_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(20,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.sms.send",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 

@@ -6,7 +6,8 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.push.message_attempt_info import JobCallback, MessageContents
+from lib.shared.job_callback import JobCallback
+from lib.push.message_attempt_info import MessageContents
 from lib.push.send import send_push
 
 category = JobCategory.LOW_RESOURCE_COST
