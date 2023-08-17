@@ -1,6 +1,9 @@
 from itgs import Itgs
 from typing import Optional
 from lib.sms.sms_info import PendingSMS
+from redis_helpers.abandon_pending_sms import abandon_pending_sms_safe
+from redis_helpers.retry_pending_sms import retry_pending_sms_safe
+import lib.sms.poll_stats
 
 
 async def retry_pending(itgs: Itgs, *, sms: PendingSMS, now: Optional[float]) -> bool:
@@ -21,6 +24,23 @@ async def retry_pending(itgs: Itgs, *, sms: PendingSMS, now: Optional[float]) ->
           False, the failure callback should proceed as if it was never called
           (rolling back any changes it already made).
     """
+    result = await retry_pending_sms_safe(
+        itgs,
+        b"sms:pending",
+        b"sms:recovery",
+        sms.message_resource.sid.encode("utf-8"),
+        sms.num_changes,
+    )
+    if not result:
+        return False
+
+    await lib.sms.poll_stats.increment_event(
+        itgs,
+        event="queued_for_recovery",
+        extra={"num_previous_failures": sms.num_failures - 1},
+        now=sms.send_initially_queued_at,
+    )
+    return True
 
 
 async def abandon_pending(itgs: Itgs, *, sms: PendingSMS, now: Optional[float]) -> bool:
@@ -41,3 +61,16 @@ async def abandon_pending(itgs: Itgs, *, sms: PendingSMS, now: Optional[float]) 
           callback should proceed as if it was never called (rolling back any changes
           it already made).
     """
+    result = await abandon_pending_sms_safe(
+        itgs, b"sms:pending", sms.message_resource.sid.encode("utf-8"), sms.num_changes
+    )
+    if not result:
+        return False
+
+    await lib.sms.poll_stats.increment_event(
+        itgs,
+        event="abandoned",
+        extra={"num_previous_failures": sms.num_failures - 1},
+        now=sms.send_initially_queued_at,
+    )
+    return True

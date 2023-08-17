@@ -664,13 +664,46 @@ JOBS: List[Job] = (
     Job(
         name="runners.stats.daily_sms_send_stats",
         kwargs=tuple(),
-        interval=JobInterval(pst, hours=(0,), minutes=(20,), seconds=(0,)),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
         name="runners.sms.send",
         kwargs=tuple(),
-        interval=JobInterval(pst, seconds=(0,)),
+        interval=JobInterval(
+            pst,
+            seconds=(
+                0,
+                15,
+                30,
+                45,
+            ),
+        ),
     ),
+    Job(
+        name="runners.stats.daily_sms_polling_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.sms.receipt_stale_detection",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(5,)),
+    ),
+    Job(
+        name="runners.sms.receipt_recovery",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(10,)),
+    ),
+    Job(
+        name="runners.sms.receipt_reconciliation",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(20,)),
+    ),
+    Job(
+        name="runners.stats.daily_sms_webhook_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    )
 )
 """The jobs that should be run."""
 

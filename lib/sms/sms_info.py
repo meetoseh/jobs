@@ -1,6 +1,6 @@
 import base64
 import gzip
-from typing import Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 from pydantic import BaseModel, Field
 from lib.shared.job_callback import JobCallback
 
@@ -54,8 +54,8 @@ class MessageResource(BaseModel):
     error_code: Optional[str] = Field(
         description="If an error code is available, the error code"
     )
-    date_updated: float = Field(
-        description="When the message resource was last updated, in seconds since the epoch"
+    date_updated: Optional[float] = Field(
+        description="When the message resource was last updated, in seconds since the epoch, if available"
     )
 
 
@@ -107,6 +107,118 @@ class PendingSMS(BaseModel):
     failure_job: JobCallback = Field(description="The job callback in case of failure")
     success_job: JobCallback = Field(description="The job callback in case of success")
 
+    def as_redis_mapping(self) -> dict:
+        return {
+            b"aud": self.aud.encode("utf-8"),
+            b"uid": self.uid.encode("utf-8"),
+            b"send_initially_queued_at": self.send_initially_queued_at,
+            b"message_resource_created_at": self.message_resource_created_at,
+            b"message_resource_last_updated_at": self.message_resource_last_updated_at,
+            b"message_resource_sid": self.message_resource.sid.encode("utf-8"),
+            b"message_resource_status": self.message_resource.status.encode("utf-8"),
+            **(
+                {}
+                if self.message_resource.error_code is None
+                else {
+                    b"message_resource_error_code": self.message_resource.error_code.encode(
+                        "utf-8"
+                    )
+                }
+            ),
+            **(
+                {}
+                if self.message_resource.date_updated is None
+                else {
+                    b"message_resource_date_updated": self.message_resource.date_updated
+                }
+            ),
+            **(
+                {}
+                if self.failure_job_last_called_at is None
+                else {b"failure_job_last_called_at": self.failure_job_last_called_at}
+            ),
+            b"num_failures": self.num_failures,
+            b"num_changes": self.num_changes,
+            b"phone_number": self.phone_number.encode("utf-8"),
+            b"body": self.body.encode("utf-8"),
+            b"failure_job": self.failure_job.json().encode("utf-8"),
+            b"success_job": self.success_job.json().encode("utf-8"),
+        }
+
+    @classmethod
+    def from_redis_mapping(
+        cls,
+        mapping_raw: Union[
+            List[Union[str, bytes]],
+            Dict[Union[str, bytes], Union[str, bytes]],
+        ],
+    ) -> "PendingSMS":
+        if isinstance(mapping_raw, list):
+            assert len(mapping_raw) % 2 == 0
+            mapping = {
+                mapping_raw[i]: mapping_raw[i + 1]
+                for i in range(0, len(mapping_raw), 2)
+            }
+        else:
+            mapping = mapping_raw
+
+        def get_bytes(key: bytes) -> Optional[bytes]:
+            if key not in mapping:
+                str_key = key.decode("utf-8")
+                if str_key in mapping:
+                    raw_result = mapping[str_key]
+                return None
+            else:
+                raw_result = mapping[key]
+
+            if isinstance(raw_result, str):
+                return raw_result.encode("utf-8")
+            if isinstance(raw_result, (int, float)):
+                return str(raw_result).encode("utf-8")
+            assert isinstance(raw_result, bytes)
+            return raw_result
+
+        def get_str(key: bytes) -> Optional[str]:
+            result = get_bytes(key)
+            return None if result is None else result.decode("utf-8")
+
+        def get_float(key: bytes) -> Optional[float]:
+            result = get_bytes(key)
+            if result == b"":
+                return None
+            return None if result is None else float(result)
+
+        def get_int(key: bytes) -> Optional[int]:
+            result = get_bytes(key)
+            return None if result is None else int(result)
+
+        return cls(
+            aud=get_str(b"aud"),
+            uid=get_str(b"uid"),
+            send_initially_queued_at=get_float(b"send_initially_queued_at"),
+            message_resource_created_at=get_float(b"message_resource_created_at"),
+            message_resource_last_updated_at=get_float(
+                b"message_resource_last_updated_at"
+            ),
+            message_resource=MessageResource(
+                sid=get_str(b"message_resource_sid"),
+                status=get_str(b"message_resource_status"),
+                error_code=get_str(b"message_resource_error_code"),
+                date_updated=get_float(b"message_resource_date_updated"),
+            ),
+            failure_job_last_called_at=get_float(b"failure_job_last_called_at"),
+            num_failures=get_int(b"num_failures"),
+            num_changes=get_int(b"num_changes"),
+            phone_number=get_str(b"phone_number"),
+            body=get_str(b"body"),
+            failure_job=JobCallback.parse_raw(
+                get_bytes(b"failure_job"), content_type="application/json"
+            ),
+            success_job=JobCallback.parse_raw(
+                get_bytes(b"success_job"), content_type="application/json"
+            ),
+        )
+
 
 class SMSFailureInfo(BaseModel):
     """Describes why the failure callback is being called"""
@@ -128,6 +240,7 @@ class SMSFailureInfo(BaseModel):
         "ServerError",
         "InternalError",
         "NetworkError",
+        "StuckPending",
     ] = Field(
         description=(
             "The cause of the most recent failure:\n"
@@ -146,7 +259,8 @@ class SMSFailureInfo(BaseModel):
             " Broken down by HTTP status code (e.g., 500)\n"
             "- InternalError: We encountered an error producing the request or processing"
             " the response from Twilio\n"
-            "- NetworkError: We encountered an error connecting to Twilio"
+            "- NetworkError: We encountered an error connecting to Twilio\n"
+            "- StuckPending: The message resource has been in a pending state for a while"
         )
     )
     subidentifier: Optional[str] = Field(

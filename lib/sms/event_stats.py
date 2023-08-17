@@ -1,4 +1,4 @@
-"""Assists with updating statistics related to managing SMS sends
+"""Assists with updating statistics related to reconciling events received from Twilio
 """
 from typing import Dict, Literal, Optional, Type, Union
 from pydantic import BaseModel, Field
@@ -12,24 +12,24 @@ from itgs import Itgs
 timezone = pytz.timezone("America/Los_Angeles")
 
 # TODO: Once on python 3.11, use enum.StrEnum
-# Documentation for these events is under `docs/db/stats/sms_send_stats.md`
-SMSSendStatsEvent = Literal[
-    "queued",
-    "retried",
-    "succeeded_pending",  # extra: "status"
-    "succeeded_immediate",  # extra: "status"
-    "abandoned",
-    "failed_due_to_application_error_ratelimit",  # extra: "error_code"
-    "failed_due_to_application_error_other",  # extra: "error_code"
-    "failed_due_to_client_error_429",
-    "failed_due_to_client_error_other",  # extra: "http_status_code"
-    "failed_due_to_server_error",  # extra: "http_status_code"
-    "failed_due_to_internal_error",
-    "failed_due_to_network_error",
+# Documentation for these events is under `docs/db/stats/sms_event_stats.md`
+SMSEventStatsEvent = Literal[
+    "attempted",  # extra: "status"
+    "received_via_webhook",  # extra: "status"
+    "received_via_polling",  # extra: "status"
+    "pending",  # extra: "status"
+    "succeeded",  # extra: "status"
+    "failed",  # extra: "status"
+    "found",  # extra: null
+    "updated",  # extra: "old_status:new_status"
+    "duplicate",  # extra: "status"
+    "out_of_order",  # extra: "stored_status:event_status"
+    "removed",  # extra: "old_status:new_status"
+    "unknown",  # extra: "status"
 ]
 
 
-class SmsSendStatsStatusExtra(BaseModel):
+class SmsEventStatsStatusExtra(BaseModel):
     status: str = Field(description="The MessageStatus returned")
 
     @property
@@ -37,51 +37,55 @@ class SmsSendStatsStatusExtra(BaseModel):
         return self.status.encode("utf-8")
 
 
-class SmsSendStatsErrorCodeExtra(BaseModel):
-    error_code: str = Field(description="The ErrorCode returned")
+class SmsEventStatsStatusChangeExtra(BaseModel):
+    old_status: str = Field(description="The old MessageStatus")
+    new_status: str = Field(description="The new MessageStatus")
 
     @property
     def redis_key(self) -> bytes:
-        return self.error_code.encode("utf-8")
+        return f"{self.old_status}:{self.new_status}".encode("utf-8")
 
 
-class SmsSendStatsHttpStatusCodeExtra(BaseModel):
-    http_status_code: str = Field(description="The HTTP status code returned")
+class SmsEventStatsOutOfOrderExtra(BaseModel):
+    stored_status: str = Field(
+        description="The MessageStatus in the receipt pending set"
+    )
+    event_status: str = Field(description="The MessageStatus of the event")
 
     @property
     def redis_key(self) -> bytes:
-        return self.http_status_code.encode("utf-8")
+        return f"{self.stored_status}:{self.event_status}".encode("utf-8")
 
 
-SMS_SEND_STATS_EVENTS: Dict[
-    SMSSendStatsEvent,
+SMS_EVENT_STATS_EVENTS: Dict[
+    SMSEventStatsEvent,
     Optional[
         Union[
-            Type[SmsSendStatsStatusExtra],
-            Type[SmsSendStatsErrorCodeExtra],
-            Type[SmsSendStatsHttpStatusCodeExtra],
+            Type[SmsEventStatsStatusExtra],
+            Type[SmsEventStatsStatusChangeExtra],
+            Type[SmsEventStatsOutOfOrderExtra],
         ]
     ],
 ] = {
-    "queued": None,
-    "retried": None,
-    "succeeded_pending": SmsSendStatsStatusExtra,
-    "succeeded_immediate": SmsSendStatsStatusExtra,
-    "abandoned": None,
-    "failed_due_to_application_error_ratelimit": SmsSendStatsErrorCodeExtra,
-    "failed_due_to_application_error_other": SmsSendStatsErrorCodeExtra,
-    "failed_due_to_client_error_429": None,
-    "failed_due_to_client_error_other": SmsSendStatsHttpStatusCodeExtra,
-    "failed_due_to_server_error": SmsSendStatsHttpStatusCodeExtra,
-    "failed_due_to_internal_error": None,
-    "failed_due_to_network_error": None,
+    "attempted": SmsEventStatsStatusExtra,
+    "received_via_webhook": SmsEventStatsStatusExtra,
+    "received_via_polling": SmsEventStatsStatusExtra,
+    "pending": SmsEventStatsStatusExtra,
+    "succeeded": SmsEventStatsStatusExtra,
+    "failed": SmsEventStatsStatusExtra,
+    "found": None,
+    "updated": SmsEventStatsStatusChangeExtra,
+    "duplicate": SmsEventStatsStatusExtra,
+    "out_of_order": SmsEventStatsOutOfOrderExtra,
+    "removed": SmsEventStatsStatusChangeExtra,
+    "unknown": SmsEventStatsStatusExtra,
 }
 
 
 async def increment_event(
     itgs: Itgs,
     *,
-    event: SMSSendStatsEvent,
+    event: SMSEventStatsEvent,
     extra: Optional[dict] = None,
     now: float,
     amount: int = 1,
@@ -91,7 +95,7 @@ async def increment_event(
 
     Args:
         itgs (Itgs): the integrations to (re)use
-        event (SMSSendStatsEvent): the event to increment
+        event (SMSEventStatsEvent): the event to increment
         extra (dict, optional): the extra data to store with the event. The
             content of this depends on the event. Defaults to None.
         now (float): the time to increment the event at
@@ -115,7 +119,7 @@ async def increment_event(
 
 async def prepare_increment_event(client: redis.asyncio.Redis, *, force: bool = False):
     """Performs necessary work on the given client to prepare it to
-    increment a push ticket stats event. This has to be done outside of
+    increment a sms event stats event. This has to be done outside of
     a pipeline, and generally only needs to be called directly if you
     want to call attempt_increment_event alongside other commands within
     the same pipeline. Otherwise, use `increment_event` instead.
@@ -141,7 +145,7 @@ async def prepare_increment_event(client: redis.asyncio.Redis, *, force: bool = 
 async def attempt_increment_event(
     client: redis.asyncio.Redis,
     *,
-    event: SMSSendStatsEvent,
+    event: SMSEventStatsEvent,
     extra: Optional[dict] = None,
     now: float,
     amount: int = 1,
@@ -156,14 +160,14 @@ async def attempt_increment_event(
 
     Args:
         client (redis.asyncio.Redis): The client to increment on
-        event (SMSSendStatsEvent): The event to increment
+        event (SMSEventStatsEvent): The event to increment
         extra (dict, optional): The extra data to store with the event. The
             content of this depends on the event. Defaults to None.
         now (float): The current time, in seconds since the epoch
         amount (int, optional): The amount to increment by. Defaults to 1.
     """
-    expected_extra_type = SMS_SEND_STATS_EVENTS.get(event)
-    if expected_extra_type is None and event not in SMS_SEND_STATS_EVENTS:
+    expected_extra_type = SMS_EVENT_STATS_EVENTS.get(event)
+    if expected_extra_type is None and event not in SMS_EVENT_STATS_EVENTS:
         raise ValueError(f"Invalid event: {event}")
 
     if expected_extra_type is None and extra is not None:
@@ -175,16 +179,16 @@ async def attempt_increment_event(
     typed_extra = None if extra is None else expected_extra_type.parse_obj(extra)
 
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=timezone)
-    await set_if_lower(client, b"stats:sms_send:daily:earliest", unix_date)
+    await set_if_lower(client, b"stats:sms_events:daily:earliest", unix_date)
     await client.hincrby(
-        f"stats:sms_send:daily:{unix_date}".encode("ascii"),
+        f"stats:sms_events:daily:{unix_date}".encode("ascii"),
         event.encode("utf-8"),
         amount,
     )
 
     if typed_extra is not None:
         await client.hincrby(
-            f"stats:sms_send:daily:{unix_date}:extra:{event}".encode("utf-8"),
+            f"stats:sms_events:daily:{unix_date}:extra:{event}".encode("utf-8"),
             typed_extra.redis_key,
             amount,
         )

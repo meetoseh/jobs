@@ -75,7 +75,7 @@ async def retry_or_abandon_standard(
                 f"Abandoned sms {sms.uid} after {sms.num_failures - 1} retries during pending step"
             )
         return SMSRetryOrAbandonStandardResult(
-            wanted_to_retry=False, retry_succeeded=succeeded
+            wanted_to_retry=False, succeeded=succeeded
         )
 
     succeeded = await retry_pending(itgs, sms=sms, now=now)
@@ -83,6 +83,4 @@ async def retry_or_abandon_standard(
         logging.info(
             f"Retrying sms {sms.uid} poll (this will be attempt {sms.num_failures})"
         )
-    return SMSRetryOrAbandonStandardResult(
-        wanted_to_retry=True, retry_succeeded=succeeded
-    )
+    return SMSRetryOrAbandonStandardResult(wanted_to_retry=True, succeeded=succeeded)

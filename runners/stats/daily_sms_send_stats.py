@@ -7,6 +7,7 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
+from lib.process_redis_hgetall import process_redis_hgetall_ints
 import unix_dates
 import pytz
 
@@ -71,7 +72,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         processed_result: List[Dict[str, int]] = []
         for idx, raw in enumerate(result):
             try:
-                processed_result.append(process_redis_hgetall(raw))
+                processed_result.append(process_redis_hgetall_ints(raw))
             except ValueError:
                 raise ValueError(f"while processing {idx=} for {unix_date=}")
 
@@ -235,26 +236,6 @@ def key_for_date(unix_date: int) -> bytes:
 
 def key_for_date_and_event(unix_date: int, event: str) -> bytes:
     return f"stats:sms_send:daily:{unix_date}:extra:{event}".encode("ascii")
-
-
-def process_redis_hgetall(result: dict) -> Dict[str, int]:
-    if not isinstance(result, dict):
-        raise ValueError(f"expected dict, got {type(result)}")
-
-    result: Dict[str, str] = dict()
-    for key, value in result.items():
-        if not isinstance(key, (str, bytes)):
-            raise ValueError(f"expected str or bytes, got {type(key)=}")
-        if not isinstance(value, (str, bytes)):
-            raise ValueError(f"expected str or bytes, got {type(value)=}")
-
-        str_key = key if isinstance(key, str) else key.decode("ascii")
-        try:
-            int_value = int(value)
-        except ValueError:
-            raise ValueError(f"while processing {str_key=} and {value=}")
-        result[str_key] = int_value
-    return result
 
 
 if __name__ == "__main__":

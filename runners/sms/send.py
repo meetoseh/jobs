@@ -35,6 +35,12 @@ SUCCEEDED_MESSAGE_STATUSES = frozenset(("sent", "delivered", "read"))
 FAILED_MESSAGE_STATUSES = frozenset(("canceled", "undelivered", "failed"))
 WEBHOOK_WAIT_TIME_SECONDS = 60 if os.environ["ENVIRONMENT"] == "dev" else 900
 
+STATUS_CALLBACK = (
+    None
+    if os.environ["ENVIRONMENT"] == "dev"
+    else (os.environ["ROOT_BACKEND_URL"] + "/api/1/sms/webhook")
+)
+
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
     """Pulls messages one at a time off the To Send queue, moving them to the To
@@ -182,6 +188,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 )
                 logging.info(f"SMS Send Job - sending {next_to_send=}")
 
+                request_data = {
+                    "MessagingServiceSid": twilio_sender,
+                    "To": next_to_send.phone_number,
+                    "Body": next_to_send.body,
+                }
+
+                if STATUS_CALLBACK is not None:
+                    request_data["StatusCallback"] = STATUS_CALLBACK
+
                 try:
                     async with basic_redis_lock(itgs, b"twilio:lock", gd=gd, spin=True):
                         response = await conn.post(
@@ -189,13 +204,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             headers={
                                 "content-type": "application/x-www-form-urlencoded",
                             },
-                            data=urlencode(
-                                {
-                                    "MessagingServiceSid": twilio_sender,
-                                    "To": next_to_send.phone_number,
-                                    "Body": next_to_send.body,
-                                }
-                            ),
+                            data=urlencode(request_data),
                         )
                 except Exception as e:
                     logging.warning(
@@ -580,25 +589,21 @@ async def add_to_pending(
     itgs: Itgs, *, sms: SMSToSend, message_resource: MessageResource
 ) -> None:
     now = time.time()
-    entry = (
-        PendingSMS(
-            aud="pending",
-            uid=sms.uid,
-            send_initially_queued_at=sms.initially_queued_at,
-            message_resource_created_at=now,
-            message_resource_last_updated_at=now,
-            message_resource=message_resource,
-            failure_job_last_called_at=None,
-            num_failures=0,
-            num_changes=0,
-            phone_number=sms.phone_number,
-            body=sms.body,
-            failure_job=sms.failure_job,
-            success_job=sms.success_job,
-        )
-        .json()
-        .encode("utf-8")
-    )
+    entry = PendingSMS(
+        aud="pending",
+        uid=sms.uid,
+        send_initially_queued_at=sms.initially_queued_at,
+        message_resource_created_at=now,
+        message_resource_last_updated_at=now,
+        message_resource=message_resource,
+        failure_job_last_called_at=None,
+        num_failures=0,
+        num_changes=0,
+        phone_number=sms.phone_number,
+        body=sms.body,
+        failure_job=sms.failure_job,
+        success_job=sms.success_job,
+    ).as_redis_mapping()
 
     redis = await itgs.redis()
     async with redis.pipeline() as pipe:
@@ -606,10 +611,12 @@ async def add_to_pending(
         await pipe.zadd(
             b"sms:pending",
             mapping={
-                message_resource.sid.encode("utf-8"): now,
+                message_resource.sid.encode("utf-8"): now + WEBHOOK_WAIT_TIME_SECONDS,
             },
         )
-        await pipe.set(f"sms:pending:{message_resource.sid}".encode("utf-8"), entry)
+        await pipe.hset(
+            f"sms:pending:{message_resource.sid}".encode("utf-8"), mapping=entry
+        )
         await pipe.execute()
 
 
