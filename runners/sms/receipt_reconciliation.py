@@ -389,11 +389,33 @@ async def reconcile_event(
     return EventResult(stats=stats, events=events)
 
 
+events_by_sequence_order = {
+    "queued": 0,
+    "scheduled": 0,
+    "accepted": 1,
+    "sending": 2,
+    "sent": 3,
+    "delivered": 9,
+    "canceled": 9,
+    "failed": 9,
+    "undelivered": 9,
+}
+
+
 def is_out_of_order(event: MessageResourceEvent, sms: PendingSMS):
     if event.date_updated is not None and sms.message_resource.date_updated is not None:
         if event.date_updated < sms.message_resource.date_updated:
             return True
         if event.date_updated > sms.message_resource.date_updated:
+            return False
+
+    old_sequence_order = events_by_sequence_order.get(sms.message_resource.status)
+    new_sequence_order = events_by_sequence_order.get(event.status)
+
+    if old_sequence_order is not None and new_sequence_order is not None:
+        if new_sequence_order < old_sequence_order:
+            return True
+        if new_sequence_order > old_sequence_order:
             return False
 
     if event.information_received_at < sms.message_resource_last_updated_at:
