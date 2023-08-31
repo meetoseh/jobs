@@ -14,6 +14,7 @@ from graceful_death import GracefulDeath
 import hashlib
 import logging
 import socket
+from lib.timezones import TimezoneTechniqueSlug
 import unix_dates
 import pytz
 import os
@@ -33,7 +34,7 @@ async def execute(
     *,
     user_sub: str,
     timezone: Optional[str] = None,
-    timezone_technique: Optional[Literal["browser"]] = None,
+    timezone_technique: Optional[TimezoneTechniqueSlug] = None,
     is_outside_flow: bool = False,
     is_bounce: bool = False,
 ):
@@ -148,7 +149,7 @@ class KlaviyoEnsureUserQueuedAction(BaseModel):
     """The time at which the action was queued"""
     timezone: Optional[str] = Field(None)
     """See execute timezone kwarg"""
-    timezone_technique: Optional[Literal["browser"]] = Field(None)
+    timezone_technique: Optional[TimezoneTechniqueSlug] = Field(None)
     """See execute timezone_technique kwarg"""
     is_outside_flow: bool = Field(False)
     """See execute is_outside_flow kwarg"""
@@ -371,7 +372,7 @@ async def _execute_directly(
     *,
     user_sub: str,
     timezone: Optional[str],
-    timezone_technique: Optional[Literal["browser"]],
+    timezone_technique: Optional[TimezoneTechniqueSlug],
     is_outside_flow: bool,
 ):
     if (timezone is None) != (timezone_technique is None):
