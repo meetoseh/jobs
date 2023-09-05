@@ -3,6 +3,7 @@ import gzip
 from typing import Dict, List, Literal, Optional, Tuple, Union
 from pydantic import BaseModel, Field
 from lib.shared.job_callback import JobCallback
+from lib.shared.redis_hash import RedisHash
 
 
 class SMSToSend(BaseModel):
@@ -116,27 +117,17 @@ class PendingSMS(BaseModel):
             b"message_resource_last_updated_at": self.message_resource_last_updated_at,
             b"message_resource_sid": self.message_resource.sid.encode("utf-8"),
             b"message_resource_status": self.message_resource.status.encode("utf-8"),
-            **(
-                {}
-                if self.message_resource.error_code is None
-                else {
-                    b"message_resource_error_code": self.message_resource.error_code.encode(
-                        "utf-8"
-                    )
-                }
-            ),
-            **(
-                {}
-                if self.message_resource.date_updated is None
-                else {
-                    b"message_resource_date_updated": self.message_resource.date_updated
-                }
-            ),
-            **(
-                {}
-                if self.failure_job_last_called_at is None
-                else {b"failure_job_last_called_at": self.failure_job_last_called_at}
-            ),
+            b"message_resource_error_code": self.message_resource.error_code.encode(
+                "utf-8"
+            )
+            if self.message_resource.error_code is not None
+            else b"",
+            b"message_resource_date_updated": self.message_resource.date_updated
+            if self.message_resource.date_updated is not None
+            else b"",
+            b"failure_job_last_called_at": self.failure_job_last_called_at
+            if self.failure_job_last_called_at is not None
+            else b"",
             b"num_failures": self.num_failures,
             b"num_changes": self.num_changes,
             b"phone_number": self.phone_number.encode("utf-8"),
@@ -153,69 +144,35 @@ class PendingSMS(BaseModel):
             Dict[Union[str, bytes], Union[str, bytes]],
         ],
     ) -> "PendingSMS":
-        if isinstance(mapping_raw, list):
-            assert len(mapping_raw) % 2 == 0
-            mapping = {
-                mapping_raw[i]: mapping_raw[i + 1]
-                for i in range(0, len(mapping_raw), 2)
-            }
-        else:
-            mapping = mapping_raw
-
-        def get_bytes(key: bytes) -> Optional[bytes]:
-            if key not in mapping:
-                str_key = key.decode("utf-8")
-                if str_key in mapping:
-                    raw_result = mapping[str_key]
-                return None
-            else:
-                raw_result = mapping[key]
-
-            if isinstance(raw_result, str):
-                return raw_result.encode("utf-8")
-            if isinstance(raw_result, (int, float)):
-                return str(raw_result).encode("utf-8")
-            assert isinstance(raw_result, bytes)
-            return raw_result
-
-        def get_str(key: bytes) -> Optional[str]:
-            result = get_bytes(key)
-            return None if result is None else result.decode("utf-8")
-
-        def get_float(key: bytes) -> Optional[float]:
-            result = get_bytes(key)
-            if result == b"":
-                return None
-            return None if result is None else float(result)
-
-        def get_int(key: bytes) -> Optional[int]:
-            result = get_bytes(key)
-            return None if result is None else int(result)
-
+        data = RedisHash(mapping_raw)
         return cls(
-            aud=get_str(b"aud"),
-            uid=get_str(b"uid"),
-            send_initially_queued_at=get_float(b"send_initially_queued_at"),
-            message_resource_created_at=get_float(b"message_resource_created_at"),
-            message_resource_last_updated_at=get_float(
+            aud=data.get_str(b"aud"),
+            uid=data.get_str(b"uid"),
+            send_initially_queued_at=data.get_float(b"send_initially_queued_at"),
+            message_resource_created_at=data.get_float(b"message_resource_created_at"),
+            message_resource_last_updated_at=data.get_float(
                 b"message_resource_last_updated_at"
             ),
             message_resource=MessageResource(
-                sid=get_str(b"message_resource_sid"),
-                status=get_str(b"message_resource_status"),
-                error_code=get_str(b"message_resource_error_code"),
-                date_updated=get_float(b"message_resource_date_updated"),
+                sid=data.get_str(b"message_resource_sid"),
+                status=data.get_str(b"message_resource_status"),
+                error_code=data.get_str(b"message_resource_error_code", default=None),
+                date_updated=data.get_float(
+                    b"message_resource_date_updated", default=None
+                ),
             ),
-            failure_job_last_called_at=get_float(b"failure_job_last_called_at"),
-            num_failures=get_int(b"num_failures"),
-            num_changes=get_int(b"num_changes"),
-            phone_number=get_str(b"phone_number"),
-            body=get_str(b"body"),
+            failure_job_last_called_at=data.get_float(
+                b"failure_job_last_called_at", default=None
+            ),
+            num_failures=data.get_int(b"num_failures"),
+            num_changes=data.get_int(b"num_changes"),
+            phone_number=data.get_str(b"phone_number"),
+            body=data.get_str(b"body"),
             failure_job=JobCallback.parse_raw(
-                get_bytes(b"failure_job"), content_type="application/json"
+                data.get_bytes(b"failure_job"), content_type="application/json"
             ),
             success_job=JobCallback.parse_raw(
-                get_bytes(b"success_job"), content_type="application/json"
+                data.get_bytes(b"success_job"), content_type="application/json"
             ),
         )
 
