@@ -709,11 +709,11 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(0,)),
     ),
-    Job(
-        name="runners.emails.send",
-        kwargs=tuple(),
-        interval=JobInterval(pst, seconds=(0, 15, 30, 45)),
-    ),
+    # Job(
+    #     name="runners.emails.send",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(pst, seconds=(0, 15, 30, 45)),
+    # ),
     Job(
         name="runners.emails.stale_receipt_detection",
         kwargs=tuple(),
