@@ -95,6 +95,7 @@ class EmailPending(BaseModel):
         return {
             b"aud": b"pending",
             b"uid": self.uid.encode("utf-8"),
+            b"message_id": self.message_id.encode("utf-8"),
             b"email": self.email.encode("utf-8"),
             b"subject": self.subject.encode("utf-8"),
             b"template": self.template.encode("utf-8"),
@@ -122,11 +123,13 @@ class EmailPending(BaseModel):
         """
         data = RedisHash(mapping_raw)
         return cls(
+            aud=data.get_str(b"aud"),
             uid=data.get_str(b"uid"),
+            message_id=data.get_str(b"message_id"),
             email=data.get_str(b"email"),
             subject=data.get_str(b"subject"),
             template=data.get_str(b"template"),
-            template_parameters=data.get_str(b"template_parameters"),
+            template_parameters=json.loads(data.get_str(b"template_parameters")),
             send_initially_queued_at=data.get_float(b"send_initially_queued_at"),
             send_accepted_at=data.get_float(b"send_accepted_at"),
             failure_job=JobCallback.parse_raw(
