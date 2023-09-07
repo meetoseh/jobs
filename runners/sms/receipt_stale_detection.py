@@ -98,7 +98,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         finished_at = time.time()
         logging.info(
-            f"Receipt Stale Detection Job Finished:\n"
+            f"SMS Receipt Stale Detection Job Finished:\n"
             f"- Started At: {started_at:.3f}\n"
             f"- Finished At: {finished_at:.3f}\n"
             f"- Running Time: {finished_at - started_at:.3f}\n"

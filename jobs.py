@@ -116,14 +116,33 @@ class Jobs:
 
         Args:
             name (str): the name of the job which corresponds to the import path in the jobs module
-                e.g., 'runners.charge' corresponds to the excecute function in jobs/charge.py
+                e.g., 'runners.example' corresponds to the execute function in runners/example.py
+                relative to the jobs root directory
+            kwargs (dict): the keyword arguments to pass to the job; must be json serializable
+                the jobs will automatically be sent the integrations and graceful death handler
+        """
+        await self.enqueue_in_pipe(self.conn, name, **kwargs)
+
+    async def enqueue_in_pipe(
+        self, pipe: redis.asyncio.Redis, name: str, **kwargs
+    ) -> None:
+        """queues the job with the given name and key word arguments, using the
+        specified redis connection. This is primarily for batching jobs or for
+        performing other redis operations in the same transaction.
+
+        the job is run as soon as possible, and is not retried regardless of success.
+
+        Args:
+            pipe (redis.asyncio.Redis): the redis connection to use
+            name (str): the name of the job which corresponds to the import path in the jobs module
+                e.g., 'runners.example' corresponds to the execute function in runners/example.py
                 relative to the jobs root directory
             kwargs (dict): the keyword arguments to pass to the job; must be json serializable
                 the jobs will automatically be sent the integrations and graceful death handler
         """
         job = {"name": name, "kwargs": kwargs, "queued_at": time.time()}
         job_serd = json.dumps(job)
-        await self.conn.rpush(self.queue_key, job_serd.encode("utf-8"))
+        await pipe.rpush(self.queue_key, job_serd.encode("utf-8"))
 
     async def retrieve(self, timeout: float) -> Optional[Job]:
         """blocking retrieve of the oldest job in the queue, if there is one, respecting

@@ -69,6 +69,12 @@ class EmailBounceNotification(BaseModel):
         description="Indicates this is a bounce notification, i.e., the recipient did not receive the email"
     )
     reason: EmailBounceReason = Field(description="The reason the email bounced")
+    destination: List[str] = Field(
+        description="The email addresses the email was sent to. This should contain just one item in practice"
+    )
+    bounced_recipients: List[str] = Field(
+        description="The email addresses of the recipients (within destination) that may have bounced"
+    )
 
 
 class EmailComplaintNotification(BaseModel):

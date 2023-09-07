@@ -18,6 +18,7 @@ class EmailAttempt(BaseModel):
         description="the unique identifier for this attempt, assigned by us"
     )
     email: str = Field(description="the recipients email address")
+    subject: str = Field(description="the subject line for the email")
     template: str = Field(
         description="the slug of the email template within the email-templates server"
     )
@@ -59,6 +60,7 @@ class EmailPending(BaseModel):
     )
     message_id: str = Field(description="the MessageId assigned by ses")
     email: str = Field(description="the recipients email address")
+    subject: str = Field(description="the subject line for the email")
     template: str = Field(
         description="the slug of the email template within the email-templates server"
     )
@@ -94,6 +96,7 @@ class EmailPending(BaseModel):
             b"aud": b"pending",
             b"uid": self.uid.encode("utf-8"),
             b"email": self.email.encode("utf-8"),
+            b"subject": self.subject.encode("utf-8"),
             b"template": self.template.encode("utf-8"),
             b"template_parameters": json.dumps(self.template_parameters).encode(
                 "utf-8"
@@ -121,6 +124,7 @@ class EmailPending(BaseModel):
         return cls(
             uid=data.get_str(b"uid"),
             email=data.get_str(b"email"),
+            subject=data.get_str(b"subject"),
             template=data.get_str(b"template"),
             template_parameters=data.get_str(b"template_parameters"),
             send_initially_queued_at=data.get_float(b"send_initially_queued_at"),
@@ -164,7 +168,6 @@ class EmailFailureInfo(BaseModel):
         "TemplateServerError",
         "TemplateNetworkError",
         "TemplateInternalError",
-        "SESNoCredentialsError",
         "SESTooManyRequestsException",
         "SESClientError",
         "SESServerError",
@@ -173,24 +176,25 @@ class EmailFailureInfo(BaseModel):
         "Bounce",
         "Complaint",
         "ReceiptTimeout",
+        "Suppressed",
     ] = Field(
         description=(
             "An identifier that categorizes the issue:\n"
-            "- TemplateNotFound: 404 from email-templates\n",
-            "- TemplateUnprocessable: 422 from email-templates\n",
-            "- TemplateClientError: 4xx from email-templates\n",
-            "- TemplateServerError: 5xx from email-templates\n",
-            "- TemplateNetworkError: network error contacting email-templates\n",
-            "- TemplateInternalError: internal error forming request to or processing the response from email-templates\n",
-            "- SESNoCredentialsError: error contacting credentials server\n",
-            "- SESTooManyRequestsException: Too many requests have been made to the operation.\n",
-            "- SESClientError: 4xx from SES\n",
-            "- SESServerError: 5xx from SES\n",
-            "- SESNetworkError: network error contacting SES\n",
-            "- SESInternalError: internal error forming request to or processing response from SES\n",
-            "- Bounce: bounce notification from SES\n",
-            "- Complaint: complaint notification from SES\n",
-            "- ReceiptTimeout: no notification from SES in an excessively long period of time\n",
+            "- TemplateNotFound: 404 from email-templates\n"
+            "- TemplateUnprocessable: 422 from email-templates\n"
+            "- TemplateClientError: 4xx from email-templates\n"
+            "- TemplateServerError: 5xx from email-templates\n"
+            "- TemplateNetworkError: network error contacting email-templates\n"
+            "- TemplateInternalError: internal error forming request to or processing the response from email-templates\n"
+            "- SESTooManyRequestsException: Too many requests have been made to the operation.\n"
+            "- SESClientError: 4xx from SES\n"
+            "- SESServerError: 5xx from SES\n"
+            "- SESNetworkError: network error contacting SES\n"
+            "- SESInternalError: internal error forming request to or processing response from SES\n"
+            "- Bounce: bounce notification from SES\n"
+            "- Complaint: complaint notification from SES\n"
+            "- ReceiptTimeout: no notification from SES in an excessively long period of time\n"
+            "- Suppressed: The email was in our suppressed emails list\n"
         )
     )
     retryable: bool = Field(
@@ -259,7 +263,7 @@ def decode_data_for_failure_job(
     return (result.email, result.info)
 
 
-def encode_data_for_success_job(email: EmailPending, result: EmailSuccessData) -> str:
+def encode_data_for_success_job(email: EmailPending, info: EmailSuccessInfo) -> str:
     """Encodes the information required for a success jobs `data_raw` keyword
     argument.
 
@@ -271,14 +275,14 @@ def encode_data_for_success_job(email: EmailPending, result: EmailSuccessData) -
     Args:
         email (EmailPending): the email that succeeded, as it was just before
             the delivery notification was received
-        result (EmailSuccessData): information about the success
+        info (EmailSuccessInfo): information about the success
 
     Returns:
         A trivially serializable string that can be passed to the success job
     """
     return base64.urlsafe_b64encode(
         gzip.compress(
-            EmailSuccessData(email=email, info=result).json().encode("utf-8"),
+            EmailSuccessData(email=email, info=info).json().encode("utf-8"),
             compresslevel=6,
             mtime=0,
         )
