@@ -268,6 +268,10 @@ async def handle_delivery_and_found(
             await pipe.hincrby(attempted_extra, b"found", 1)
             await pipe.hincrby(key, b"succeeded", 1)
             await pipe.hincrby(succeeded_extra, b"found", 1)
+            await pipe.delete(
+                f"email:receipt_pending:{event.message_id}".encode("utf-8")
+            )
+            await pipe.zrem(b"email:receipt_pending", event.message_id)
             await jobs.enqueue_in_pipe(
                 pipe,
                 message.success_job.name,
@@ -353,6 +357,10 @@ async def handle_bounce_and_found(itgs: Itgs, event: EmailEvent, message: EmailP
                 ),
                 1,
             )
+            await pipe.delete(
+                f"email:receipt_pending:{event.message_id}".encode("utf-8")
+            )
+            await pipe.zrem(b"email:receipt_pending", event.message_id)
             await jobs.enqueue_in_pipe(
                 pipe,
                 message.failure_job.name,
@@ -454,6 +462,10 @@ async def handle_complaint_and_found(
                 f"found:{notification.feedback_type}".encode("utf-8"),
                 1,
             )
+            await pipe.delete(
+                f"email:receipt_pending:{event.message_id}".encode("utf-8")
+            )
+            await pipe.zrem(b"email:receipt_pending", event.message_id)
             await jobs.enqueue_in_pipe(
                 pipe,
                 message.failure_job.name,
