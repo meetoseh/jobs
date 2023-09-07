@@ -10,7 +10,6 @@ import aiohttp
 import dataclasses
 import os
 import asyncio
-import gzip
 import botocore.exceptions
 import lib.email.auth
 from lib.basic_redis_lock import basic_redis_lock
@@ -95,6 +94,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 "user-agent": "oseh via python aiohttp (+https://www.oseh.com)",
                 "accept-encoding": "gzip",
             },
+            auto_decompress=True,
         )
 
         async def advance_next_to_send_raw():
@@ -302,16 +302,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                 try:
                     (
-                        template_html_gzipped,
-                        template_plain_gzipped,
+                        template_html,
+                        template_plain,
                     ) = await asyncio.gather(
                         html_response.read(), plain_response.read()
-                    )
-                    template_html = gzip.decompress(template_html_gzipped).decode(
-                        "utf-8"
-                    )
-                    template_plain = gzip.decompress(template_plain_gzipped).decode(
-                        "utf-8"
                     )
                     html_response.close()
                     plain_response.close()
