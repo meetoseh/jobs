@@ -302,13 +302,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                 try:
                     (
-                        template_html,
-                        template_plain,
+                        template_html_bytes,
+                        template_plain_bytes,
                     ) = await asyncio.gather(
                         html_response.read(), plain_response.read()
                     )
                     html_response.close()
                     plain_response.close()
+                    template_html = template_html_bytes.decode("utf-8")
+                    template_plain = template_plain_bytes.decode("utf-8")
                 except Exception as e:
                     logging.warning(
                         "Email Send Job - failed to read email-templates response",
