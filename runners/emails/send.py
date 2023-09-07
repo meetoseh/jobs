@@ -536,7 +536,7 @@ async def fail_job_and_update_stats(
     data_raw = encode_data_for_failure_job(
         email=email,
         info=EmailFailureInfo(
-            action=action,
+            step=action,
             error_identifier=identifier,
             retryable=retryable,
             extra=extra,
