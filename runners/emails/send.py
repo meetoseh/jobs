@@ -187,19 +187,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     continue
 
                 try:
-                    responses = await asyncio.gather(
-                        [
-                            conn.post(
-                                f"/api/3/templates/{next_to_send.template}",
-                                json=next_to_send.template_parameters,
-                                headers={"accept": "text/html; charset=utf-8"},
-                            ),
-                            conn.post(
-                                f"/api/3/templates/{next_to_send.template}",
-                                json=next_to_send.template_parameters,
-                                headers={"accept": "text/plain; charset=utf-8"},
-                            ),
-                        ]
+                    html_response, plain_response = await asyncio.gather(
+                        conn.post(
+                            f"/api/3/templates/{next_to_send.template}",
+                            json=next_to_send.template_parameters,
+                            headers={"accept": "text/html; charset=utf-8"},
+                        ),
+                        conn.post(
+                            f"/api/3/templates/{next_to_send.template}",
+                            json=next_to_send.template_parameters,
+                            headers={"accept": "text/plain; charset=utf-8"},
+                        ),
                     )
                 except Exception as e:
                     logging.warning(
@@ -225,8 +223,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await advance_next_to_send_raw()
                     continue
 
-                html_response = cast(aiohttp.client.ClientResponse, responses[0])
-                plain_response = cast(aiohttp.client.ClientResponse, responses[1])
                 logging.debug(
                     f"Received HTTP status codes {html_response.status=} {plain_response.status=}"
                 )
