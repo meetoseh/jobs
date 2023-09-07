@@ -32,6 +32,7 @@ MAX_JOB_TIME_SECONDS = 50
 EMAIL_SOURCE = email.utils.formataddr(
     ("oseh", "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :])
 )
+EMAIL_REPLY_TO = email.utils.formataddr(("customer support", "hi@oseh.com"))
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
@@ -345,7 +346,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             "CcAddresses": [],
                             "BccAddresses": [],
                         },
-                        ReplyToAddresses=[EMAIL_SOURCE],
+                        ReplyToAddresses=[EMAIL_REPLY_TO],
                         Content={
                             "Simple": {
                                 "Subject": {
