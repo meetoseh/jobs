@@ -588,6 +588,7 @@ async def add_to_pending_and_update_stats(
         uid=email.uid,
         message_id=message_id,
         email=email.email,
+        subject=email.subject,
         template=email.template,
         template_parameters=email.template_parameters,
         send_initially_queued_at=email.initially_queued_at,
