@@ -590,7 +590,7 @@ async def add_to_pending_and_update_stats(
         email=email.email,
         template=email.template,
         template_parameters=email.template_parameters,
-        send_initially_queued_at=email.send_initially_queued_at,
+        send_initially_queued_at=email.initially_queued_at,
         send_accepted_at=now,
         failure_job=email.failure_job,
         success_job=email.success_job,
