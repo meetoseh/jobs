@@ -201,6 +201,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             json=next_to_send.template_parameters,
                             headers={
                                 "accept": "text/html; charset=utf-8",
+                                "content-type": "application/json; charset=utf-8",
                                 "authorization": f"Bearer {jwt}",
                             },
                         ),
@@ -209,6 +210,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             json=next_to_send.template_parameters,
                             headers={
                                 "accept": "text/plain; charset=utf-8",
+                                "content-type": "application/json; charset=utf-8",
                                 "authorization": f"Bearer {jwt}",
                             },
                         ),
