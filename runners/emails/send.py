@@ -23,12 +23,15 @@ import redis_helpers.run_with_prep
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import unix_dates
 import pytz
+import email.utils
 
 category = JobCategory.LOW_RESOURCE_COST
 tz = pytz.timezone("America/Los_Angeles")
 
 MAX_JOB_TIME_SECONDS = 50
-EMAIL_SOURCE = "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :]
+EMAIL_SOURCE = email.utils.formataddr(
+    ("oseh", "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :])
+)
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
