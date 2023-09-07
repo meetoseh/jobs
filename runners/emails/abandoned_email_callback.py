@@ -98,6 +98,7 @@ async def suppress_email(
                 INSERT INTO email_failures (
                     uid, email_address, failure_type, failure_extra, created_at
                 )
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     f"oseh_ef_{secrets.token_urlsafe(16)}",
