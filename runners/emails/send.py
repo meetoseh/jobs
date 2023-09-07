@@ -550,7 +550,11 @@ async def fail_job_and_update_stats(
                 await pipe.hincrby(key, event, 1)
                 if event_extra is not None:
                     await pipe.hincrby(
-                        f"stats:email_send:daily:{today}:extra:{event}", event_extra, 1
+                        f"stats:email_send:daily:{today}:extra:{event.decode('utf-8')}".encode(
+                            "utf-8"
+                        ),
+                        event_extra,
+                        1,
                     )
             await jobs.enqueue_in_pipe(
                 pipe,
