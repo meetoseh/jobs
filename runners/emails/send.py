@@ -227,7 +227,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     f"Received HTTP status codes {html_response.status=} {plain_response.status=}"
                 )
 
-                worst_status = [html_response.status, plain_response.status]
+                worst_status = max(html_response.status, plain_response.status)
                 if worst_status >= 500:
                     html_response.close()
                     plain_response.close()
