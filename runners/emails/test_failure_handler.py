@@ -29,7 +29,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, data_raw: str):
         return
 
     logging.info(
-        f"Failed to send {email.message_id} ({email.subject}); {info.error_identifier}"
+        f"Failed to send to {email.email} ({email.subject}); {info.error_identifier}"
         f"; retryable? {info.retryable}, retried? {result.wanted_to_retry}\n{email=}, {info=}"
     )
 
