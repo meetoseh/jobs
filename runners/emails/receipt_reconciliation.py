@@ -149,6 +149,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 message_raw = await redis.hgetall(
                     f"email:receipt_pending:{event.message_id}".encode("utf-8")
                 )
+                if isinstance(message_raw, dict) and len(message_raw) == 0:
+                    message_raw = None
                 if message_raw is not None:
                     break
                 if time.time() - event.received_at >= 5:

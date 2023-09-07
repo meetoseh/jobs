@@ -93,7 +93,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             pending_info_raw = await redis.hgetall(
                 f"sms:pending:{event.sid}".encode("utf-8")
             )
-            if pending_info_raw is None:
+            if pending_info_raw is None or len(pending_info_raw) == 0:
                 pending_info = None
             else:
                 try:
