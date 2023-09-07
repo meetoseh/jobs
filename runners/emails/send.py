@@ -12,7 +12,7 @@ import os
 import asyncio
 import gzip
 import botocore.exceptions
-
+import lib.email.auth
 from lib.basic_redis_lock import basic_redis_lock
 from lib.email.email_info import (
     EmailAttempt,
@@ -128,6 +128,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         stop_reason: Optional[str] = None
         want_failure_sleep: bool = False
         num_failures = 0
+        jwts_by_slug: Dict[str, str] = dict()
 
         async with session.client("sesv2") as sesv2, client as conn:
             while True:
@@ -186,17 +187,30 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await advance_next_to_send_raw()
                     continue
 
+                jwt = jwts_by_slug.get(next_to_send.template)
+                if jwt is None:
+                    jwt = await lib.email.auth.create_jwt(
+                        itgs, next_to_send.template, duration=MAX_JOB_TIME_SECONDS + 10
+                    )
+                    jwts_by_slug[next_to_send.template] = jwt
+
                 try:
                     html_response, plain_response = await asyncio.gather(
                         conn.post(
                             f"/api/3/templates/{next_to_send.template}",
                             json=next_to_send.template_parameters,
-                            headers={"accept": "text/html; charset=utf-8"},
+                            headers={
+                                "accept": "text/html; charset=utf-8",
+                                "authorization": f"Bearer {jwt}",
+                            },
                         ),
                         conn.post(
                             f"/api/3/templates/{next_to_send.template}",
                             json=next_to_send.template_parameters,
-                            headers={"accept": "text/plain; charset=utf-8"},
+                            headers={
+                                "accept": "text/plain; charset=utf-8",
+                                "authorization": f"Bearer {jwt}",
+                            },
                         ),
                     )
                 except Exception as e:
