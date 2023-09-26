@@ -30,9 +30,9 @@ tz = pytz.timezone("America/Los_Angeles")
 
 MAX_JOB_TIME_SECONDS = 50
 EMAIL_SOURCE = email.utils.formataddr(
-    ("oseh", "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :])
+    ("Oseh", "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :])
 )
-EMAIL_REPLY_TO = email.utils.formataddr(("customer support", "hi@oseh.com"))
+EMAIL_REPLY_TO = email.utils.formataddr(("Customer Support", "hi@oseh.com"))
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
