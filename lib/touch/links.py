@@ -712,6 +712,7 @@ async def _create_buffered_link_assuming_no_collisions(
             await pipe.execute()
 
     await run_with_prep(_prep, _func)
+    return link
 
 
 _shortest_code_bytes: int = 3
