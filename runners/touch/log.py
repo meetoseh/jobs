@@ -1,5 +1,6 @@
 """Touch system log job"""
 import io
+import json
 import secrets
 from typing import List, Optional
 from itgs import Itgs
@@ -227,11 +228,11 @@ async def write_user_touch_point_state_updates(
             params.append(itm.fields.user_sub)
             params.append(itm.fields.touch_point_uid)
             params.append(itm.fields.channel)
-            params.append(itm.fields.state)
+            params.append(json.dumps(itm.fields.state))
         params.append(now)
 
         response = await cursor.execute(query, params)
-        rows_affected = 0 if response.rows_affected is None else 0
+        rows_affected = 0 if response.rows_affected is None else response.rows_affected
         stats.updates += end_idx - start_idx
         if is_full_batch:
             stats.full_batch_updates += 1
@@ -307,13 +308,13 @@ async def write_user_touch_point_state_inserts(
             params.append(itm.fields.touch_point_uid)
             params.append(itm.fields.user_sub)
             params.append(itm.fields.channel)
-            params.append(itm.fields.state)
+            params.append(json.dumps(itm.fields.state))
         params.append(now)
         params.append(now)
 
         response = await cursor.execute(query, params)
 
-        rows_affected = 0 if response.rows_affected is None else 0
+        rows_affected = 0 if response.rows_affected is None else response.rows_affected
         stats.inserts += end_idx - start_idx
         if is_full_batch:
             stats.full_batch_inserts += 1
@@ -387,7 +388,7 @@ async def write_user_touch_inserts(
 
         response = await cursor.execute(query, params)
 
-        rows_affected = 0 if response.rows_affected is None else 0
+        rows_affected = 0 if response.rows_affected is None else response.rows_affected
         stats.inserts += end_idx - start_idx
         if is_full_batch:
             stats.full_batch_inserts += 1
@@ -443,7 +444,7 @@ async def write_user_touch_debug_log_inserts(
 
         response = await cursor.execute(query, params)
 
-        rows_affected = 0 if response.rows_affected is None else 0
+        rows_affected = 0 if response.rows_affected is None else response.rows_affected
         stats.inserts += end_idx - start_idx
         if is_full_batch:
             stats.full_batch_inserts += 1
@@ -497,7 +498,7 @@ async def write_user_push_token_updates(
 
         response = await cursor.execute(query, params)
 
-        rows_affected = 0 if response.rows_affected is None else 0
+        rows_affected = 0 if response.rows_affected is None else response.rows_affected
         stats.updates += end_idx - start_idx
         if is_full_batch:
             stats.full_batch_updates += 1
