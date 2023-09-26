@@ -34,6 +34,7 @@ from redis_helpers.touch_link_try_create import (
 )
 import unix_dates
 import pytz
+import logging
 
 tz = pytz.timezone("America/Los_Angeles")
 
@@ -585,6 +586,8 @@ async def _create_buffered_link_using_rejection_sampling(
     # picked up by the leaked link detection job and it detecting it as a duplicate,
     # deleting it, which is what we would want to happen anyway.
 
+    logging.debug("Creating short link code using rejection sampling...")
+
     conn = await itgs.conn()
     cursor = conn.cursor()
     redis = await itgs.redis()
@@ -608,6 +611,7 @@ async def _create_buffered_link_using_rejection_sampling(
 
     while True:
         code = _generate_short_code()
+        logging.debug(f"  attempting {code=}")
 
         response = await cursor.execute(
             "SELECT 1 FROM user_touch_links WHERE code=? LIMIT 1",
@@ -616,6 +620,7 @@ async def _create_buffered_link_using_rejection_sampling(
         )
 
         if response.results:
+            logging.debug("  collided in database")
             _on_short_code_collision()
             continue
 
@@ -636,6 +641,7 @@ async def _create_buffered_link_using_rejection_sampling(
         redis_success = await run_with_prep(_prep, _func)
 
         if not redis_success:
+            logging.debug("  collided in redis")
             _on_short_code_collision()
             continue
 
@@ -648,6 +654,9 @@ async def _create_buffered_link_using_rejection_sampling(
         )
 
         if response.results:
+            logging.debug(
+                "  collided in database after redis insert, walking redis insert back"
+            )
             async with redis.pipeline() as pipe:
                 pipe.multi()
                 await pipe.zrem(b"touch_links:buffer", code.encode("ascii"))
@@ -656,6 +665,7 @@ async def _create_buffered_link_using_rejection_sampling(
             _on_short_code_collision()
             continue
 
+        logging.debug(f"  {code=} successfully reserved")
         _on_short_code_valid()
         return TouchLink(
             uid=uid,
@@ -714,6 +724,9 @@ async def _create_buffered_link_assuming_no_collisions(
             await pipe.execute()
 
     await run_with_prep(_prep, _func)
+    logging.debug(
+        f"Reserved {code=} (with {code_length=} bytes of randomness) by assuming unique"
+    )
     return link
 
 

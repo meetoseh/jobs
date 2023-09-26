@@ -1,4 +1,5 @@
 """Helper job to persist links by code, usually used as a success callback for a touch"""
+import time
 from typing import List
 from error_middleware import handle_error
 from itgs import Itgs
@@ -18,9 +19,16 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, codes: List[str]):
         gd (GracefulDeath): the signal tracker; provided automatically
         codes (list[str]): the codes of the links to persist
     """
+    now = time.time()
     for code in codes:
         try:
-            await persist_link(itgs, code=code)
+            success = await persist_link(itgs, code=code, now=now)
+            if success:
+                logging.debug(f"Successfully persisted link with {code=}")
+            else:
+                logging.debug(
+                    f"Link with {code=} was already persisted or did not exist"
+                )
         except Exception as e:
             await handle_error(e, extra_info=f"Failed to persist link with {code=}")
 
