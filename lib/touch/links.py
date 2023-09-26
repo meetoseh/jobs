@@ -170,7 +170,7 @@ async def persist_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
                 event="persists_queued",
                 event_extra=result.link.page_identifier.encode("utf-8"),
             )
-            .store()
+            .store(itgs)
         )
         return True
 
@@ -183,7 +183,7 @@ async def persist_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
             event="persist_queue_failed",
             event_extra=result.failure_reason.encode("utf-8"),
         )
-        .store()
+        .store(itgs)
     )
     return False
 
@@ -227,7 +227,9 @@ async def abandon_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
             event_extra=f"{result.abandoned_link.page_identifier}:{result.number_of_clicks}".encode(
                 "utf-8"
             ),
-        ).store()
+        ).store(
+            itgs
+        )
         return True
 
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=tz)
@@ -239,7 +241,7 @@ async def abandon_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
             event="abandon_failed",
             event_extra=result.failure_reason.encode("utf-8"),
         )
-        .store()
+        .store(itgs)
     )
     return False
 

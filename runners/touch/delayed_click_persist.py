@@ -527,7 +527,7 @@ async def persist_clicks(
             event_extra=b"duplicate",
             amt=num_duplicates,
         )
-        .store()
+        .store(itgs)
     )
     return RunStats(
         attempted=len(clicks),
