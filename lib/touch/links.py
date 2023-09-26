@@ -663,7 +663,7 @@ async def _create_buffered_link_using_rejection_sampling(
             page_extra=page_extra,
             preview_identifier=preview_identifier,
             preview_extra=preview_extra,
-            created=now,
+            created_at=now,
         )
 
 
@@ -689,7 +689,7 @@ async def _create_buffered_link_assuming_no_collisions(
         page_extra=page_extra,
         preview_identifier=preview_identifier,
         preview_extra=preview_extra,
-        created=now,
+        created_at=now,
     )
 
     redis = await itgs.redis()
