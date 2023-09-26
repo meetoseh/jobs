@@ -581,7 +581,9 @@ async def execute_batch(itgs: Itgs, batch: Batch, batch_at: float) -> RunStats:
                     touch.data.created_at, tz=tz
                 ),
                 event="persisted_clicks",
-                event_extra=f"{touch.data.page_identifier}:{len(touch.clicks)}",
+                event_extra=f"{touch.data.page_identifier}:{len(touch.clicks)}".encode(
+                    "utf-8"
+                ),
                 amt=len(touch.clicks),
             )
     else:
