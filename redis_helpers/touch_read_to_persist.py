@@ -144,7 +144,9 @@ def touch_read_to_persist_parse_result(
     result: List[TouchReadToPersistResult] = []
     for i in range(0, len(res), 3):
         code = res[i]
-        data = TouchLink.from_redis_hget(res[i + 1]) if res[i + 1] is not None else None
+        data = (
+            TouchLink.from_redis_hget(res[i + 1]) if res[i + 1][0] is not None else None
+        )
         clicks = [
             TouchLinkBufferedClick.parse_raw(args, content_type="application/json")
             for args in res[i + 2]

@@ -754,11 +754,11 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
-    # Job(
-    #     name="runners.touch.persist_link",
-    #     kwargs=tuple(),
-    #     interval=JobInterval(pst, seconds=(0,)),
-    # ),
+    Job(
+        name="runners.touch.persist_link",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
     Job(
         name="runners.touch.leaked_link_detection",
         kwargs=tuple(),
