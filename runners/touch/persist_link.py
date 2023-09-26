@@ -486,7 +486,7 @@ async def form_cleanup_transaction(itgs: Itgs, codes: List[str]) -> RedisTransac
 
     async def func():
         await touch_persist_cleanup(
-            redis, b"touch_links:persist_purgatory", b"touch_links:buffer", *codes
+            redis, b"touch_links:persist_purgatory", b"touch_links:buffer", codes
         )
 
     return RedisTransaction(prep, func)
