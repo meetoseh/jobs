@@ -568,7 +568,7 @@ async def execute_batch(itgs: Itgs, batch: Batch, batch_at: float) -> RunStats:
             amt=num_links_persisted,
         )
         stats.incr_touch_links(
-            unix_date=unix_dates.unix_timestamp_to_unix_date(batch_at),
+            unix_date=unix_dates.unix_timestamp_to_unix_date(batch_at, tz=tz),
             event="persists_failed",
             event_extra=b"integrity",
             amt=len(batch.persisting) - num_links_persisted,
