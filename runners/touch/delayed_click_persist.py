@@ -401,7 +401,7 @@ def _create_count_existing_query(num_clicks: int) -> str:
     """Creates the select query to count how many uids correspond to clicks"""
     assert num_clicks >= 1
     result = io.StringIO()
-    result.write("WITH batch(uid) AS VALUES (?)")
+    result.write("WITH batch(uid) AS (VALUES (?)")
     for _ in range(num_clicks - 1):
         result.write(", (?)")
 

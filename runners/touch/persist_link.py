@@ -325,7 +325,7 @@ async def form_batch(
         " page_extra,"
         " preview_identifier,"
         " preview_extra"
-        ") AS VALUES ((?, ?, ?, ?, ?, ?, ?)"
+        ") AS (VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
 
     lost = 0
@@ -385,7 +385,7 @@ async def form_batch(
         " visitor_uid,"
         " child_known,"
         " clicked_at"
-        ") AS VALUES ((?, ?, ?, ?, ?, ?, ?, ?)"
+        ") AS (VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     num_clicks_to_persist = 0
     click_params = []
