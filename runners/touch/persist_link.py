@@ -120,6 +120,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         b"touch_links:to_persist",
                         b"touch_links:persist_purgatory",
                         JOB_BATCH_SIZE,
+                        started_at,
                     ),
                 )
                 is_last_loop = purgatory_size < JOB_BATCH_SIZE
