@@ -1525,7 +1525,7 @@ class PushBatchSegmentPreparer(
     @classmethod
     def get_destinations(
         cls, batch: AugmentedPushBatch, touch: TouchToSend
-    ) -> List[str] | None:
+    ) -> Optional[List[str]]:
         return batch.tokens.get(touch.user_sub)
 
     @classmethod
@@ -1630,7 +1630,7 @@ class SmsBatchSegmentPreparer(
     @classmethod
     def get_destinations(
         cls, batch: AugmentedSmsBatch, touch: TouchToSend
-    ) -> List[str] | None:
+    ) -> Optional[List[str]]:
         return batch.phone_numbers.get(touch.user_sub)
 
     @classmethod
@@ -1729,7 +1729,7 @@ class EmailBatchSegmentPreparer(
     @classmethod
     def get_destinations(
         cls, batch: AugmentedEmailBatch, touch: TouchToSend
-    ) -> List[str] | None:
+    ) -> Optional[List[str]]:
         return batch.email_addresses.get(touch.user_sub)
 
     @classmethod
