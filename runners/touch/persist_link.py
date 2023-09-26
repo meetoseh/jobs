@@ -370,7 +370,7 @@ async def form_batch(
         " batch.preview_identifier,"
         " batch.preview_extra "
         "FROM batch "
-        "JOIN user_touches ON user_touches.id = batch.user_touch_uid "
+        "JOIN user_touches ON user_touches.uid = batch.user_touch_uid "
         "WHERE NOT EXISTS (SELECT 1 FROM user_touch_links WHERE uid = batch.uid OR code = batch.code)"
     )
 
