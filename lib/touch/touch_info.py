@@ -156,6 +156,7 @@ class TouchLogUserTouchPushInsertMessage(BaseModel):
 
 
 class TouchLogUserTouchPushInsertFields(BaseModel):
+    uid: str = Field(description="the uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["push"] = Field(
         description="which channel was used to contact the user"
@@ -179,6 +180,7 @@ class TouchLogUserTouchSMSMessage(BaseModel):
 
 
 class TouchLogUserTouchSMSInsertFields(BaseModel):
+    uid: str = Field(description="the uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["sms"] = Field(
         description="which channel was used to contact the user"
@@ -206,6 +208,7 @@ class TouchLogUserTouchEmailMessage(BaseModel):
 
 
 class TouchLogUserTouchEmailInsertFields(BaseModel):
+    uid: str = Field(description="the uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["email"] = Field(
         description="which channel was used to contact the user"

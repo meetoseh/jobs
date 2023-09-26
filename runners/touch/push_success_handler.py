@@ -78,6 +78,7 @@ async def execute(
             table="user_touches",
             action="insert",
             fields=TouchLogUserTouchPushInsertFields(
+                uid=touch_uid,
                 user_sub=user_sub,
                 channel="push",
                 touch_point_uid=touch_point_uid,

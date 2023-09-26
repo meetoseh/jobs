@@ -378,7 +378,7 @@ async def write_user_touch_inserts(
         params = []
         for idx in range(start_idx, end_idx):
             itm = rows[idx]
-            params.append(f"oseh_uto_{secrets.token_urlsafe(16)}")
+            params.append(itm.fields.uid)
             params.append(itm.fields.user_sub)
             params.append(itm.fields.channel)
             params.append(itm.fields.touch_point_uid)
