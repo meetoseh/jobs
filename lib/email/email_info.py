@@ -292,7 +292,7 @@ def encode_data_for_success_job(email: EmailPending, info: EmailSuccessInfo) -> 
     ).decode("ascii")
 
 
-def decode_data_for_success_job(data_raw: str) -> Tuple[EmailPending, EmailSuccessData]:
+def decode_data_for_success_job(data_raw: str) -> Tuple[EmailPending, EmailSuccessInfo]:
     """Undoes the encoding done by encode_data_for_success_job"""
     result = EmailSuccessData.parse_raw(
         gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),

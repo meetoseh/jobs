@@ -729,6 +729,66 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
+    Job(
+        name="runners.stats.daily_touch_send_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_touch_stale_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.touch.send",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0, 15, 30, 45)),
+    ),
+    Job(
+        name="runners.touch.log",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(3,)),
+    ),
+    Job(
+        name="runners.stats.daily_touch_link_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.touch.persist_link",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
+    Job(
+        name="runners.touch.leaked_link_detection",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+    ),
+    Job(
+        name="runners.touch.delayed_click_persist",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
+    Job(
+        name="runners.touch.stale_detection",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_daily_reminder_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.daily_reminders.assign_time",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+    ),
+    Job(
+        name="runners.daily_reminders.send",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(5, 20, 35, 50)),
+    ),
 )
 """The jobs that should be run."""
 

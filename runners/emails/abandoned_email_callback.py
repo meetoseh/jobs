@@ -79,7 +79,8 @@ async def suppress_email(
     itgs: Itgs, *, type_: str, email: str, failure_extra: Optional[str], now: float
 ):
     """Stores a failure in email_failures and a suppression in suppressed_emails
-    for the given email.
+    for the given email, and updates email_verified on any user that has that
+    email address to 0.
 
     Args:
         itgs (Itgs): the integrations to (re)use
@@ -126,6 +127,10 @@ async def suppress_email(
                     now,
                     email,
                 ),
+            ),
+            (
+                "UPDATE users SET email_verified=0 WHERE email=?",
+                (email,),
             ),
         )
     )

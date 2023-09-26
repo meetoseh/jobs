@@ -24,7 +24,7 @@ class RedisHash:
         else:
             self._map = raw
 
-    def get_bytes(self, key: bytes, *, default: Optional[float] = NotSet) -> bytes:
+    def get_bytes(self, key: bytes, *, default: Optional[bytes] = NotSet) -> bytes:
         if key not in self._map:
             str_key = key.decode("utf-8")
             if str_key not in self._map:

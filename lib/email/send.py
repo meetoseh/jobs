@@ -2,7 +2,7 @@ import asyncio
 import json
 import secrets
 from typing import Optional
-
+from pydantic import BaseModel, Field
 import pytz
 from lib.email.email_info import EmailAttempt
 from lib.shared.job_callback import JobCallback
@@ -19,6 +19,18 @@ def create_email_uid() -> str:
     callback jobs are ready before they are called
     """
     return f"oseh_em_{secrets.token_urlsafe(16)}"
+
+
+class EmailMessageContents(BaseModel):
+    """Convenience class for containing the contents of an email, unused
+    here
+    """
+
+    subject: str = Field(description="Email subject line")
+    template: str = Field(description="Email template slug")
+    template_parameters: dict = Field(
+        description="Email template parameters, as a dict"
+    )
 
 
 async def send_email(

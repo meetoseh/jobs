@@ -123,7 +123,7 @@ async def execute(
                     last_confirmed_at
                 )
                 SELECT
-                    ?, users.id, ?, ?, ?, ?, ?, ?
+                    ?, users.id, ?, ?, ?, ?, ?, NULL
                 FROM users
                 WHERE
                     users.sub = ?
@@ -136,7 +136,6 @@ async def execute(
                     new_uid,
                     platform,
                     expo_push_token,
-                    now,
                     now,
                     now,
                     now,

@@ -1,4 +1,5 @@
 import secrets
+from pydantic import BaseModel, Field
 from typing import Optional
 from lib.shared.job_callback import JobCallback
 from itgs import Itgs
@@ -14,6 +15,12 @@ def create_sms_uid() -> str:
     callback jobs are ready before they are called
     """
     return f"oseh_sms_{secrets.token_urlsafe(16)}"
+
+
+class SmsMessageContents(BaseModel):
+    """Convenience class to describes the contents of an sms message, unused here"""
+
+    body: str = Field(description="SMS body")
 
 
 async def send_sms(

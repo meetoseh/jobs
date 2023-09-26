@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from contextlib import asynccontextmanager
@@ -14,13 +14,17 @@ class LockHeldError(Exception):
 
 @asynccontextmanager
 async def basic_redis_lock(
-    itgs: Itgs, key: str, *, gd: Optional[GracefulDeath] = None, spin: bool = False
+    itgs: Itgs,
+    key: Union[str, bytes],
+    *,
+    gd: Optional[GracefulDeath] = None,
+    spin: bool = False,
 ) -> None:
     """Uses redis for a very basic lock on the given key, releasing it when done
 
     Args:
         itgs (Itgs): The integrations to (re)use
-        key (str): The redis key to use for the lock
+        key (str, bytes): The redis key to use for the lock
         gd (GracefulDeath, None): If specified, sleeps will be canceled once a term
             signal is received, using this as the detector. Defaults to None, meaning
             term signals are not handled.

@@ -21,7 +21,6 @@ PushTokenStatsEvent = Literal[
     "deleted_due_to_unrecognized_ticket",
     "deleted_due_to_unrecognized_receipt",
     "deleted_due_to_token_limit",
-    "total",
 ]
 
 PUSH_TOKEN_STATS_EVENTS = frozenset(
@@ -33,7 +32,6 @@ PUSH_TOKEN_STATS_EVENTS = frozenset(
         "deleted_due_to_unrecognized_ticket",
         "deleted_due_to_unrecognized_receipt",
         "deleted_due_to_token_limit",
-        "total",
     )
 )
 
