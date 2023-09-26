@@ -1746,7 +1746,7 @@ class EmailBatchSegmentPreparer(
         cls, touch: TouchToSend, message: TouchPointEmailMessage
     ) -> EmailMessageContents:
         template_parameters = dict()
-        for fixed_key, fixed_item in message.template_parameters_fixed:
+        for fixed_key, fixed_item in message.template_parameters_fixed.items():
             template_parameters[fixed_key] = fixed_item
         for substitution in message.template_parameters_substituted:
             key_value = substitution.format.format_map(
