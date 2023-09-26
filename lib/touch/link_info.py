@@ -41,15 +41,15 @@ class TouchLink(BaseModel):
             uid=args[0] if isinstance(args[0], str) else args[0].decode("utf-8"),
             code=args[1] if isinstance(args[1], str) else args[1].decode("utf-8"),
             touch_uid=args[2] if isinstance(args[2], str) else args[2].decode("utf-8"),
-            page_identifier=args[2]
-            if isinstance(args[2], str)
-            else args[2].decode("utf-8"),
-            page_extra=json.loads(args[3]),
-            preview_identifier=args[4]
-            if isinstance(args[4], str)
-            else args[4].decode("utf-8"),
-            preview_extra=json.loads(args[5]),
-            created_at=float(args[6]),
+            page_identifier=args[3]
+            if isinstance(args[3], str)
+            else args[3].decode("utf-8"),
+            page_extra=json.loads(args[4]),
+            preview_identifier=args[5]
+            if isinstance(args[5], str)
+            else args[5].decode("utf-8"),
+            preview_extra=json.loads(args[6]),
+            created_at=float(args[7]),
         )
 
     def as_redis_mapping(self) -> Dict[bytes, bytes]:
