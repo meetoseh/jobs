@@ -38,6 +38,8 @@ async def _listen_forever():
             await handle_warning("updater:error", "Error in jobs updater loop", e)
             await asyncio.sleep(1)
 
+    print("Updating in 5s (to allow for github to finish syncing)")
+    await asyncio.sleep(5)
     async with Itgs() as itgs:
         await acquire_update_lock(itgs)
 
