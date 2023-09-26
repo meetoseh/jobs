@@ -21,7 +21,7 @@ for i = 1, #codes do
     table.insert(
         result,
         redis.call(
-            "HGET", 
+            "HMGET", 
             buffer_key .. ':' .. code, 
             "uid", "code", "touch_uid", "page_identifier", 
             "page_extra", "preview_identifier", "preview_extra", 
