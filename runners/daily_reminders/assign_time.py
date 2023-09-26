@@ -187,6 +187,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 stopper.on_list_exhausted()
                 break
 
+            unix_date += 1
+
         if stopper.reason == "backpressure":
             await handle_warning(
                 f"{__name__}:backpressure",
