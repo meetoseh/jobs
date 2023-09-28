@@ -271,8 +271,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         touch_uid=touch.uid,
                         page_identifier="unsubscribe",
                         page_extra={},
-                        preview_identifier="default",
-                        preview_extra={},
+                        preview_identifier="unsubscribe",
+                        preview_extra={"list": "daily reminders"},
                         now=touch.queued_at,
                         code_style="long",
                     )

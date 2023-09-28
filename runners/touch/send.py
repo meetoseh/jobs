@@ -823,6 +823,7 @@ async def augment_email_batch_with_email_addresses(
         "FROM user_subs "
         "JOIN users ON users.sub = user_subs.sub "
         "WHERE users.email_verified = 1"
+        " AND NOT EXISTS (SELECT 1 FROM suppressed_emails WHERE suppressed_emails.email_address = users.email)"
     )
 
     response = await cursor.execute(query_sql.getvalue(), query_params)

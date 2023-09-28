@@ -23,7 +23,10 @@ from redis_helpers.touch_click_try_abandon import (
     ensure_touch_click_try_abandon_script_exists,
     touch_click_try_abandon,
 )
-from redis_helpers.touch_click_try_create import touch_click_try_create
+from redis_helpers.touch_click_try_create import (
+    ensure_touch_click_try_create_script_exists,
+    touch_click_try_create,
+)
 from redis_helpers.touch_click_try_persist import (
     ensure_touch_click_try_persist_script_exists,
     touch_click_try_persist,
@@ -247,6 +250,11 @@ async def abandon_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
     return False
 
 
+def create_click_uid():
+    """Creates a new unique identifier for a click"""
+    return f"oseh_utlc_{secrets.token_urlsafe(16)}"
+
+
 async def click_link(
     itgs: Itgs,
     *,
@@ -258,6 +266,7 @@ async def click_link(
     clicked_at: Optional[float],
     should_track: bool,
     now: Optional[float] = None,
+    click_uid: Optional[str] = None,
 ) -> Optional[TouchLink]:
     """Fetches the link with the given code and optionally tracks the click
     at the same time. This will check the buffered link sorted set and
@@ -285,14 +294,19 @@ async def click_link(
             `on_click` events to limit the number of stored clicks.
         now (float, None): the current time, in unix seconds since the unix epoch,
             or None for the current time
+        click_uid (str, None): If specified, used as the identifier for the click,
+            otherwise a new one is generated
 
     Returns:
         TouchLink, None: the link that has the same code, if it could be found,
             otherwise None.
     """
-    click_uid = f"oseh_utlc_{secrets.token_urlsafe(16)}"
     if now is None:
         now = time.time()
+    if clicked_at is None:
+        clicked_at = now
+    if click_uid is None:
+        click_uid = create_click_uid()
 
     click_unix_date = unix_dates.unix_timestamp_to_unix_date(clicked_at, tz=tz)
     now_unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=tz)
@@ -306,7 +320,7 @@ async def click_link(
     redis = await itgs.redis()
 
     buffer_result = await run_with_prep(
-        lambda force: ensure_set_if_lower_script_exists(redis, force=force),
+        lambda force: ensure_touch_click_try_create_script_exists(redis, force=force),
         lambda: touch_click_try_create(
             redis,
             code=code,
@@ -426,7 +440,7 @@ async def click_link(
                 )
                 SELECT
                     ?, user_touch_links.id, ?, NULL, users.id,
-                    visitors.id, 0, ?, ?, 0, ?, ?
+                    visitors.id, 0, ?, visitors.id IS NOT NULL, 0, ?, ?
                 FROM user_touch_links
                 LEFT JOIN users ON users.sub = ?
                 LEFT JOIN visitors ON visitors.uid = ?
@@ -436,7 +450,6 @@ async def click_link(
                     click_uid,
                     track_type,
                     int(user_sub is not None),
-                    int(visitor_uid is not None),
                     clicked_at,
                     now,
                     user_sub,
@@ -458,28 +471,31 @@ async def click_link(
                         )
                         SELECT
                             ?, user_touch_links.id, ?, parents.id, users.id, visitors.id,
-                            1, ?, ?, 0, ?, ?
+                            1, ?, visitors.id IS NOT NULL, 0, ?, ?
                         FROM user_touch_links
+                        JOIN users ON users.sub = ?
                         JOIN user_touch_link_clicks AS parents ON (
                             parents.uid = ? AND parents.child_known = 0
                         )
+                        LEFT JOIN visitors ON visitors.uid = ?
                         WHERE user_touch_links.code = ?
                         """,
                         (
                             click_uid,
                             track_type,
                             int(user_sub is not None),
-                            int(visitor_uid is not None),
                             clicked_at,
                             now,
+                            user_sub,
                             parent_uid,
+                            visitor_uid,
                             code,
                         ),
                     ),
-                ),
-                (
-                    "UPDATE user_touch_link_clicks SET child_known = 1 WHERE uid = ?",
-                    (parent_uid,),
+                    (
+                        "UPDATE user_touch_link_clicks SET child_known = 1 WHERE uid = ?",
+                        (parent_uid,),
+                    ),
                 ),
             )
             assert response[0].rows_affected in (

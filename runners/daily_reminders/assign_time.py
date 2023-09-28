@@ -150,6 +150,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     continue
 
                 if unix_date < unix_date_in_timezone:
+                    logging.debug(
+                        f"{timezone=} is on {unix_dates.unix_date_to_date(unix_date_in_timezone).isoformat()=} at "
+                        f"{iterating_to_timestamp=}, so we'll need to check the next date"
+                    )
                     timezone_needs_next_date = True
 
                 unique_timezones.add(timezone)
@@ -173,15 +177,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             if not has_pending_timezones and earliest_unix_date == unix_date:
                 logging.debug(
-                    f"Daily Reminders Assign Time Job finished all reminders for {unix_date=}"
+                    f"Daily Reminders Assign Time Job finished all reminders for {unix_date=} ("
+                    f"{unix_dates.unix_date_to_date(unix_date).isoformat()})"
                 )
                 await increment_earliest(itgs, unix_date, timezones_for_date)
                 earliest_unix_date += 1
 
             if not timezone_needs_next_date:
                 logging.debug(
-                    f"Daily Reminders Assign Time Job finished {unix_date=} and "
-                    f"none of the {len(timezones_for_date)=} need the next date, "
+                    f"Daily Reminders Assign Time Job checked {unix_date=} ("
+                    f"{unix_dates.unix_date_to_date(unix_date).isoformat()}) "
+                    f"and none of the {len(timezones_for_date)=} need the next date, "
                     "so cursors have been successfully advanced"
                 )
                 stopper.on_list_exhausted()
@@ -571,13 +577,15 @@ async def progress_pair(
             await run_with_prep(_prep, _func)
 
         if len(rows) < DATABASE_READ_BATCH_SIZE:
-            finished = True
-            await redis.hset(
-                progress_key,
-                mapping={
-                    b"finished": str(int(finished)).encode("ascii"),
-                },
-            )
+            if iterating_to_start_time > 86400:
+                finished = True
+                await redis.hset(
+                    progress_key,
+                    mapping={
+                        b"finished": str(int(finished)).encode("ascii"),
+                    },
+                )
+            break
 
     return (stats, finished)
 

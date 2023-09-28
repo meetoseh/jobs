@@ -280,7 +280,7 @@ def touch_click_try_create_parse_result(res) -> ClickLinkRedisResult:
     assert len(res) == 2
     assert isinstance(res[0], int)
     assert -4 <= res[0] <= 2
-    assert isinstance(res[1], (list, None))
+    assert isinstance(res[1], (list, type(None)))
 
     tracked = res[0] > 0
     tracked_in_buffer = res[0] == 1
