@@ -390,6 +390,7 @@ async def form_batch(
     )
     num_clicks_to_persist = 0
     click_params = []
+    is_first_click = True
 
     for item in persisting:
         if not item.clicks:
@@ -414,7 +415,9 @@ async def form_batch(
                     click.clicked_at,
                 ]
             )
-            if len(click_params) > 1:
+            if is_first_click:
+                is_first_click = False
+            else:
                 clicks_sql.write(", (?, ?, ?, ?, ?, ?, ?, ?)")
 
     clicks_sql.write(
