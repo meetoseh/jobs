@@ -55,6 +55,9 @@ STALE_THRESHOLD_SECONDS = 60 * 60
 too stale to send, in seconds
 """
 
+DEFAULT_TIMEZONE = "America/Los_Angeles"
+"""The timezone used if the user does not have a timezone set"""
+
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
     """Continues iterating over the user daily reminders table, assigning a time
@@ -340,14 +343,17 @@ async def get_timezones_from_db(itgs: Itgs) -> List[str]:
     )
 
     result = []
+    seen_default = False
     for row in response.results:
         timezone = row[0]
+        seen_default = seen_default or timezone == DEFAULT_TIMEZONE
         try:
             pytz.timezone(timezone)
             result.append(timezone)
         except Exception as e:
             await handle_error(e, extra_info=f"users table has improper {timezone=}")
-
+    if not seen_default:
+        result.append(DEFAULT_TIMEZONE)
     return result
 
 
@@ -469,15 +475,19 @@ async def progress_pair(
     conn = await itgs.conn()
     cursor = conn.cursor("none")
 
+    default_timezone_clause = ""
+    if timezone == DEFAULT_TIMEZONE:
+        default_timezone_clause = " OR users.timezone IS NULL"
+
     while not finished and not stopper.should_stop():
         response = await cursor.execute(
-            """
+            f"""
             SELECT uid, channel, start_time, end_time
             FROM user_daily_reminders
             WHERE
                 EXISTS (
                     SELECT 1 FROM users WHERE users.id = user_daily_reminders.user_id
-                    AND users.timezone = ?
+                    AND (users.timezone = ?{default_timezone_clause})
                 )
                 AND (day_of_week_mask & ?) != 0
                 AND (start_time > ? OR (start_time = ? AND uid > ?))
