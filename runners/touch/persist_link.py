@@ -441,7 +441,7 @@ async def form_batch(
         " parents.id,"
         " users.id,"
         " visitors.id,"
-        " batch.parents_uid IS NOT NULL,"
+        " batch.parent_uid IS NOT NULL,"
         " batch.user_sub IS NOT NULL,"
         " batch.visitor_uid IS NOT NULL,"
         " batch.child_known,"
