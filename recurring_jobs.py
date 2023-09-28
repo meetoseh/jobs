@@ -789,6 +789,11 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(5, 20, 35, 50)),
     ),
+    Job(
+        name="runners.stats.user_notification_settings_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 
