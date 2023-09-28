@@ -75,10 +75,10 @@ if (link ~= false) and (not persisting) then
         cjson.encode({
             uid = click_uid,
             clicked_at = clicked_at,
-            visitor_uid = visitor_uid,
-            user_sub = user_sub,
+            visitor_uid = visitor_uid ~= false and visitor_uid or nil,
+            user_sub = user_sub ~= false and user_sub or nil,
             track_type = track_type,
-            parent_uid = parent_uid,
+            parent_uid = parent_uid ~= false and parent_uid or nil,
         })
     )
     return {1, link}

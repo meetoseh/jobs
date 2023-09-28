@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Any, Dict, Optional, List, Tuple, Union
 import hashlib
 import time
@@ -147,9 +149,25 @@ def touch_read_to_persist_parse_result(
         data = (
             TouchLink.from_redis_hget(res[i + 1]) if res[i + 1][0] is not None else None
         )
-        clicks = [
-            TouchLinkBufferedClick.parse_raw(args, content_type="application/json")
-            for args in res[i + 2]
-        ]
+        try:
+            clicks = [
+                TouchLinkBufferedClick.parse_raw(args, content_type="application/json")
+                for args in res[i + 2]
+            ]
+        except:
+            clicks = []
+            for args in res[i + 2]:
+                parsed = json.loads(args)
+                if parsed.get("parent_uid") is False:
+                    parsed["parent_uid"] = None
+                if parsed.get("visitor_uid") is False:
+                    parsed["visitor_uid"] = None
+                if parsed.get("user_sub") is False:
+                    parsed["user_sub"] = None
+                clicks.append(TouchLinkBufferedClick.parse_obj(parsed))
+            logging.warning(
+                f"Corrected corrupted clicks; original: {res[i+2]}, fixed: {clicks}"
+            )
+
         result.append(TouchReadToPersistResult(code, data, clicks))
     return result
