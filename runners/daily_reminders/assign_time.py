@@ -581,13 +581,13 @@ async def progress_pair(
                     await redis_stats.write_earliest(pipe)
                     if items:
                         await pipe.zadd(b"daily_reminders:queued", mapping=items)
-                        await pipe.hset(
-                            progress_key,
-                            mapping={
-                                b"start_time": str(start_time).encode("ascii"),
-                                b"uid": uid.encode("utf-8"),
-                            },
-                        )
+                    await pipe.hset(
+                        progress_key,
+                        mapping={
+                            b"start_time": str(start_time).encode("ascii"),
+                            b"uid": uid.encode("utf-8"),
+                        },
+                    )
                     await redis_stats.write_increments(pipe)
                     await pipe.execute()
 
