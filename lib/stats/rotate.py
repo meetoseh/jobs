@@ -142,9 +142,15 @@ async def rotate(
                 )
 
         regular_columns = ", ".join(regular_events)
+        if regular_events:
+            regular_columns = ", " + regular_columns
+
         breakdown_columns = ", ".join(
             f"{ev}, {ev}_breakdown" for ev in breakdown_events
         )
+        if breakdown_events:
+            breakdown_columns = ", " + breakdown_columns
+
         qmarks = ", ".join(
             "?" for _ in range(2 + len(regular_events) + 2 * len(breakdown_events))
         )
@@ -152,8 +158,8 @@ async def rotate(
             f"""
             INSERT INTO {table_name} (
                 retrieved_for, 
-                retrieved_at, 
-                {regular_columns},
+                retrieved_at
+                {regular_columns}
                 {breakdown_columns}
             )
             SELECT

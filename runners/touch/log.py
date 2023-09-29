@@ -197,7 +197,7 @@ async def write_user_touch_point_state_updates(
                 "WITH batch(expected_version, user_sub, touch_point_uid, channel, state) AS (VALUES "
             )
             for idx in range(start_idx, end_idx):
-                if idx > 0:
+                if idx > start_idx:
                     query_sql.write(", ")
                 query_sql.write("(?, ?, ?, ?, ?)")
             query_sql.write(
@@ -263,7 +263,7 @@ async def write_user_touch_point_state_inserts(
                 "WITH batch(uid, touch_point_uid, user_sub, channel, state) AS (VALUES "
             )
             for idx in range(start_idx, end_idx):
-                if idx > 0:
+                if idx > start_idx:
                     query_sql.write(", ")
                 query_sql.write("(?, ?, ?, ?, ?)")
             query_sql.write(
@@ -345,7 +345,7 @@ async def write_user_touch_inserts(
                 "WITH batch(uid, user_sub, channel, touch_point_uid, destination, message, created_at) AS (VALUES "
             )
             for idx in range(start_idx, end_idx):
-                if idx > 0:
+                if idx > start_idx:
                     query_sql.write(", ")
                 query_sql.write("(?, ?, ?, ?, ?, ?, ?)")
             query_sql.write(
@@ -417,7 +417,7 @@ async def write_user_touch_debug_log_inserts(
             query_sql = io.StringIO()
             query_sql.write("WITH batch(uid, user_sub, event, created_at) AS (VALUES ")
             for idx in range(start_idx, end_idx):
-                if idx > 0:
+                if idx > start_idx:
                     query_sql.write(", ")
                 query_sql.write("(?, ?, ?, ?)")
             query_sql.write(
@@ -473,7 +473,7 @@ async def write_user_push_token_updates(
             query_sql = io.StringIO()
             query_sql.write("WITH batch(token, last_confirmed_at) AS (VALUES ")
             for idx in range(start_idx, end_idx):
-                if idx > 0:
+                if idx > start_idx:
                     query_sql.write(", ")
                 query_sql.write("(?, ?)")
             query_sql.write(

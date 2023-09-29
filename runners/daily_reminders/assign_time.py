@@ -58,6 +58,11 @@ too stale to send, in seconds
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 """The timezone used if the user does not have a timezone set"""
 
+MIN_ACCOUNT_AGE_SECONDS = 60 * 60 * 12
+"""We don't send daily reminders to very recently created accounts, so
+that they get their first reminder on the "next day"
+"""
+
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
     """Continues iterating over the user daily reminders table, assigning a time
@@ -488,6 +493,7 @@ async def progress_pair(
                 EXISTS (
                     SELECT 1 FROM users WHERE users.id = user_daily_reminders.user_id
                     AND (users.timezone = ?{default_timezone_clause})
+                    AND users.created_at < ?
                 )
                 AND (day_of_week_mask & ?) != 0
                 AND (start_time > ? OR (start_time = ? AND uid > ?))
@@ -497,6 +503,7 @@ async def progress_pair(
             """,
             (
                 timezone,
+                job_started_at - MIN_ACCOUNT_AGE_SECONDS,
                 day_of_week_as_mask,
                 start_time if start_time is not None else -1,
                 start_time if start_time is not None else -1,

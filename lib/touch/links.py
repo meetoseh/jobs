@@ -649,6 +649,7 @@ async def _create_buffered_link_using_rejection_sampling(
                 buffer_key=b"touch_links:buffer",
                 stats_key=stats_key,
                 stats_earliest_key=b"stats:touch_links:daily:earliest",
+                code=code.encode("utf-8"),
                 **encoded_link_kwargs,
                 already_incremented_stats=already_incremented_stats,
                 unix_date=unix_date,

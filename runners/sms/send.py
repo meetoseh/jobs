@@ -197,6 +197,32 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 if STATUS_CALLBACK is not None:
                     request_data["StatusCallback"] = STATUS_CALLBACK
 
+                if next_to_send.phone_number == "+15555555555":
+                    logging.info(
+                        "Test number detected, failing send with i'm a teapot server status code.\n"
+                        f"{request_data=}"
+                    )
+                    await fail_job(
+                        itgs,
+                        sms=next_to_send,
+                        identifier="ClientErrorOther",
+                        subidentifier="418",
+                        retryable=False,
+                        extra=None,
+                    )
+                    run_stats.attempted += 1
+                    run_stats.failed_permanently += 1
+                    await lib.sms.send_stats.increment_event(
+                        itgs,
+                        event="failed_due_to_client_error_other",
+                        extra={
+                            "http_status_code": "418",
+                        },
+                        now=next_to_send.initially_queued_at,
+                    )
+                    await advance_next_to_send_raw()
+                    continue
+
                 try:
                     async with basic_redis_lock(itgs, b"twilio:lock", gd=gd, spin=True):
                         response = await conn.post(

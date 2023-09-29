@@ -33,6 +33,7 @@ EMAIL_SOURCE = email.utils.formataddr(
     ("Oseh", "hi@" + os.environ["ROOT_FRONTEND_URL"][len("https://") :])
 )
 EMAIL_REPLY_TO = email.utils.formataddr(("Customer Support", "hi@oseh.com"))
+SUPPRESSED = os.environ["ENVIRONMENT"] == "dev"
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
@@ -334,6 +335,33 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         now=time.time(),
                     )
                     run_stats.attempted += 1
+                    run_stats.failed_permanently += 1
+                    await advance_next_to_send_raw()
+                    continue
+
+                # TODO -> save to suppress here
+                if SUPPRESSED:
+                    logging.debug(
+                        "Suppressing sending emails in dev environment, faking ses client error"
+                    )
+                    await fail_job_and_update_stats(
+                        itgs,
+                        email=next_to_send,
+                        action="send",
+                        identifier="SESClientError",
+                        retryable=False,
+                        extra="Email sending is suppressed when running in the dev environment",
+                        events={
+                            b"attempted": None,
+                            b"templated": None,
+                            b"failed_permanently": f"ses:SuppressedInDevEnvironment".encode(
+                                "utf-8"
+                            ),
+                        },
+                        now=time.time(),
+                    )
+                    run_stats.attempted += 1
+                    run_stats.templated += 1
                     run_stats.failed_permanently += 1
                     await advance_next_to_send_raw()
                     continue

@@ -6,8 +6,13 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 import secrets
+from lib.daily_reminders.registration_stats import (
+    DailyReminderRegistrationStatsPreparer,
+)
 import lib.push.token_stats
 import redis_helpers.run_with_prep
+import unix_dates
+import pytz
 
 category = JobCategory.LOW_RESOURCE_COST
 MAX_CONCURRENT_PUSH_TOKENS_PER_USER = 10
@@ -41,6 +46,7 @@ async def execute(
     now = time.time()
 
     new_uid = f"oseh_upt_{secrets.token_urlsafe(16)}"
+    new_udr_uid = f"oseh_udr_{secrets.token_urlsafe(16)}"
     response = await cursor.executemany3(
         (
             # Refresh if it already exists and is for this user
@@ -143,6 +149,32 @@ async def execute(
                     expo_push_token,
                 ),
             ),
+            # Register for daily push notifications if we created the only token for the user
+            (
+                """
+                INSERT INTO user_daily_reminders (
+                    uid, user_id, channel, start_time, end_time, day_of_week_mask, created_at
+                )
+                SELECT
+                    ?, users.id, 'push', 28800, 39600, 127, ?
+                FROM users
+                WHERE
+                    users.sub = ?
+                    AND EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.token = ? AND upt.user_id = users.id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.token != ? AND upt.user_id = users.id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_daily_reminders AS udr
+                        WHERE udr.user_id = users.id AND udr.channel = 'push'
+                    )
+                """,
+                (new_udr_uid, now, user_sub, expo_push_token, expo_push_token),
+            ),
         ),
         transaction=True,
     )
@@ -168,6 +200,10 @@ async def execute(
             await handle_contextless_error(
                 extra_info=f"refreshed and created new expo push token? {expo_push_token=}, {user_sub=}"
             )
+        if response[4].rows_affected is not None and response[4].rows_affected > 0:
+            await handle_contextless_error(
+                extra_info=f"refreshed and created daily reminder? {expo_push_token=}, {user_sub=}"
+            )
 
         action_taken = "refresh"
     elif response[1].rows_affected is not None and response[1].rows_affected > 0:
@@ -184,12 +220,32 @@ async def execute(
             await handle_contextless_error(
                 extra_info=f"reassigned and created new expo push token? {expo_push_token=}, {user_sub=}"
             )
+        if response[4].rows_affected is not None and response[4].rows_affected > 0:
+            await handle_contextless_error(
+                extra_info=f"reassigned and created daily reminder? {expo_push_token=}, {user_sub=}"
+            )
 
         action_taken = "reassign"
     elif response[3].rows_affected is not None and response[3].rows_affected > 0:
         if response[3].rows_affected != 1:
             await handle_contextless_error(
                 extra_info=f"created more than one expo push token? {response[3].rows_affected=}, {expo_push_token=}, {user_sub=}"
+            )
+        if response[4].rows_affected is not None and response[4].rows_affected > 0:
+            if response[4].rows_affected != 1:
+                await handle_contextless_error(
+                    extra_info=f"created more than one daily reminder? {response[4].rows_affected=}, {expo_push_token=}, {user_sub=}"
+                )
+            await (
+                DailyReminderRegistrationStatsPreparer()
+                .incr_subscribed(
+                    unix_dates.unix_timestamp_to_unix_date(
+                        now, tz=pytz.timezone("America/Los_Angeles")
+                    ),
+                    "push",
+                    "push_token_added",
+                )
+                .store(itgs)
             )
         excess_deleted = (
             response[2].rows_affected if response[2].rows_affected is not None else 0
