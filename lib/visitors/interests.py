@@ -180,7 +180,7 @@ async def copy_interests_from_visitor_to_user(
             f"Deleted {response[0].rows_affected} user_interests for {user_sub=} which were replaced by interests from {visitor_uid=}"
         )
 
-    if response[1].rows_affected is not None and response[1].rows_affected > 1:
+    if response[1].rows_affected is not None and response[1].rows_affected > 0:
         if response[1].rows_affected != len(interests):
             await handle_contextless_error(
                 extra_info=f"Expected to insert {len(interests)} user_interests for {user_sub=} but inserted {response[1].rows_affected}"
