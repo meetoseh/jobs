@@ -162,18 +162,14 @@ async def execute(
                     users.sub = ?
                     AND EXISTS (
                         SELECT 1 FROM user_push_tokens AS upt
-                        WHERE upt.token = ? AND upt.user_id = users.id
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1 FROM user_push_tokens AS upt
-                        WHERE upt.token != ? AND upt.user_id = users.id
+                        WHERE upt.uid = ? AND upt.user_id = users.id
                     )
                     AND NOT EXISTS (
                         SELECT 1 FROM user_daily_reminders AS udr
                         WHERE udr.user_id = users.id AND udr.channel = 'push'
                     )
                 """,
-                (new_udr_uid, now, user_sub, expo_push_token, expo_push_token),
+                (new_udr_uid, now, user_sub, new_uid),
             ),
         ),
         transaction=True,
