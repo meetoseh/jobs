@@ -1617,7 +1617,8 @@ class PushBatchSegmentPreparer(
     async def rpush_messages(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
-        await pipe.rpush(b"push:message_attempts:to_send", *messages)
+        if messages:
+            await pipe.rpush(b"push:message_attempts:to_send", *messages)
 
 
 class SmsBatchSegmentPreparer(
@@ -1716,7 +1717,8 @@ class SmsBatchSegmentPreparer(
     async def rpush_messages(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
-        await pipe.rpush(b"sms:to_send", *messages)
+        if messages:
+            await pipe.rpush(b"sms:to_send", *messages)
 
 
 class EmailBatchSegmentPreparer(
@@ -1838,7 +1840,8 @@ class EmailBatchSegmentPreparer(
     async def rpush_messages(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
-        await pipe.rpush(b"email:to_send", *messages)
+        if messages:
+            await pipe.rpush(b"email:to_send", *messages)
 
 
 T = TypeVar("T", TouchPointPushMessage, TouchPointSmsMessage, TouchPointEmailMessage)
