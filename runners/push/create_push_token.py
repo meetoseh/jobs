@@ -64,6 +64,31 @@ async def execute(
                 """,
                 (now, now, user_sub, expo_push_token),
             ),
+            # If we're going to reassign and that causes the other user not to
+            # have any push tokens anymore, delete their push daily reminder
+            (
+                """
+                DELETE FROM user_daily_reminders
+                WHERE
+                    user_daily_reminders.channel = 'push'
+                    AND EXISTS (
+                        SELECT 1 FROM users
+                        WHERE users.id = user_daily_reminders.user_id
+                          AND users.sub != ?
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.user_id = user_daily_reminders.user_id
+                          AND upt.token = ?
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.user_id = user_daily_reminders.user_id
+                          AND upt.token != ?
+                    )
+                """,
+                (user_sub, expo_push_token, expo_push_token),
+            ),
             # Reassign if it already exists for a different user
             (
                 """
@@ -175,62 +200,136 @@ async def execute(
         transaction=True,
     )
 
+    refresh_response = response[0]
+    reminder_deleted_during_reassign_response = response[1]
+    reassign_response = response[2]
+    excess_delete_response = response[3]
+    create_response = response[4]
+    daily_reminder_response = response[5]
+
     action_taken: Optional[Literal["refresh", "reassign", "create"]] = None
     excess_deleted: int = 0
 
-    if response[0].rows_affected is not None and response[0].rows_affected > 0:
-        if response[0].rows_affected != 1:
+    if (
+        refresh_response.rows_affected is not None
+        and refresh_response.rows_affected > 0
+    ):
+        if refresh_response.rows_affected != 1:
             await handle_contextless_error(
-                extra_info=f"refreshed more than one expo push token? {response[0].rows_affected=}, {expo_push_token=}, {user_sub=}"
+                extra_info=f"refreshed more than one expo push token? {refresh_response.rows_affected=}, {expo_push_token=}, {user_sub=}"
             )
-        if response[1].rows_affected is not None and response[1].rows_affected > 0:
+        if (
+            reassign_response.rows_affected is not None
+            and reassign_response.rows_affected > 0
+        ):
             await handle_contextless_error(
                 extra_info=f"refreshed and reassigned expo push token? {expo_push_token=}, {user_sub=}"
             )
-        if response[2].rows_affected is not None and response[2].rows_affected > 0:
-            excess_deleted = response[2].rows_affected
+        if (
+            excess_delete_response.rows_affected is not None
+            and excess_delete_response.rows_affected > 0
+        ):
+            excess_deleted = excess_delete_response.rows_affected
             await handle_contextless_error(
                 extra_info=f"refreshed and deleted excess expo push tokens? {expo_push_token=}, {user_sub=}"
             )
-        if response[3].rows_affected is not None and response[3].rows_affected > 0:
+        if (
+            create_response.rows_affected is not None
+            and create_response.rows_affected > 0
+        ):
             await handle_contextless_error(
                 extra_info=f"refreshed and created new expo push token? {expo_push_token=}, {user_sub=}"
             )
-        if response[4].rows_affected is not None and response[4].rows_affected > 0:
+        if (
+            daily_reminder_response.rows_affected is not None
+            and daily_reminder_response.rows_affected > 0
+        ):
             await handle_contextless_error(
                 extra_info=f"refreshed and created daily reminder? {expo_push_token=}, {user_sub=}"
             )
+        if (
+            reminder_deleted_during_reassign_response.rows_affected is not None
+            and reminder_deleted_during_reassign_response.rows_affected > 0
+        ):
+            await handle_contextless_error(
+                extra_info=f"refreshed and deleted {reminder_deleted_during_reassign_response.rows_affected=} daily reminders during reassign? {expo_push_token=}, {user_sub=}"
+            )
 
         action_taken = "refresh"
-    elif response[1].rows_affected is not None and response[1].rows_affected > 0:
-        if response[1].rows_affected != 1:
+    elif (
+        reassign_response.rows_affected is not None
+        and reassign_response.rows_affected > 0
+    ):
+        if reassign_response.rows_affected != 1:
             await handle_contextless_error(
-                extra_info=f"reassigned more than one expo push token? {response[1].rows_affected=}, {expo_push_token=}, {user_sub=}"
+                extra_info=f"reassigned more than one expo push token? {reassign_response.rows_affected=}, {expo_push_token=}, {user_sub=}"
             )
-        if response[2].rows_affected is not None and response[2].rows_affected > 0:
-            excess_deleted = response[2].rows_affected
+        if (
+            excess_delete_response.rows_affected is not None
+            and excess_delete_response.rows_affected > 0
+        ):
+            excess_deleted = excess_delete_response.rows_affected
             await handle_contextless_error(
                 extra_info=f"reassigned and deleted excess expo push tokens? {expo_push_token=}, {user_sub=}"
             )
-        if response[3].rows_affected is not None and response[3].rows_affected > 0:
+        if (
+            create_response.rows_affected is not None
+            and create_response.rows_affected > 0
+        ):
             await handle_contextless_error(
                 extra_info=f"reassigned and created new expo push token? {expo_push_token=}, {user_sub=}"
             )
-        if response[4].rows_affected is not None and response[4].rows_affected > 0:
+        if (
+            daily_reminder_response.rows_affected is not None
+            and daily_reminder_response.rows_affected > 0
+        ):
             await handle_contextless_error(
                 extra_info=f"reassigned and created daily reminder? {expo_push_token=}, {user_sub=}"
             )
 
         action_taken = "reassign"
-    elif response[3].rows_affected is not None and response[3].rows_affected > 0:
-        if response[3].rows_affected != 1:
-            await handle_contextless_error(
-                extra_info=f"created more than one expo push token? {response[3].rows_affected=}, {expo_push_token=}, {user_sub=}"
-            )
-        if response[4].rows_affected is not None and response[4].rows_affected > 0:
-            if response[4].rows_affected != 1:
+
+        if (
+            reminder_deleted_during_reassign_response.rows_affected is not None
+            and reminder_deleted_during_reassign_response.rows_affected > 0
+        ):
+            if reminder_deleted_during_reassign_response.rows_affected != 1:
                 await handle_contextless_error(
-                    extra_info=f"created more than one daily reminder? {response[4].rows_affected=}, {expo_push_token=}, {user_sub=}"
+                    extra_info=f"deleted {reminder_deleted_during_reassign_response.rows_affected=} daily reminders during reassign? {expo_push_token=}, {user_sub=}"
+                )
+
+            await (
+                DailyReminderRegistrationStatsPreparer()
+                .incr_unsubscribed(
+                    unix_dates.unix_timestamp_to_unix_date(
+                        now, tz=pytz.timezone("America/Los_Angeles")
+                    ),
+                    "push",
+                    "unreachable",
+                )
+                .store(itgs)
+            )
+    elif (
+        create_response.rows_affected is not None and create_response.rows_affected > 0
+    ):
+        if create_response.rows_affected != 1:
+            await handle_contextless_error(
+                extra_info=f"created more than one expo push token? {create_response.rows_affected=}, {expo_push_token=}, {user_sub=}"
+            )
+        if (
+            reminder_deleted_during_reassign_response.rows_affected is not None
+            and reminder_deleted_during_reassign_response.rows_affected > 0
+        ):
+            await handle_contextless_error(
+                extra_info=f"created and deleted {reminder_deleted_during_reassign_response.rows_affected=} daily reminders during reassign? {expo_push_token=}, {user_sub=}"
+            )
+        if (
+            daily_reminder_response.rows_affected is not None
+            and daily_reminder_response.rows_affected > 0
+        ):
+            if daily_reminder_response.rows_affected != 1:
+                await handle_contextless_error(
+                    extra_info=f"created more than one daily reminder? {daily_reminder_response.rows_affected=}, {expo_push_token=}, {user_sub=}"
                 )
             await (
                 DailyReminderRegistrationStatsPreparer()
@@ -244,7 +343,9 @@ async def execute(
                 .store(itgs)
             )
         excess_deleted = (
-            response[2].rows_affected if response[2].rows_affected is not None else 0
+            excess_delete_response.rows_affected
+            if excess_delete_response.rows_affected is not None
+            else 0
         )
         action_taken = "create"
 
