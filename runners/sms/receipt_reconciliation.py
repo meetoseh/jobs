@@ -389,12 +389,13 @@ async def reconcile_event(
     return EventResult(stats=stats, events=events)
 
 
+# https://support.twilio.com/hc/en-us/articles/223134347-What-are-the-Possible-SMS-and-MMS-Message-Statuses-and-What-do-They-Mean-
 events_by_sequence_order = {
-    "queued": 0,
-    "scheduled": 0,
     "accepted": 1,
-    "sending": 2,
-    "sent": 3,
+    "scheduled": 2,
+    "queued": 3,
+    "sending": 4,
+    "sent": 5,
     "delivered": 9,
     "canceled": 9,
     "failed": 9,
