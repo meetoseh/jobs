@@ -1240,6 +1240,7 @@ class MessageBatchSegmentPreparer(
         stats = MyRedisStatUpdatePreparer()
         messages: List[bytes] = []
         logs: List[bytes] = []
+        jobs_to_queue: List[bytes] = []
         pending_zset_adds: Dict[bytes, float] = dict()
         # values to insert into touch:pending
         pending_callbacks: Dict[bytes, Dict[bytes, bytes]] = dict()
@@ -1304,6 +1305,16 @@ class MessageBatchSegmentPreparer(
                     .json()
                     .encode("utf-8")
                 )
+                if touch.failure_callback is not None:
+                    jobs_to_queue.append(
+                        json.dumps(
+                            {
+                                "name": touch.failure_callback.name,
+                                "kwargs": touch.failure_callback.kwargs,
+                                "queued_at": batch_at,
+                            }
+                        ).encode('utf-8')
+                    )
                 continue
 
             message, new_state = cls.select_message(touch, touch_point, state)
@@ -1416,6 +1427,8 @@ class MessageBatchSegmentPreparer(
                     await pipe.hset(cb_key, mapping=cbs)
                 for rem_key, remaining in pending_remaining.items():
                     await pipe.sadd(rem_key, *remaining)
+                if jobs_to_queue:
+                    await pipe.rpush(b"jobs:hot", *jobs_to_queue)
                 await pipe.rpush(b"touch:to_log", *logs)
                 await pipe.execute()
 
