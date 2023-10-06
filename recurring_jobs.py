@@ -799,6 +799,11 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
+    Job(
+        name="runners.alerting.check_frontend",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
+    ),
 )
 """The jobs that should be run."""
 

@@ -1,6 +1,7 @@
 from typing import Optional
 import aiohttp
 import os
+import logging
 
 
 class Slack:
@@ -29,11 +30,18 @@ class Slack:
             blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
             preview (str): the text for notifications
         """
-        await self.session.post(
+        async with self.session.post(
             url=url,
             json={"text": preview, "blocks": blocks},
             headers={"content-type": "application/json; charset=UTF-8"},
-        )
+        ) as response:
+            logging.debug(f"response from slack: {response.status}")
+
+            if response.status > 299:
+                text = await response.text()
+                logging.error(
+                    f"error sending to slack: {response.status} - {text}\n\n{preview=}, {blocks=}"
+                )
 
     async def send_message(
         self,

@@ -65,9 +65,18 @@ MAX_WARNINGS_PER_INTERVAL = 5
 
 
 async def handle_warning(
-    identifier: str, text: str, exc: Optional[Exception] = None
+    identifier: str, text: str, exc: Optional[Exception] = None, is_urgent: bool = False
 ) -> None:
-    """Sends a warning to slack, with basic ratelimiting"""
+    """Sends a warning to slack, with basic ratelimiting
+
+    Args:
+        identifier (str): An identifier for ratelimiting the warning
+        text (str): The text to send
+        exc (Exception, None): If an exception occurred, formatted and added to
+          the text appropriately
+        is_urgent (bool): If true, the message is sent to the #oseh-bot channel instead
+          of the #web-errors channel
+    """
 
     if exc is not None:
         text += (
@@ -90,16 +99,22 @@ async def handle_warning(
         recent_warnings.popleft()
 
     if len(recent_warnings) >= MAX_WARNINGS_PER_INTERVAL:
+        logging.debug(f"warning suppressed (ratelimit): {identifier}")
         return
 
     recent_warnings.append(now)
     total_warnings = len(recent_warnings)
 
+    message = f"WARNING: `{identifier}` (warning {total_warnings}/{MAX_WARNINGS_PER_INTERVAL} per {WARNING_RATELIMIT_INTERVAL} seconds for {socket.gethostname()} - pid {os.getpid()})\n\n{text}"
+    preview = f"WARNING: {identifier}"
+
     from itgs import Itgs
 
     async with Itgs() as itgs:
         slack = await itgs.slack()
-        await slack.send_web_error_message(
-            f"WARNING: `{identifier}` (warning {total_warnings}/{MAX_WARNINGS_PER_INTERVAL} per {WARNING_RATELIMIT_INTERVAL} seconds for {socket.gethostname()} - pid {os.getpid()})\n\n{text}",
-            preview=f"WARNING: {identifier}",
-        )
+        if is_urgent:
+            logging.debug("sending warning to #ops")
+            await slack.send_oseh_bot_message(message, preview=preview)
+        else:
+            logging.debug("sending warning to #web-errors")
+            await slack.send_web_error_message(message, preview=preview)
