@@ -642,6 +642,16 @@ JOBS: List[Job] = (
         ),
     ),
     Job(
+        name="runners.stats.daily_push_receipt_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_push_ticket_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
+    ),
+    Job(
         name="runners.stats.daily_push_token_stats",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
