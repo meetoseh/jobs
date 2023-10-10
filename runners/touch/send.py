@@ -1529,7 +1529,7 @@ class MessageBatchSegmentPreparer(
         raise NotImplementedError()
 
     @classmethod
-    async def incr_subqueue_queued_stats(
+    def incr_subqueue_queued_stats(
         cls, stats: MyRedisStatUpdatePreparer, batch_at: float
     ) -> None:
         """Increments the number of queued items within the subqueue given
@@ -1644,7 +1644,7 @@ class PushBatchSegmentPreparer(
             await pipe.rpush(b"push:message_attempts:to_send", *messages)
 
     @classmethod
-    async def incr_subqueue_queued_stats(
+    def incr_subqueue_queued_stats(
         cls, stats: MyRedisStatUpdatePreparer, batch_at: float
     ) -> None:
         stats.incr_pushes_queued(batch_at)
@@ -1750,7 +1750,7 @@ class SmsBatchSegmentPreparer(
             await pipe.rpush(b"sms:to_send", *messages)
 
     @classmethod
-    async def incr_subqueue_queued_stats(
+    def incr_subqueue_queued_stats(
         cls, stats: MyRedisStatUpdatePreparer, batch_at: float
     ) -> None:
         stats.incr_sms_queued(batch_at)
@@ -1879,10 +1879,11 @@ class EmailBatchSegmentPreparer(
             await pipe.rpush(b"email:to_send", *messages)
 
     @classmethod
-    async def incr_subqueue_queued_stats(
+    def incr_subqueue_queued_stats(
         cls, stats: MyRedisStatUpdatePreparer, batch_at: float
     ) -> None:
         stats.incr_emails_queued(batch_at)
+
 
 T = TypeVar("T", TouchPointPushMessage, TouchPointSmsMessage, TouchPointEmailMessage)
 
