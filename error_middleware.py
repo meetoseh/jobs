@@ -110,11 +110,14 @@ async def handle_warning(
 
     from itgs import Itgs
 
-    async with Itgs() as itgs:
-        slack = await itgs.slack()
-        if is_urgent:
-            logging.debug("sending warning to #ops")
-            await slack.send_oseh_bot_message(message, preview=preview)
-        else:
-            logging.debug("sending warning to #web-errors")
-            await slack.send_web_error_message(message, preview=preview)
+    try:
+        async with Itgs() as itgs:
+            slack = await itgs.slack()
+            if is_urgent:
+                logging.debug("sending warning to #ops")
+                await slack.send_oseh_bot_message(message, preview=preview)
+            else:
+                logging.debug("sending warning to #web-errors")
+                await slack.send_web_error_message(message, preview=preview)
+    except:
+        logging.exception("Failed to send slack message for warning")

@@ -3,6 +3,9 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
+from lib.daily_reminders.registration_stats import (
+    DailyReminderRegistrationStatsPreparer,
+)
 from lib.push.message_attempt_info import (
     MessageAttemptFailureInfo,
     MessageAttemptToCheck,
@@ -163,12 +166,48 @@ async def _handle_if_token_is_bad(
     conn = await itgs.conn()
     cursor = conn.cursor("none")
 
-    response = await cursor.execute(
-        "DELETE FROM user_push_tokens WHERE token=?",
-        (attempt.push_token,),
+    response = await cursor.executemany3(
+        (
+            """
+            DELETE FROM user_daily_reminders
+            WHERE
+                EXISTS (
+                    SELECT 1 FROM user_push_tokens AS upt
+                    WHERE upt.token = ?
+                      AND upt.user_id = user_daily_reminders.user_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM user_push_tokens AS upt
+                    WHERE upt.token != ?
+                      AND upt.user_id = user_daily_reminders.user_id
+                )
+            """,
+            (attempt.push_token, attempt.push_token),
+        ),
+        (
+            "DELETE FROM user_push_tokens WHERE token=?",
+            (attempt.push_token,),
+        ),
     )
 
-    if response.rows_affected is None or response.rows_affected < 1:
+    if response[0].rows_affected is not None and response[0].rows_affected > 0:
+        logging.debug(
+            f"Deleted {response[0].rows_affected} daily reminders for users with this token"
+        )
+        await (
+            DailyReminderRegistrationStatsPreparer()
+            .incr_unsubscribed(
+                unix_dates.unix_timestamp_to_unix_date(
+                    now, tz=pytz.timezone("America/Los_Angeles")
+                ),
+                "push",
+                "unreachable",
+                amt=response[0].rows_affected,
+            )
+            .store(itgs)
+        )
+
+    if response[1].rows_affected is None or response[1].rows_affected < 1:
         logging.debug("The push token had already been deleted")
         return
 
