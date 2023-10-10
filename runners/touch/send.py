@@ -1313,7 +1313,7 @@ class MessageBatchSegmentPreparer(
                                 "kwargs": touch.failure_callback.kwargs,
                                 "queued_at": batch_at,
                             }
-                        ).encode('utf-8')
+                        ).encode("utf-8")
                     )
                 continue
 
@@ -1397,6 +1397,7 @@ class MessageBatchSegmentPreparer(
                 )
                 remaining.append(dest_assigned_uid)
                 messages.append(dest_message)
+                cls.incr_subqueue_queued_stats(stats, batch_at)
 
             if touch.success_callback is not None or touch.failure_callback is not None:
                 pending_zset_adds[touch.uid.encode("utf-8")] = batch_at
@@ -1527,6 +1528,15 @@ class MessageBatchSegmentPreparer(
         """
         raise NotImplementedError()
 
+    @classmethod
+    async def incr_subqueue_queued_stats(
+        cls, stats: MyRedisStatUpdatePreparer, batch_at: float
+    ) -> None:
+        """Increments the number of queued items within the subqueue given
+        when the message was queued
+        """
+        raise NotImplementedError()
+
 
 class PushBatchSegmentPreparer(
     MessageBatchSegmentPreparer[
@@ -1633,6 +1643,12 @@ class PushBatchSegmentPreparer(
         if messages:
             await pipe.rpush(b"push:message_attempts:to_send", *messages)
 
+    @classmethod
+    async def incr_subqueue_queued_stats(
+        cls, stats: MyRedisStatUpdatePreparer, batch_at: float
+    ) -> None:
+        stats.incr_pushes_queued(batch_at)
+
 
 class SmsBatchSegmentPreparer(
     MessageBatchSegmentPreparer[
@@ -1732,6 +1748,12 @@ class SmsBatchSegmentPreparer(
     ) -> None:
         if messages:
             await pipe.rpush(b"sms:to_send", *messages)
+
+    @classmethod
+    async def incr_subqueue_queued_stats(
+        cls, stats: MyRedisStatUpdatePreparer, batch_at: float
+    ) -> None:
+        stats.incr_sms_queued(batch_at)
 
 
 class EmailBatchSegmentPreparer(
@@ -1856,6 +1878,11 @@ class EmailBatchSegmentPreparer(
         if messages:
             await pipe.rpush(b"email:to_send", *messages)
 
+    @classmethod
+    async def incr_subqueue_queued_stats(
+        cls, stats: MyRedisStatUpdatePreparer, batch_at: float
+    ) -> None:
+        stats.incr_emails_queued(batch_at)
 
 T = TypeVar("T", TouchPointPushMessage, TouchPointSmsMessage, TouchPointEmailMessage)
 
