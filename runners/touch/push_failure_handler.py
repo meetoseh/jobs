@@ -168,7 +168,8 @@ async def _handle_if_token_is_bad(
 
     response = await cursor.executemany3(
         (
-            """
+            (
+                """
             DELETE FROM user_daily_reminders
             WHERE
                 EXISTS (
@@ -182,12 +183,13 @@ async def _handle_if_token_is_bad(
                       AND upt.user_id = user_daily_reminders.user_id
                 )
             """,
-            (attempt.push_token, attempt.push_token),
-        ),
-        (
-            "DELETE FROM user_push_tokens WHERE token=?",
-            (attempt.push_token,),
-        ),
+                (attempt.push_token, attempt.push_token),
+            ),
+            (
+                "DELETE FROM user_push_tokens WHERE token=?",
+                (attempt.push_token,),
+            ),
+        )
     )
 
     if response[0].rows_affected is not None and response[0].rows_affected > 0:
