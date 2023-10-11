@@ -50,13 +50,13 @@ async def retry_or_abandon_standard(
             logging.info(
                 f"Abandoning send attempt {send_attempt.uid} after {send_attempt.retry} retries"
             )
-            await abandon_send_push(itgs, send_attempt)
+            await abandon_send_push(itgs, attempt=send_attempt)
             return False
         else:
             logging.info(
                 f"Retrying send attempt {send_attempt.uid} after {send_attempt.retry} retries"
             )
-            await retry_send_push(itgs, send_attempt)
+            await retry_send_push(itgs, attempt=send_attempt)
             return True
     else:
         check_attempt: MessageAttemptToCheck = attempt
@@ -68,11 +68,11 @@ async def retry_or_abandon_standard(
             logging.info(
                 f"Abandoning check attempt {check_attempt.uid} after {check_attempt.retry} retries"
             )
-            await abandon_check_push(itgs, check_attempt)
+            await abandon_check_push(itgs, attempt=check_attempt)
             return False
         else:
             logging.info(
                 f"Retrying check attempt {check_attempt.uid} after {check_attempt.retry} retries"
             )
-            await retry_check_push(itgs, check_attempt)
+            await retry_check_push(itgs, attempt=check_attempt)
             return True

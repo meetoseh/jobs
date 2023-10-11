@@ -170,19 +170,19 @@ async def _handle_if_token_is_bad(
         (
             (
                 """
-            DELETE FROM user_daily_reminders
-            WHERE
-                EXISTS (
-                    SELECT 1 FROM user_push_tokens AS upt
-                    WHERE upt.token = ?
-                      AND upt.user_id = user_daily_reminders.user_id
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM user_push_tokens AS upt
-                    WHERE upt.token != ?
-                      AND upt.user_id = user_daily_reminders.user_id
-                )
-            """,
+                DELETE FROM user_daily_reminders
+                WHERE
+                    EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.token = ?
+                        AND upt.user_id = user_daily_reminders.user_id
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM user_push_tokens AS upt
+                        WHERE upt.token != ?
+                        AND upt.user_id = user_daily_reminders.user_id
+                    )
+                """,
                 (attempt.push_token, attempt.push_token),
             ),
             (
