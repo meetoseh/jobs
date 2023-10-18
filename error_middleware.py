@@ -1,6 +1,5 @@
 import io
 import traceback
-import logging
 from typing import Dict, Optional
 from collections import deque
 import time
@@ -11,7 +10,7 @@ import logging as logger
 
 async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> None:
     """Handles a generic error"""
-    logging.error("Posting error to slack", exc_info=exc)
+    logger.error("Posting error to slack", exc_info=exc)
 
     message = "\n".join(
         traceback.format_exception(type(exc), exc, exc.__traceback__)[-5:]
@@ -23,9 +22,12 @@ async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> N
 
     from itgs import Itgs
 
-    async with Itgs() as itgs:
-        slack = await itgs.slack()
-        await slack.send_web_error_message(message, "an error occurred in jobs")
+    try:
+        async with Itgs() as itgs:
+            slack = await itgs.slack()
+            await slack.send_web_error_message(message, "an error occurred in jobs")
+    except:
+        logger.exception("Failed to send slack message for error")
 
 
 async def handle_contextless_error(*, extra_info: Optional[str] = None) -> None:
@@ -87,7 +89,7 @@ async def handle_warning(
             + "```"
         )
 
-    logging.warning(f"{identifier}: {text}")
+    logger.warning(f"{identifier}: {text}")
 
     if identifier not in RECENT_WARNINGS:
         RECENT_WARNINGS[identifier] = deque()
@@ -114,10 +116,10 @@ async def handle_warning(
         async with Itgs() as itgs:
             slack = await itgs.slack()
             if is_urgent:
-                logging.debug("sending warning to #ops")
+                logger.debug("sending warning to #ops")
                 await slack.send_oseh_bot_message(message, preview=preview)
             else:
-                logging.debug("sending warning to #web-errors")
+                logger.debug("sending warning to #web-errors")
                 await slack.send_web_error_message(message, preview=preview)
     except:
-        logging.exception("Failed to send slack message for warning")
+        logger.exception("Failed to send slack message for warning")

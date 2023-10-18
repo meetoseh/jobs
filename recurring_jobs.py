@@ -814,6 +814,26 @@ JOBS: List[Job] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
     ),
+    Job(
+        name="runners.stats.daily_siwo_authorize_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_siwo_verify_email_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_siwo_exchange_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.siwo.send_delayed_email_verifications",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(55,)),
+    ),
 )
 """The jobs that should be run."""
 

@@ -66,3 +66,11 @@ class RedisHash:
             if default is NotSet:
                 raise
             return default
+
+    def items_bytes(self):
+        for k, v in self._map.items():
+            if isinstance(k, str):
+                k = k.encode("utf-8")
+            if isinstance(v, str):
+                v = v.encode("utf-8")
+            yield k, v

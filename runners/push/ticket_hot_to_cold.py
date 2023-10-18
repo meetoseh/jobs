@@ -39,15 +39,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             if gd.received_term_signal:
                 logging.info("ticket_hot_to_cold interrupting early due to term signal")
                 break
-            moved_this_batch = await move_cold_to_hot_safe(
+            move_result = await move_cold_to_hot_safe(
                 itgs,
                 b"push:push_tickets:cold",
                 b"push:push_tickets:hot",
                 started_at - 60 * 15,
                 MOVE_BATCH_SIZE,
             )
-            num_moved += moved_this_batch
-            if moved_this_batch < MOVE_BATCH_SIZE:
+            num_moved += move_result.num_moved
+            if move_result.stop_reason != "max_count":
                 break
 
         finished_at = time.time()

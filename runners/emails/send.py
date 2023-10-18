@@ -1,6 +1,7 @@
 """Hands sending emails from the To Send queue"""
 import time
 from typing import Dict, Literal, Optional, cast
+from error_middleware import handle_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -19,6 +20,7 @@ from lib.email.email_info import (
     EmailPending,
     encode_data_for_failure_job,
 )
+from lib.shared.clean_for_slack import clean_for_slack
 import redis_helpers.run_with_prep
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import unix_dates
@@ -166,9 +168,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     want_failure_sleep = False
                     await asyncio.sleep(sleep_time)
 
-                next_to_send = EmailAttempt.parse_raw(
-                    next_to_send_raw, content_type="application/json"
-                )
+                try:
+                    next_to_send = EmailAttempt.parse_raw(
+                        next_to_send_raw, content_type="application/json"
+                    )
+                except Exception as exc:
+                    await handle_error(
+                        exc,
+                        extra_info=f"Email Send Job - email\n\n```\n{clean_for_slack(next_to_send_raw)}\n```\nn is malformed",
+                    )
+                    await advance_next_to_send_raw()
+                    continue
 
                 if await is_in_suppression_list(itgs, next_to_send.email):
                     logging.debug(
