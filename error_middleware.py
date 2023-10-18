@@ -101,7 +101,7 @@ async def handle_warning(
         recent_warnings.popleft()
 
     if len(recent_warnings) >= MAX_WARNINGS_PER_INTERVAL:
-        logging.debug(f"warning suppressed (ratelimit): {identifier}")
+        logger.debug(f"warning suppressed (ratelimit): {identifier}")
         return
 
     recent_warnings.append(now)
