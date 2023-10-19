@@ -260,9 +260,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         now=touch.queued_at,
                         code_style="short" if touch.channel == "sms" else "normal",
                     )
-                    main_url = f"{root_frontend_url}/l/{link.code}"
+                    main_url = f"{root_frontend_url}/a/{link.code}"
                     if touch.channel == "sms" and main_url.startswith("https://"):
-                        main_url = main_url[len("https://"):]
+                        main_url = main_url[len("https://") :]
                     touch.event_parameters["url"] = main_url
                     touch.success_callback.kwargs["codes"].append(link.code)
                     touch.failure_callback.kwargs["codes"].append(link.code)
