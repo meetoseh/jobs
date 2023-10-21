@@ -3,6 +3,7 @@ import io
 import json
 import secrets
 from typing import List, Optional
+from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -333,6 +334,33 @@ async def write_user_touch_inserts(
     conn = await itgs.conn()
     cursor = conn.cursor()
     full_batch_query: Optional[str] = None
+
+    # We need to remove duplicate uids from the rows list as the
+    # exists subquery will be false when the row is checked
+    # but true when the row is inserted, causing a unique constraint
+    # error
+
+    seen_uids = set()
+    pruned_rows: List[TouchLogUserTouchInsert] = []
+    deduped_rows: List[TouchLogUserTouchInsert] = []
+    for row in rows:
+        if row.fields.uid not in seen_uids:
+            seen_uids.add(row.fields.uid)
+            deduped_rows.append(row)
+        else:
+            pruned_rows.append(row)
+
+    if pruned_rows:
+        await handle_warning(
+            f"{__name__}:duplicates_in_batch",
+            f"Removed {len(pruned_rows)} rows from batch due to duplicate uids:\n\n```\n{pruned_rows[:3]}\n```\n",
+        )
+        stats.inserts += len(pruned_rows)
+        stats.failed_inserts += len(pruned_rows)
+
+    rows = deduped_rows
+    del deduped_rows
+    del pruned_rows
 
     for start_idx in range(0, len(rows), DATABASE_WRITE_BATCH_SIZE):
         end_idx = min(start_idx + DATABASE_WRITE_BATCH_SIZE, len(rows))
