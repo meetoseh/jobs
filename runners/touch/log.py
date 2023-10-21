@@ -367,7 +367,9 @@ async def write_user_touch_inserts(
                 " batch.created_at "
                 "FROM batch "
                 "JOIN users ON users.sub = batch.user_sub "
-                "JOIN touch_points ON touch_points.uid = batch.touch_point_uid"
+                "JOIN touch_points ON touch_points.uid = batch.touch_point_uid "
+                "WHERE"
+                " NOT EXISTS (SELECT 1 FROM user_touches ut WHERE ut.uid = batch.uid)"
             )
             query = query_sql.getvalue()
             if is_full_batch:
