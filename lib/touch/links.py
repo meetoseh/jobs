@@ -388,7 +388,7 @@ async def click_link(
             """
             SELECT
                 user_touch_links.uid,
-                user_touches.uid,
+                user_touches.send_uid,
                 user_touch_links.code,
                 user_touch_links.page_identifier,
                 user_touch_links.page_extra,

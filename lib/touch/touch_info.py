@@ -13,7 +13,9 @@ class TouchToSend(BaseModel):
     """A value within touch:to_send"""
 
     aud: Literal["send"] = Field(description="reserved for future use")
-    uid: str = Field(description="the unique identifier for this touch attempt")
+    uid: str = Field(
+        description="the unique identifier for this touch attempt, i.e, send intent uid"
+    )
     user_sub: str = Field(description="the sub of the user to contact")
     touch_point_event_slug: str = Field(
         description="the event slug on the touch point to emit"
@@ -156,7 +158,7 @@ class TouchLogUserTouchPushInsertMessage(BaseModel):
 
 
 class TouchLogUserTouchPushInsertFields(BaseModel):
-    uid: str = Field(description="the uid of the user touch to create")
+    uid: str = Field(description="the send_uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["push"] = Field(
         description="which channel was used to contact the user"
@@ -180,7 +182,7 @@ class TouchLogUserTouchSMSMessage(BaseModel):
 
 
 class TouchLogUserTouchSMSInsertFields(BaseModel):
-    uid: str = Field(description="the uid of the user touch to create")
+    uid: str = Field(description="the send_uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["sms"] = Field(
         description="which channel was used to contact the user"
@@ -208,7 +210,7 @@ class TouchLogUserTouchEmailMessage(BaseModel):
 
 
 class TouchLogUserTouchEmailInsertFields(BaseModel):
-    uid: str = Field(description="the uid of the user touch to create")
+    uid: str = Field(description="the send_uid of the user touch to create")
     user_sub: str = Field(description="the sub of the user that was contacted")
     channel: Literal["email"] = Field(
         description="which channel was used to contact the user"

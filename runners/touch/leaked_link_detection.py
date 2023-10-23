@@ -169,10 +169,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         ?, user_touches.id, ?, ?, ?, ?, ?
                     FROM user_touches
                     WHERE 
-                        user_touches.uid = ? 
+                        user_touches.send_uid = ? 
                         AND NOT EXISTS (
                             SELECT 1 FROM user_touch_links AS utl 
                             WHERE utl.uid=? OR utl.code=?
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM user_touches AS ut
+                            WHERE ut.send_uid = user_touches.send_uid
+                              AND ut.id < user_touches.id
                         )
                     """,
                     (

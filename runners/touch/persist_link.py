@@ -371,8 +371,11 @@ async def form_batch(
         " batch.preview_identifier,"
         " batch.preview_extra "
         "FROM batch "
-        "JOIN user_touches ON user_touches.uid = batch.user_touch_uid "
-        "WHERE NOT EXISTS (SELECT 1 FROM user_touch_links WHERE uid = batch.uid OR code = batch.code)"
+        "JOIN user_touches ON ("
+        "user_touches.send_uid = batch.user_touch_uid "
+        "AND NOT EXISTS (SELECT 1 FROM user_touches ut WHERE ut.send_uid = user_touches.send_uid AND ut.id < user_touches.id)"
+        ")"
+        "WHERE NOT EXISTS (SELECT 1 FROM user_touch_links WHERE uid = batch.uid OR code = batch.code) "
     )
 
     clicks_sql = io.StringIO()

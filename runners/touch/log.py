@@ -335,33 +335,6 @@ async def write_user_touch_inserts(
     cursor = conn.cursor()
     full_batch_query: Optional[str] = None
 
-    # We need to remove duplicate uids from the rows list as the
-    # exists subquery will be false when the row is checked
-    # but true when the row is inserted, causing a unique constraint
-    # error
-
-    seen_uids = set()
-    pruned_rows: List[TouchLogUserTouchInsert] = []
-    deduped_rows: List[TouchLogUserTouchInsert] = []
-    for row in rows:
-        if row.fields.uid not in seen_uids:
-            seen_uids.add(row.fields.uid)
-            deduped_rows.append(row)
-        else:
-            pruned_rows.append(row)
-
-    if pruned_rows:
-        await handle_warning(
-            f"{__name__}:duplicates_in_batch",
-            f"Removed {len(pruned_rows)} rows from batch due to duplicate uids:\n\n```\n{pruned_rows[:3]}\n```\n",
-        )
-        stats.inserts += len(pruned_rows)
-        stats.failed_inserts += len(pruned_rows)
-
-    rows = deduped_rows
-    del deduped_rows
-    del pruned_rows
-
     for start_idx in range(0, len(rows), DATABASE_WRITE_BATCH_SIZE):
         end_idx = min(start_idx + DATABASE_WRITE_BATCH_SIZE, len(rows))
         is_full_batch = (end_idx - start_idx) == DATABASE_WRITE_BATCH_SIZE
@@ -370,15 +343,16 @@ async def write_user_touch_inserts(
         if not is_full_batch or full_batch_query is None:
             query_sql = io.StringIO()
             query_sql.write(
-                "WITH batch(uid, user_sub, channel, touch_point_uid, destination, message, created_at) AS (VALUES "
+                "WITH batch(uid, send_uid, user_sub, channel, touch_point_uid, destination, message, created_at) AS (VALUES "
             )
             for idx in range(start_idx, end_idx):
                 if idx > start_idx:
                     query_sql.write(", ")
-                query_sql.write("(?, ?, ?, ?, ?, ?, ?)")
+                query_sql.write("(?, ?, ?, ?, ?, ?, ?, ?)")
             query_sql.write(
                 ") INSERT INTO user_touches ("
                 " uid,"
+                " send_uid,"
                 " user_id,"
                 " channel,"
                 " touch_point_id,"
@@ -387,6 +361,7 @@ async def write_user_touch_inserts(
                 " created_at"
                 ") SELECT"
                 " batch.uid,"
+                " batch.send_uid,"
                 " users.id,"
                 " batch.channel,"
                 " touch_points.id,"
@@ -395,9 +370,7 @@ async def write_user_touch_inserts(
                 " batch.created_at "
                 "FROM batch "
                 "JOIN users ON users.sub = batch.user_sub "
-                "JOIN touch_points ON touch_points.uid = batch.touch_point_uid "
-                "WHERE"
-                " NOT EXISTS (SELECT 1 FROM user_touches ut WHERE ut.uid = batch.uid)"
+                "JOIN touch_points ON touch_points.uid = batch.touch_point_uid"
             )
             query = query_sql.getvalue()
             if is_full_batch:
@@ -408,6 +381,7 @@ async def write_user_touch_inserts(
         params = []
         for idx in range(start_idx, end_idx):
             itm = rows[idx]
+            params.append(f"oseh_tch_r_{secrets.token_urlsafe(16)}")
             params.append(itm.fields.uid)
             params.append(itm.fields.user_sub)
             params.append(itm.fields.channel)

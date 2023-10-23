@@ -12,7 +12,7 @@ class TouchLink(BaseModel):
     )
     code: str = Field(description="the code sent to the user in the touch")
     touch_uid: str = Field(
-        description="the uid of the touch that this link is associated with"
+        description="the send_uid of the touch that this link is associated with"
     )
     page_identifier: str = Field(
         description="the identifier for what page the user should be sent to "
