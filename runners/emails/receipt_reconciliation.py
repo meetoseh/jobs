@@ -9,7 +9,7 @@ from lib.basic_redis_lock import basic_redis_lock
 import dataclasses
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import redis_helpers.run_with_prep
-from lib.email.email_info import (
+from lib.emails.email_info import (
     EmailFailureInfo,
     EmailPending,
     EmailSuccessInfo,
@@ -18,7 +18,7 @@ from lib.email.email_info import (
 )
 import unix_dates
 import pytz
-from lib.email.events import (
+from lib.emails.events import (
     EmailBounceNotification,
     EmailComplaintNotification,
     EmailEvent,

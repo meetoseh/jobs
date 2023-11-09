@@ -119,6 +119,19 @@ class RedisStatsPreparer:
             )
             extra[event_extra] = extra.get(event_extra, 0) + amt
 
+    def merge_with(self, other: "RedisStatsPreparer") -> None:
+        """Merges all the stats from the other preparer into this one. Primarily
+        useful when subclassing rather than composing to add utility functions, but
+        now you want multiple preparers to be able to be used together
+        """
+        for key, updates in other.stats.items():
+            data = self.get_for_key(key)
+            for subkey, amt in updates.items():
+                data[subkey] = data.get(subkey, 0) + amt
+
+        for key, earliest in other.earliest_keys.items():
+            self.set_earliest(key, earliest)
+
     async def write_earliest(self, pipe: AsyncioRedisClient) -> None:
         """Writes the earliest updates to the given pipe using the set_if_lower script"""
         for key, val in self.earliest_keys.items():

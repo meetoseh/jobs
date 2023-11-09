@@ -1,12 +1,18 @@
 from typing import List, Optional
+from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.email.events import EmailEvent
+from lib.emails.events import EmailEvent
+from lib.daily_reminders.registration_stats import (
+    DailyReminderRegistrationStatsPreparer,
+)
 import secrets
 import time
 import socket
+import unix_dates
+import pytz
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -92,15 +98,13 @@ async def suppress_email(
     """
     conn = await itgs.conn()
     cursor = conn.cursor()
-    await cursor.executemany3(
+    response = await cursor.executemany3(
         (
             (
-                """
-                INSERT INTO email_failures (
-                    uid, email_address, failure_type, failure_extra, created_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
+                "INSERT INTO email_failures ("
+                " uid, email_address, failure_type, failure_extra, created_at"
+                ") "
+                "VALUES (?, ?, ?, ?, ?)",
                 (
                     f"oseh_ef_{secrets.token_urlsafe(16)}",
                     email,
@@ -110,16 +114,15 @@ async def suppress_email(
                 ),
             ),
             (
-                """
-                INSERT INTO suppressed_emails (
-                    uid, email_address, reason, created_at
-                )
-                SELECT
-                    ?, ?, ?, ?
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM suppressed_emails WHERE email_address = ?
-                )
-                """,
+                "INSERT INTO suppressed_emails ("
+                " uid, email_address, reason, created_at"
+                ") "
+                "SELECT"
+                " ?, ?, ?, ?"
+                "WHERE"
+                " NOT EXISTS ("
+                "  SELECT 1 FROM suppressed_emails WHERE email_address = ? COLLATE NOCASE"
+                " )",
                 (
                     f"oseh_se_{secrets.token_urlsafe(16)}",
                     email,
@@ -129,8 +132,56 @@ async def suppress_email(
                 ),
             ),
             (
-                "UPDATE users SET email_verified=0 WHERE email=?",
-                (email,),
+                "DELETE FROM user_daily_reminders "
+                "WHERE"
+                " channel = 'email'"
+                " AND EXISTS ("
+                "  SELECT 1 FROM user_email_addresses"
+                "  WHERE"
+                "   AND user_email_addresses.user_id = user_daily_reminders.user_id"
+                "   AND user_email_addresses.email = ?"
+                "   AND NOT EXISTS ("
+                "    SELECT 1 FROM user_email_addresses AS uea"
+                "    WHERE"
+                "     uea.id <> user_email_addresses.id"
+                "     AND uea.user_id = user_daily_reminders.user_id"
+                "     AND uea.receives_notifications"
+                "     AND uea.verified"
+                "     AND NOT EXISTS ("
+                "      SELECT 1 FROM suppressed_emails"
+                "      WHERE suppressed_emails.email_address = uea.email COLLATE NOCASE"
+                "     )"
+                " )"
             ),
         )
     )
+
+    if response[0].rows_affected != 1:
+        await handle_warning(
+            f"{__name__}:email_failure_not_logged",
+            f"Expected `{response[0].rows_affected=}` to be 1",
+        )
+
+    if response[1].rows_affected is None or response[1].rows_affected == 0:
+        logging.info(f"Email {email=} was already suppressed")
+    elif response[1].rows_affected != 1:
+        await handle_warning(
+            f"{__name__}:suppressed_multiple",
+            f"Expected `{response[1].rows_affected=}` to be 1",
+        )
+
+    if response[2].rows_affected is not None and response[2].rows_affected > 0:
+        logging.info(
+            f"Unsubscribed {response[2].rows_affected} users from email reminders while suppressing {email=}"
+        )
+
+        stats = DailyReminderRegistrationStatsPreparer()
+        stats.incr_unsubscribed(
+            unix_dates.unix_timestamp_to_unix_date(
+                now, pytz.timezone("America/Los_Angeles")
+            ),
+            "email",
+            "unreachable",
+            amt=response[2].rows_affected,
+        )
+        await stats.store(itgs)

@@ -12,7 +12,7 @@ import socket
 from mp_helper import adapt_threading_event_to_asyncio
 
 
-async def _listen_forever():
+async def _listen_forever(stopping_event: threading.Event):
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
@@ -23,20 +23,33 @@ async def _listen_forever():
             slack = await itgs.slack()
             await slack.send_ops_message(f"jobs {socket.gethostname()} ready")
 
+    msg = None
     while True:
         try:
             async with Itgs() as itgs:
                 redis = await itgs.redis()
                 pubsub = redis.pubsub()
                 await pubsub.subscribe("updates:jobs")
-                while (
-                    await pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
-                ) is None:
-                    pass
+                while msg is None:
+                    msg = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=5
+                    )
                 break
         except Exception as e:
             await handle_warning("updater:error", "Error in jobs updater loop", e)
             await asyncio.sleep(1)
+
+    print(f"Setting stopping event ({msg=})")
+    stopping_event.set()
+
+    # Convenient for testing on windows where it's hard to signal the
+    # process to stop once it has switched process groups
+    try:
+        if msg.get("data") == b"stop-without-restart":
+            print("Received special stop without restart signal, not restarting")
+            return
+    except:
+        pass
 
     print("Updating in 5s (to allow for github to finish syncing)")
     await asyncio.sleep(5)
@@ -96,15 +109,20 @@ def do_update():
         )
     else:
         subprocess.Popen(
-            "bash /home/ec2-user/update_webapp.sh",
+            "start.bat",
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
 
 
-async def listen_forever(stop_event: threading.Event):
+async def listen_forever(stop_event: threading.Event, stopping_event: threading.Event):
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
+
+    The stopping_event is a custom event used for jobs which stops
+    running recurring jobs as soon as an update message is received,
+    rather than waiting for this instance to update, which smooths
+    over new recurring jobs being added/removed during an update.
     """
     if os.path.exists("updater.lock"):
         return
@@ -116,7 +134,7 @@ async def listen_forever(stop_event: threading.Event):
     try:
         _, running = await asyncio.wait(
             [
-                asyncio.create_task(_listen_forever()),
+                asyncio.create_task(_listen_forever(stopping_event)),
                 asyncio.create_task(asyncio_stop_event.wait()),
             ],
             return_when=asyncio.FIRST_COMPLETED,
@@ -129,8 +147,8 @@ async def listen_forever(stop_event: threading.Event):
         print("updater shutdown")
 
 
-def listen_forever_sync(stop_event: threading.Event):
+def listen_forever_sync(stop_event: threading.Event, stopping_event: threading.Event):
     """Subscribes to the redis channel updates:jobs and upon
     recieving a message, calls /home/ec2-user/update_webapp.sh
     """
-    asyncio.run(listen_forever(stop_event))
+    asyncio.run(listen_forever(stop_event, stopping_event))

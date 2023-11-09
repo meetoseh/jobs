@@ -3,8 +3,8 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.email.email_info import decode_data_for_failure_job
-from lib.email.handler import retry_or_abandon_standard
+from lib.emails.email_info import decode_data_for_failure_job
+from lib.emails.handler import retry_or_abandon_standard
 from runners.emails.abandoned_email_callback import suppress_email
 import socket
 

@@ -4,7 +4,10 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 from lib.sms.sms_info import decode_data_for_failure_job
-from lib.sms.handler import retry_or_abandon_standard
+from lib.sms.handler import (
+    maybe_suppress_phone_due_to_failure,
+    retry_or_abandon_standard,
+)
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -26,3 +29,4 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, data_raw: str):
     logging.info(
         f"Test sms {attempt.uid} failed during {failure_info.action}: {failure_info}"
     )
+    await maybe_suppress_phone_due_to_failure(itgs, attempt, failure_info)

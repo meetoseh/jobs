@@ -4,6 +4,8 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
+from lib.shared.clean_for_slack import clean_for_non_code_slack
+from lib.shared.describe_user import describe_user
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -24,43 +26,46 @@ async def execute(
     conn = await itgs.conn()
     cursor = conn.cursor("none")
 
-    response = await cursor.execute(
-        """
-        SELECT
-            users.given_name,
-            users.family_name, 
-            journeys.title
-        FROM users, journeys
-        WHERE
-            users.sub = ?
-            AND journeys.uid = ?
-        """,
-        (user_sub, journey_uid),
-    )
-    if not response.results:
+    user = await describe_user(itgs, user_sub)
+    if user is None:
         await handle_contextless_error(
-            f"notify_user_changed_likes: no corresponding {user_sub=} and {journey_uid=}"
+            extra_info=f"`notify_user_changed_likes`: no corresponding `{user_sub=}`"
         )
         return
 
-    name: str = (
-        (response.results[0][0] or "") + " " + (response.results[0][1] or "")
-    ).strip()
-    if name == "":
-        name = "Anonymous"
-    title: str = response.results[0][2]
+    response = await cursor.execute(
+        """
+        SELECT
+            journeys.title
+        FROM journeys
+        WHERE
+            journeys.uid = ?
+        """,
+        (journey_uid,),
+    )
+    if not response.results:
+        await handle_contextless_error(
+            extra_info=f"`notify_user_changed_likes`: no corresponding `{journey_uid=}`"
+        )
+        return
 
-    base_url = os.environ["ROOT_FRONTEND_URL"]
-    user_url = f"{base_url}/admin/user?sub={user_sub}"
+    title: str = response.results[0][0]
 
-    message = f"{name} {'favorited' if liked else 'unfavorited'} {title} (<{user_url}|view user>)"
+    message = (
+        f"{{name}} favorited {clean_for_non_code_slack(title)}"
+        if liked
+        else f"{{name}} unfavorited {clean_for_non_code_slack(title)}"
+    )
 
-    logging.info(f"notify_user_changed_likes: {message}")
+    blocks = [await user.make_slack_block(itgs, message)]
+    logging.info(f"notify_user_changed_likes: {blocks}")
     if os.environ["ENVIRONMENT"] != "production":
         return
 
     slack = await itgs.slack()
-    await slack.send_oseh_bot_message(message)
+    await slack.send_oseh_bot_blocks(
+        blocks, preview=message.format(name=user.name_equivalent)
+    )
 
 
 if __name__ == "__main__":

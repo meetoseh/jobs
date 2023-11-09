@@ -3,7 +3,7 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.email.email_info import decode_data_for_success_job
+from lib.emails.email_info import decode_data_for_success_job
 from lib.touch.pending import on_touch_destination_success
 from lib.touch.touch_info import (
     TouchLogUserTouchDebugLogInsert,

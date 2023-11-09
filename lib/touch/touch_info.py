@@ -1,7 +1,7 @@
 import json
 from pydantic import BaseModel, Field, validator
 from typing import Any, Dict, List, Literal, Optional, Union
-from lib.email.email_info import EmailFailureInfo
+from lib.emails.email_info import EmailFailureInfo
 from lib.push.message_attempt_info import MessageAttemptFailureInfo
 from lib.shared.job_callback import JobCallback
 from lib.shared.redis_hash import RedisHash

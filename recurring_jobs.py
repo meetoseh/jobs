@@ -800,11 +800,6 @@ JOBS: List[Job] = (
         interval=JobInterval(pst, seconds=(5, 20, 35, 50)),
     ),
     Job(
-        name="runners.stats.user_notification_settings_stats",
-        kwargs=tuple(),
-        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
-    ),
-    Job(
         name="runners.stats.daily_daily_reminder_registration_stats",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
@@ -833,6 +828,21 @@ JOBS: List[Job] = (
         name="runners.siwo.send_delayed_email_verifications",
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(55,)),
+    ),
+    Job(
+        name="runners.stats.daily_contact_method_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.daily_reminders.recheck_counts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.sms.disable_phones_in_dev",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(5,), seconds=(0,)),
     ),
 )
 """The jobs that should be run."""
@@ -1137,27 +1147,35 @@ async def _run_forever():
             await asyncio.sleep(10)
 
 
-async def run_forever(stop_event: threading.Event):
+async def run_forever(stop_event: threading.Event, stopping_event: threading.Event):
     asyncio_event = adapt_threading_event_to_asyncio(stop_event)
+    asyncio_stopping_event = adapt_threading_event_to_asyncio(stopping_event)
 
     try:
         _, pending = await asyncio.wait(
             [
                 asyncio.create_task(_run_forever()),
+                asyncio.create_task(asyncio_stopping_event.wait()),
                 asyncio.create_task(asyncio_event.wait()),
             ],
             return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
             t.cancel()
+
+        if asyncio_stopping_event.is_set():
+            print("Recurring jobs stopped on stopping event, waiting for real stop")
+            await asyncio.wait_for(asyncio_event.wait(), timeout=300)
     except Exception as e:
         await handle_error(e)
     finally:
         stop_event.set()
+        print("Recurring jobs stopped")
 
 
-def run_forever_sync(stop_event: threading.Event):
+def run_forever_sync(stop_event: threading.Event, stopping_event: threading.Event):
     """Handles recurring jobs, queuing them to the hot queue as it's time for
-    them to run.
+    them to run. Recurring jobs stop immediately upon an update being requested
+    rather than waiting our turn, in case the recurring jobs change
     """
-    asyncio.run(run_forever(stop_event))
+    asyncio.run(run_forever(stop_event, stopping_event))

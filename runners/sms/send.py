@@ -197,7 +197,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 if STATUS_CALLBACK is not None:
                     request_data["StatusCallback"] = STATUS_CALLBACK
 
-                if next_to_send.phone_number == "+15555555555":
+                if next_to_send.phone_number in (
+                    "+15555555555",
+                    "+14254290383",  # TODO
+                ):
                     logging.info(
                         "Test number detected, failing send with i'm a teapot server status code.\n"
                         f"{request_data=}"

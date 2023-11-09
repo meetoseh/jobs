@@ -12,9 +12,9 @@ import dataclasses
 import os
 import asyncio
 import botocore.exceptions
-import lib.email.auth
+import lib.emails.auth
 from lib.basic_redis_lock import basic_redis_lock
-from lib.email.email_info import (
+from lib.emails.email_info import (
     EmailAttempt,
     EmailFailureInfo,
     EmailPending,
@@ -204,7 +204,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                 jwt = jwts_by_slug.get(next_to_send.template)
                 if jwt is None:
-                    jwt = await lib.email.auth.create_jwt(
+                    jwt = await lib.emails.auth.create_jwt(
                         itgs, next_to_send.template, duration=MAX_JOB_TIME_SECONDS + 10
                     )
                     jwts_by_slug[next_to_send.template] = jwt
@@ -676,7 +676,7 @@ async def is_in_suppression_list(itgs: Itgs, email: str) -> bool:
     cursor = conn.cursor("none")
 
     response = await cursor.execute(
-        "SELECT 1 FROM suppressed_emails WHERE email_address=?",
+        "SELECT 1 FROM suppressed_emails WHERE email_address=? COLLATE NOCASE",
         (email,),
     )
 

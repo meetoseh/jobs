@@ -2,7 +2,7 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.email.email_info import decode_data_for_success_job
+from lib.emails.email_info import decode_data_for_success_job
 
 category = JobCategory.LOW_RESOURCE_COST
 

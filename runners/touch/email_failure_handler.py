@@ -4,13 +4,15 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.email.email_info import (
+from lib.emails.email_info import (
     EmailAttempt,
     EmailFailureInfo,
     EmailPending,
     decode_data_for_failure_job,
 )
-from lib.email.handler import retry_or_abandon_standard
+from lib.emails.handler import retry_or_abandon_standard
+from lib.shared.clean_for_slack import clean_for_non_code_slack, clean_for_slack
+from lib.shared.describe_user import enqueue_send_described_user_slack_message
 from lib.touch.pending import on_touch_destination_abandoned_or_permanently_failed
 from lib.touch.touch_info import (
     TouchLogUserTouchDebugLogInsert,
@@ -20,7 +22,6 @@ from lib.touch.touch_info import (
     UserTouchDebugLogEventSendUnretryable,
 )
 from runners.emails.abandoned_email_callback import suppress_email
-import socket
 
 from runners.touch.send import create_user_touch_debug_log_uid
 
@@ -168,8 +169,13 @@ async def _handle_if_email_is_bad(
         failure_extra=failure_info.extra,
         now=now,
     )
-    slack = await itgs.slack()
-    await slack.send_oseh_bot_message(
-        f"{socket.gethostname()} Suppressed {attempt.email} due to {failure_info.error_identifier} ({failure_info.extra})",
-        preview=f"Suppressed {attempt.email}",
+    await enqueue_send_described_user_slack_message(
+        itgs,
+        message=(
+            f"{{name}}'s email address {clean_for_non_code_slack(repr(attempt.email))} is unreachable; suppressed"
+            f"\n\n```\nattempt={clean_for_slack(repr(attempt))}\n```"
+            f"\n\n```\nfailure_info={clean_for_slack(repr(failure_info))}\n```"
+        ),
+        sub=user_sub,
+        channel="oseh_bot",
     )

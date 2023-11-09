@@ -31,10 +31,20 @@ class DailyReminderRegistrationStatsPreparer(RedisStatsPreparer):
         )
         return self
 
+    def incr_counts(self, channel: Channel, *, amt: int = 1):
+        """Updates the current number of users subscribed to the given channel. This
+        is called automatically by incr_subscribed/incr_unsubscribed and thus does not
+        usually need to be called directly.
+        """
+        counts = super().get_for_key(b"daily_reminders:counts")
+        channel_bytes = channel.encode("utf-8")
+        counts[channel_bytes] = counts.get(channel_bytes, 0) + amt
+
     def incr_subscribed(
         self, unix_date: int, channel: Channel, reason: str, *, amt: int = 1
     ) -> "DailyReminderRegistrationStatsPreparer":
         """Increments the number of users subscribed to the given channel"""
+        self.incr_counts(channel, amt=amt)
         return self.incr_daily_reminder_registrations(
             unix_date,
             "subscribed",
@@ -46,6 +56,7 @@ class DailyReminderRegistrationStatsPreparer(RedisStatsPreparer):
         self, unix_date: int, channel: Channel, reason: str, *, amt: int = 1
     ) -> "DailyReminderRegistrationStatsPreparer":
         """Increments the number of users subscribed to the given channel"""
+        self.incr_counts(channel, amt=-amt)
         return self.incr_daily_reminder_registrations(
             unix_date,
             "unsubscribed",

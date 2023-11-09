@@ -17,18 +17,21 @@ import os
 
 async def _main(gd: GracefulDeath):
     stop_event: threading.Event = threading.Event()
+    stopping_event: threading.Event = threading.Event()
     threads: List[threading.Thread] = []
 
     print(f"{os.getpid()=}")
     threads.append(
         threading.Thread(
-            target=updater.listen_forever_sync, args=[stop_event], daemon=True
+            target=updater.listen_forever_sync,
+            args=[stop_event, stopping_event],
+            daemon=True,
         )
     )
     threads.append(
         threading.Thread(
             target=recurring_jobs.run_forever_sync,
-            args=[stop_event],
+            args=[stop_event, stopping_event],
             daemon=True,
         )
     )

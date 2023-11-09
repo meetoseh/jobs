@@ -25,8 +25,8 @@ import logging
 from jobs import JobCategory
 import dataclasses
 from lib.basic_redis_lock import basic_redis_lock
-from lib.email.email_info import EmailAttempt
-from lib.email.send import EmailMessageContents, create_email_uid
+from lib.emails.send import EmailMessageContents, create_email_uid
+from lib.emails.email_info import EmailAttempt
 from lib.push.message_attempt_info import MessageAttemptToSend, MessageContents
 from lib.push.send import create_message_attempt_uid
 from lib.redis_stats_preparer import RedisStatsPreparer
@@ -736,7 +736,8 @@ async def augment_push_batch_with_tokens(
         " user_push_tokens.token "
         "FROM user_subs "
         "JOIN users ON users.sub = user_subs.sub "
-        "JOIN user_push_tokens ON user_push_tokens.user_id = users.id"
+        "JOIN user_push_tokens ON user_push_tokens.user_id = users.id "
+        "WHERE user_push_tokens.receives_notifications"
     )
 
     response = await cursor.execute(query_sql.getvalue(), query_params)
@@ -776,10 +777,14 @@ async def augment_sms_batch_with_phone_numbers(
         ") "
         "SELECT"
         " user_subs.sub,"
-        " users.phone_number "
-        "FROM user_subs "
-        "JOIN users ON users.sub = user_subs.sub "
-        "WHERE users.phone_number IS NOT NULL AND users.phone_number_verified = 1"
+        " user_phone_numbers.phone_number "
+        "FROM user_subs, users, user_phone_numbers "
+        "WHERE"
+        " user_subs.sub = users.sub"
+        " AND users.id = user_phone_numbers.user_id"
+        " AND user_phone_numbers.verified"
+        " AND user_phone_numbers.receives_notifications"
+        " AND NOT EXISTS (SELECT 1 FROM suppressed_phone_numbers WHERE suppressed_phone_numbers.phone_number = user_phone_numbers.phone_number)"
     )
 
     response = await cursor.execute(query_sql.getvalue(), query_params)
@@ -819,11 +824,14 @@ async def augment_email_batch_with_email_addresses(
         ") "
         "SELECT"
         " user_subs.sub,"
-        " users.email "
-        "FROM user_subs "
-        "JOIN users ON users.sub = user_subs.sub "
-        "WHERE users.email_verified = 1"
-        " AND NOT EXISTS (SELECT 1 FROM suppressed_emails WHERE suppressed_emails.email_address = users.email)"
+        " user_email_addresses.email "
+        "FROM user_subs, users, user_email_addresses "
+        "WHERE"
+        " user_subs.sub = users.sub"
+        " AND users.id = user_email_addresses.user_id"
+        " AND user_email_addresses.verified"
+        " AND user_email_addresses.receives_notifications"
+        " AND NOT EXISTS (SELECT 1 FROM suppressed_emails WHERE suppressed_emails.email_address = user_email_addresses.email COLLATE NOCASE)"
     )
 
     response = await cursor.execute(query_sql.getvalue(), query_params)

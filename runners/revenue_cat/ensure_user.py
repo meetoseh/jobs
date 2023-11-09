@@ -1,7 +1,8 @@
 """Ensures a users revenue cat customer actually exists"""
 import json
-from typing import Dict
+from typing import Dict, Optional
 from error_middleware import handle_warning
+from pypika import Table, Query, Parameter
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -10,6 +11,8 @@ from jobs import JobCategory
 import time
 import datetime
 import socket
+from lib.contact_methods.user_primary_email import primary_email_join_clause
+from lib.shared.describe_user import enqueue_send_described_user_slack_message
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -30,16 +33,20 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
     conn = await itgs.conn()
     cursor = conn.cursor("weak")
 
+    users = Table("users")
+    user_email_addresses = Table("user_email_addresses")
     response = await cursor.execute(
-        """
-        SELECT
-            users.email,
+        Query.from_(users)
+        .select(
+            user_email_addresses.email,
             users.given_name,
             users.family_name,
-            users.revenue_cat_id
-        FROM users
-        WHERE users.sub = ?
-        """,
+            users.revenue_cat_id,
+        )
+        .left_outer_join(user_email_addresses)
+        .on(primary_email_join_clause())
+        .where(users.sub == Parameter("?"))
+        .get_sql(),
         (user_sub,),
     )
 
@@ -49,7 +56,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         )
         return
 
-    email: str = response.results[0][0]
+    email: Optional[str] = response.results[0][0]
     given_name: str = response.results[0][1]
     family_name: str = response.results[0][2]
     revenue_cat_id: str = response.results[0][3]
@@ -58,9 +65,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
 
     expected_attributes = {
         "$displayName": name,
-        "$email": email,
         "environment": os.environ["ENVIRONMENT"],
     }
+    if email is not None:
+        expected_attributes["$email"]: email
 
     rcat = await itgs.revenue_cat()
 
@@ -107,15 +115,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
             f"Granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})"
         )
 
-        slack = await itgs.slack()
-        await slack.send_oseh_bot_message(
-            f"{socket.gethostname()} granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})",
-            preview=f"Oseh+ given to {name}",
+        await enqueue_send_described_user_slack_message(
+            itgs,
+            message=f"{{name}} was granted 1 month of Oseh+",
+            sub=user_sub,
+            channel="oseh_bot",
         )
 
 
 if __name__ == "__main__":
-
     import asyncio
 
     async def main():

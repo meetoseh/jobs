@@ -3,16 +3,16 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.daily_reminders.registration_stats import (
-    DailyReminderRegistrationStatsPreparer,
-)
 from lib.push.message_attempt_info import (
     MessageAttemptFailureInfo,
     MessageAttemptToCheck,
     MessageAttemptToSend,
     decode_data_for_failure_job,
 )
-from lib.push.handler import retry_or_abandon_standard
+from lib.push.handler import (
+    maybe_delete_push_token_due_to_failure,
+    retry_or_abandon_standard,
+)
 from lib.touch.pending import on_touch_destination_abandoned_or_permanently_failed
 from lib.touch.touch_info import (
     TouchLogUserTouchDebugLogInsert,
@@ -21,11 +21,8 @@ from lib.touch.touch_info import (
     UserTouchDebugLogEventSendRetry,
     UserTouchDebugLogEventSendUnretryable,
 )
-import lib.push.token_stats
 from runners.touch.send import create_user_touch_debug_log_uid
 import time
-import unix_dates
-import pytz
 
 
 category = JobCategory.LOW_RESOURCE_COST
@@ -154,70 +151,13 @@ async def _handle_if_token_is_bad(
     failure_info: MessageAttemptFailureInfo,
     now: float,
 ) -> None:
-    if failure_info.identifier != "DeviceNotRegistered":
-        return
-
-    # This path is unlikely enough and important enough that it
-    # seems prudent to directly communicate with the database
-    logging.warning(
-        f"Detected push token is invalid for {user_sub=}; {attempt.push_token=}"
+    warranted_delete = await maybe_delete_push_token_due_to_failure(
+        itgs, attempt=attempt, failure_info=failure_info, file=__name__
     )
 
-    conn = await itgs.conn()
-    cursor = conn.cursor("none")
-
-    response = await cursor.executemany3(
-        (
-            (
-                """
-                DELETE FROM user_daily_reminders
-                WHERE
-                    EXISTS (
-                        SELECT 1 FROM user_push_tokens AS upt
-                        WHERE upt.token = ?
-                        AND upt.user_id = user_daily_reminders.user_id
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1 FROM user_push_tokens AS upt
-                        WHERE upt.token != ?
-                        AND upt.user_id = user_daily_reminders.user_id
-                    )
-                """,
-                (attempt.push_token, attempt.push_token),
-            ),
-            (
-                "DELETE FROM user_push_tokens WHERE token=?",
-                (attempt.push_token,),
-            ),
-        )
-    )
-
-    if response[0].rows_affected is not None and response[0].rows_affected > 0:
-        logging.debug(
-            f"Deleted {response[0].rows_affected} daily reminders for users with this token"
-        )
-        await (
-            DailyReminderRegistrationStatsPreparer()
-            .incr_unsubscribed(
-                unix_dates.unix_timestamp_to_unix_date(
-                    now, tz=pytz.timezone("America/Los_Angeles")
-                ),
-                "push",
-                "unreachable",
-                amt=response[0].rows_affected,
-            )
-            .store(itgs)
-        )
-
-    if response[1].rows_affected is None or response[1].rows_affected < 1:
-        logging.debug("The push token had already been deleted")
+    if not warranted_delete:
         return
 
-    if failure_info.action == "send":
-        await lib.push.token_stats.increment_event(
-            itgs, event="deleted_due_to_unrecognized_ticket", now=now
-        )
-    else:
-        await lib.push.token_stats.increment_event(
-            itgs, event="deleted_due_to_unrecognized_receipt", now=now
-        )
+    logging.info(
+        f"Deleting push token {attempt.push_token} for user {user_sub} due to failure"
+    )

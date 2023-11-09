@@ -3,10 +3,10 @@ import logging
 from typing import Optional, Union, cast
 
 from itgs import Itgs
-from lib.email.email_info import EmailAttempt, EmailFailureInfo, EmailPending
+from lib.emails.email_info import EmailAttempt, EmailFailureInfo, EmailPending
 import time
 
-from lib.email.send import abandon_send, retry_send
+from lib.emails.send import abandon_send, retry_send
 
 
 @dataclasses.dataclass

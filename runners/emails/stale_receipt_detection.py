@@ -5,7 +5,7 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 import pytz
-from lib.email.email_info import (
+from lib.emails.email_info import (
     EmailFailureInfo,
     EmailPending,
     encode_data_for_failure_job,

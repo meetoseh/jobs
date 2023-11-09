@@ -1,12 +1,9 @@
-from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.image_files.get_biggest_export import get_biggest_export_url
 from lib.durations import format_duration
-import unix_dates
-import pytz
+from lib.shared.describe_user import create_slack_image_url_from_source, describe_user
 import os
 
 category = JobCategory.LOW_RESOURCE_COST
@@ -34,105 +31,7 @@ async def execute(
     conn = await itgs.conn()
     cursor = conn.cursor("none")
 
-    response = await cursor.execute(
-        """
-        SELECT
-            users.email,
-            users.phone_number,
-            users.given_name,
-            users.family_name,
-            users.created_at,
-            profile_image_files.uid,
-            attributed_utms.canonical_query_param,
-            attributed_journeys.title,
-            attributed_journey_links.code
-        FROM users
-        LEFT OUTER JOIN image_files AS profile_image_files ON 
-            EXISTS (
-                SELECT 1 FROM user_profile_pictures
-                WHERE user_profile_pictures.image_file_id = profile_image_files.id
-                  AND user_profile_pictures.user_id = users.id
-                  AND user_profile_pictures.latest = 1
-            )
-        LEFT OUTER JOIN utms AS attributed_utms ON (
-            EXISTS (
-                SELECT 1 FROM visitor_utms AS last_visitor_utms
-                WHERE
-                    last_visitor_utms.utm_id = attributed_utms.id
-                    AND last_visitor_utms.clicked_at <= users.created_at
-                    AND EXISTS (
-                        SELECT 1 FROM visitor_users
-                        WHERE 
-                            visitor_users.visitor_id = last_visitor_utms.visitor_id
-                            AND visitor_users.user_id = users.id
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1 FROM visitor_utms AS other_visitor_utms
-                        WHERE
-                            other_visitor_utms.clicked_at <= users.created_at
-                            AND EXISTS (
-                                SELECT 1 FROM visitor_users
-                                WHERE visitor_users.visitor_id = other_visitor_utms.visitor_id
-                                AND visitor_users.user_id = users.id
-                            )
-                            AND (
-                                other_visitor_utms.clicked_at > last_visitor_utms.clicked_at
-                                OR (
-                                    other_visitor_utms.clicked_at = last_visitor_utms.clicked_at
-                                    AND other_visitor_utms.uid > last_visitor_utms.uid
-                                )
-                            )
-                    )
-            )
-        )
-        LEFT OUTER JOIN journey_public_links AS attributed_journey_links ON (
-            EXISTS (
-                SELECT 1 FROM journey_public_link_views, visitor_users
-                WHERE
-                    journey_public_link_views.journey_public_link_id = attributed_journey_links.id
-                    AND journey_public_link_views.visitor_id = visitor_users.visitor_id
-                    AND visitor_users.user_id = users.id
-                    AND journey_public_link_views.created_at <= users.created_at
-                    AND NOT EXISTS (
-                        SELECT 1 FROM 
-                            journey_public_links AS other_journey_public_links,
-                            journey_public_link_views AS other_journey_public_link_views, 
-                            visitor_users AS other_visitor_users
-                        WHERE
-                            other_journey_public_links.id != attributed_journey_links.id
-                            AND other_journey_public_link_views.journey_public_link_id = other_journey_public_links.id
-                            AND other_journey_public_link_views.visitor_id = other_visitor_users.visitor_id
-                            AND other_visitor_users.user_id = users.id
-                            AND other_journey_public_link_views.created_at <= users.created_at
-                            AND (
-                                other_journey_public_link_views.created_at > journey_public_link_views.created_at
-                                OR (
-                                    other_journey_public_link_views.created_at = journey_public_link_views.created_at
-                                    AND other_journey_public_links.uid > attributed_journey_links.uid
-                                )
-                            )
-                    )
-            )
-        )
-        LEFT OUTER JOIN journeys AS attributed_journeys ON attributed_journeys.id = attributed_journey_links.journey_id
-        WHERE users.sub = ?
-        """,
-        (user_sub,),
-    )
-
-    if not response.results:
-        logging.warning(f"No user found with sub {user_sub}")
-        return
-
-    email: str = response.results[0][0]
-    phone_number: Optional[str] = response.results[0][1]
-    given_name: Optional[str] = response.results[0][2]
-    family_name: Optional[str] = response.results[0][3]
-    created_at: float = response.results[0][4]
-    profile_image_file_uid: Optional[str] = response.results[0][5]
-    attributed_source: Optional[str] = response.results[0][6]
-    attributed_journey_title: Optional[str] = response.results[0][7]
-    attributed_journey_link_code: Optional[str] = response.results[0][8]
+    user = await describe_user(itgs, user_sub)
 
     response = await cursor.execute(
         """
@@ -159,81 +58,39 @@ async def execute(
     background_image_file_uid: str = response.results[0][2]
     journey_duration_seconds: int = response.results[0][3]
 
-    one_week = 60 * 60 * 24 * 7
-    profile_image_url = (
-        await get_biggest_export_url(
-            itgs,
-            uid=profile_image_file_uid,
-            duration=one_week,
-            max_width=400,
-            max_height=400,
-        )
-        if profile_image_file_uid
-        else None
-    )
-    background_image_url = await get_biggest_export_url(
-        itgs,
-        uid=background_image_file_uid,
-        duration=one_week,
-        max_width=500,
-        max_height=500,
-    )
-
-    name = (
-        f"{given_name} {family_name}"
-        if given_name and family_name
-        else (given_name or family_name or "Anonymous")
-    )
-    pretty_joined = unix_dates.unix_timestamp_to_datetime(
-        created_at, tz=pytz.timezone("America/Los_Angeles")
-    ).strftime("%B %d, %Y")
-    user_details = "\n •  " + "\n •  ".join(
-        [
-            *([f"phone: `{phone_number}`"] if phone_number else []),
-            f"email: `{email}`",
-            f"joined: {pretty_joined}",
-            *([f"source: `{attributed_source}`"] if attributed_source else []),
-            *(
-                [
-                    f"source journey: `{attributed_journey_title}` (via code {attributed_journey_link_code})"
-                ]
-                if attributed_journey_title
-                else []
-            ),
-            f"sub: `{user_sub}`",
-        ]
+    background_image_url = await create_slack_image_url_from_source(
+        itgs, background_image_file_uid
     )
 
     blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{name} is {action}!*{user_details}",
-            },
-            **(
-                {
-                    "accessory": {
-                        "type": "image",
-                        "image_url": profile_image_url,
-                        "alt_text": "profile image",
-                    }
-                }
-                if profile_image_url
-                else {}
-            ),
-        },
+        (
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"USER NOT FOUND is {action}",
+                },
+            }
+            if user is None
+            else await user.make_slack_block(itgs, f"{{name}} is {action}")
+        ),
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": f"*{journey_title}* ({format_duration(journey_duration_seconds)})\nby {instructor_name}",
             },
-            "accessory": {
-                "type": "image",
-                "image_url": background_image_url,
-                "alt_text": "background image",
-            },
+            **(
+                {
+                    "accessory": {
+                        "type": "image",
+                        "image_url": background_image_url,
+                        "alt_text": "background image",
+                    }
+                }
+                if background_image_url is not None
+                else {}
+            ),
         },
     ]
 
@@ -243,4 +100,7 @@ async def execute(
         return
 
     slack = await itgs.slack()
-    await slack.send_oseh_classes_blocks(blocks, preview=f"{name} is {action}!")
+    await slack.send_oseh_classes_blocks(
+        blocks,
+        preview=f"{user.name_equivalent if user is not None else 'USER NOT FOUND'} is {action}!",
+    )

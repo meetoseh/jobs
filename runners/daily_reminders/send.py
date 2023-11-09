@@ -176,9 +176,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             )
 
             if lost:
-                await handle_warning(
-                    f"{__name__}:lost", f"Daily Reminders send job have {len(lost)=}"
-                )
                 redis_stats = DailyReminderStatsPreparer()
                 for itm in lost:
                     redis_stats.incr_sends_attempted(itm.item.unix_date)

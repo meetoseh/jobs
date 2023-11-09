@@ -5,13 +5,18 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
+from lib.shared.clean_for_slack import clean_for_non_code_slack, clean_for_slack
+from lib.shared.describe_user import enqueue_send_described_user_slack_message
 from lib.sms.sms_info import (
     PendingSMS,
     SMSFailureInfo,
     SMSToSend,
     decode_data_for_failure_job,
 )
-from lib.sms.handler import retry_or_abandon_standard
+from lib.sms.handler import (
+    retry_or_abandon_standard,
+    maybe_suppress_phone_due_to_failure,
+)
 from lib.touch.pending import on_touch_destination_abandoned_or_permanently_failed
 from lib.touch.touch_info import (
     TouchLogUserTouchDebugLogInsert,
@@ -140,27 +145,6 @@ async def execute(
     )
 
 
-INVALID_DESTINATION_ERRORS = frozenset(
-    (
-        "21408",
-        "21606",
-        "21610",
-        "21614",
-        "30004",
-        "30005",
-        "30006",
-        "30007",
-        "30010",
-        "30011",
-        "63032",
-        "63033",
-    )
-)
-"""Errors that imply something is wrong with the recipient rather than
-us or twilio
-"""
-
-
 async def _handle_if_phone_is_bad(
     itgs: Itgs,
     gd: GracefulDeath,
@@ -171,34 +155,19 @@ async def _handle_if_phone_is_bad(
     failure_info: SMSFailureInfo,
     now: float,
 ) -> None:
-    if failure_info.identifier != "ApplicationErrorOther":
-        return
-
-    if failure_info.subidentifier not in INVALID_DESTINATION_ERRORS:
-        return
-
-    conn = await itgs.conn()
-    cursor = conn.cursor()
-
-    response = await cursor.execute(
-        "UPDATE users SET phone_number_verified = 0 WHERE phone_number = ? AND phone_number_verified != 0",
-        (attempt.phone_number,),
+    warranted_suppression = await maybe_suppress_phone_due_to_failure(
+        itgs, attempt, failure_info
     )
-
-    if response.rows_affected is None or response.rows_affected < 1:
-        logging.debug(
-            "User has already been deleted or their phone number has already changed/unverified"
-        )
+    if not warranted_suppression:
         return
 
-    logging.warning(
-        f"Detected {attempt.phone_number=} is invalid for {user_sub=}; "
-        "marked unverified"
-    )
-
-    slack = await itgs.slack()
-    await slack.send_oseh_bot_message(
-        f"Detected {attempt.phone_number=} is invalid for {user_sub=}; "
-        f"marked unverified.\n- {failure_info.subidentifier=}\n- {response.rows_affected=}",
-        preview="Phone number found invalid",
+    await enqueue_send_described_user_slack_message(
+        itgs,
+        message=(
+            f"{{name}}'s phone number {clean_for_non_code_slack(repr(attempt.phone_number))} is unreachable; suppressed"
+            f"\n\n```\nattempt={clean_for_slack(repr(attempt))}\n```"
+            f"\n\n```\nfailure_info={clean_for_slack(repr(failure_info))}\n```"
+        ),
+        sub=user_sub,
+        channel="oseh_bot",
     )
