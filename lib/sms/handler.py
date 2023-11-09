@@ -144,7 +144,7 @@ async def suppress_phone_with_reason(
                 " AND EXISTS ("
                 "  SELECT 1 FROM user_phone_numbers"
                 "  WHERE"
-                "   AND user_daily_reminders.user_id = user_phone_numbers.user_id"
+                "   user_daily_reminders.user_id = user_phone_numbers.user_id"
                 "   AND user_phone_numbers.phone_number = ?"
                 "   AND NOT EXISTS ("
                 "    SELECT 1 FROM user_phone_numbers AS upn"
