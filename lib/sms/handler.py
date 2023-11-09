@@ -1,4 +1,5 @@
 import json
+import secrets
 from error_middleware import handle_warning
 from lib.daily_reminders.registration_stats import (
     DailyReminderRegistrationStatsPreparer,
@@ -114,7 +115,7 @@ async def suppress_phone_with_reason(
     conn = await itgs.conn()
     cursor = conn.cursor()
 
-    new_spn_uid = f"oseh_spn"
+    new_spn_uid = f"oseh_spn_{secrets.token_urlsafe(16)}"
     response = await cursor.executemany3(
         (
             (
