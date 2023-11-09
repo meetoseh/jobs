@@ -157,6 +157,7 @@ async def suppress_phone_with_reason(
                 "      SELECT 1 FROM suppressed_phone_numbers AS spn"
                 "      WHERE spn.phone_number = upn.phone_number"
                 "     )"
+                "   )"
                 " )",
                 (phone_number,),
             ),
