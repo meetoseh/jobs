@@ -23,6 +23,7 @@ from lib.emails.events import (
     EmailComplaintNotification,
     EmailEvent,
 )
+import asyncio
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -532,7 +533,6 @@ class RunStats:
 
 
 if __name__ == "__main__":
-    import asyncio
 
     async def main():
         async with Itgs() as itgs:
