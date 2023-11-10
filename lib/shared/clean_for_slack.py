@@ -5,7 +5,12 @@ def clean_for_slack(s: str) -> str:
     """Cleans the given string so it can be included in a code block in a
     Slack message without breaking markdown
     """
-    s = s.replace("`", "BACKTICK").replace("\\", "BACKSLASH")
+    s = (
+        s.replace("`", "BACKTICK")
+        .replace("\\", "BACKSLASH")
+        .replace("{", "{{")
+        .replace("}", "}}")
+    )
     if any(c not in string.printable for c in s):
         s = "".join(c if c in string.printable else f"\\x{ord(c):02x}" for c in s)
     return s
