@@ -180,7 +180,7 @@ async def suppress_email(
         stats = DailyReminderRegistrationStatsPreparer()
         stats.incr_unsubscribed(
             unix_dates.unix_timestamp_to_unix_date(
-                now, pytz.timezone("America/Los_Angeles")
+                now, tz=pytz.timezone("America/Los_Angeles")
             ),
             "email",
             "unreachable",
