@@ -8,7 +8,7 @@ SEE ALSO: `user_primary_phone` for the phone number equivalent.
 from typing import Optional
 from pypika import Query, Table, Criterion, Not
 from pypika.terms import ExistsCriterion
-from db.utils import CaseInsensitiveCriterion, ShieldFields
+from lib.db.utils import CaseInsensitiveCriterion, ShieldFields
 
 
 def primary_email_join_clause(
