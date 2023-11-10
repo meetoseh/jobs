@@ -151,6 +151,7 @@ async def suppress_email(
                 "      SELECT 1 FROM suppressed_emails"
                 "      WHERE suppressed_emails.email_address = uea.email COLLATE NOCASE"
                 "     )"
+                "   )"
                 " )",
                 (email,),
             ),
