@@ -216,3 +216,24 @@ class TermWithParameters:
 
     parameters: List[Any]
     """The parameters that are used with the term"""
+
+
+class ShieldFields(Criterion):
+    """Equivalent to the underlying criterion, except shields the _fields parameter
+    so it won't e.g. be considered by the join validator.
+    """
+
+    def __init__(self, container, alias=None):
+        super().__init__(alias)
+        self.container = container
+        self._is_negated = False
+
+    def get_sql(self, **kwargs):
+        return self.container.get_sql(**kwargs)
+
+    def negate(self):
+        self.container = self.container.negate()
+        return self
+
+    def _fields(self):
+        return []
