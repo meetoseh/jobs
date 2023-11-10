@@ -3,6 +3,7 @@ data about the user specified.
 """
 import json
 from typing import Literal
+from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -52,8 +53,16 @@ async def execute(
             }
         ]
     else:
-        preview = message.format(name=user.name_equivalent)
-        blocks = [await user.make_slack_block(itgs, message)]
+        try:
+            preview = message.format(name=user.name_equivalent)
+            blocks = [await user.make_slack_block(itgs, message)]
+        except KeyError as e:
+            await handle_warning(
+                f"{__name__}:malformed_message",
+                f"Failed to format slack message preview for {message} for user {user.sub}",
+                exc=e,
+            )
+            return
 
     preview = clean_for_preview(preview.splitlines()[0])
     if len(preview) > 64:
