@@ -23,6 +23,7 @@ from redis_helpers.lmove_using_purgatory import lmove_using_purgatory_safe
 from redis_helpers.remove_pending_sms import remove_pending_sms_safe
 from redis_helpers.run_with_prep import run_with_prep as run_redis_commands_with_prep
 import dataclasses
+import asyncio
 
 from redis_helpers.update_pending_sms import update_pending_sms_safe
 
@@ -448,7 +449,6 @@ async def increment_events(
 
 
 if __name__ == "__main__":
-    import asyncio
 
     async def main():
         async with Itgs() as itgs:
