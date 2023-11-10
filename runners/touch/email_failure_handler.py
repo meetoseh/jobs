@@ -172,7 +172,7 @@ async def _handle_if_email_is_bad(
     await enqueue_send_described_user_slack_message(
         itgs,
         message=(
-            f"{{name}}'s email address {clean_for_non_code_slack(repr(attempt.email))} is unreachable; suppressed"
+            f"{{name}}'s email address {clean_for_non_code_slack(attempt.email)} is unreachable; suppressed"
             f"\n\n```\nattempt={clean_for_slack(repr(attempt))}\n```"
             f"\n\n```\nfailure_info={clean_for_slack(repr(failure_info))}\n```"
         ),
