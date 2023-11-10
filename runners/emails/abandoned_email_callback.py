@@ -138,7 +138,7 @@ async def suppress_email(
                 " AND EXISTS ("
                 "  SELECT 1 FROM user_email_addresses"
                 "  WHERE"
-                "   AND user_email_addresses.user_id = user_daily_reminders.user_id"
+                "   user_email_addresses.user_id = user_daily_reminders.user_id"
                 "   AND user_email_addresses.email = ? COLLATE NOCASE"
                 "   AND NOT EXISTS ("
                 "    SELECT 1 FROM user_email_addresses AS uea"
