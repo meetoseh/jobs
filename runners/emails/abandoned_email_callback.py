@@ -13,6 +13,7 @@ import time
 import socket
 import unix_dates
 import pytz
+from email.utils import parseaddr
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -54,12 +55,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, event_obj: dict):
     slack = await itgs.slack()
     slack_suppressed = False
 
-    for i, email in enumerate(emails):
-        logging.info(f"Suppressing email {email} due to {event.notification.type}")
+    for i, raw_email in enumerate(emails):
+        _, real_email_address = parseaddr(raw_email)
+        logging.info(
+            f"Suppressing email {real_email_address} due to {event.notification.type}"
+        )
         await suppress_email(
             itgs,
             type_=event.notification.type,
-            email=email,
+            email=real_email_address,
             failure_extra=failure_extra,
             now=now,
         )
@@ -67,8 +71,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, event_obj: dict):
         if not slack_suppressed and i < 3:
             try:
                 await slack.send_ops_message(
-                    f"{hostname} Suppressed email {email} due to {event.notification.type}",
-                    preview=f"Suppressed {email}",
+                    f"{hostname} Suppressed email {real_email_address} due to {event.notification.type}",
+                    preview=f"Suppressed {real_email_address}",
                 )
             except Exception:
                 logging.exception("failed to send ops message about suppressing email")
