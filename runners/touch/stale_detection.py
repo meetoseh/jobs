@@ -137,7 +137,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     if stale > 0:
         await handle_warning(
             identifier=f"{__name__}:found_stale",
-            message=f"Found {stale} stale touch entries within touch:pending. This "
+            text=f"Found {stale} stale touch entries within touch:pending. This "
             "guarrantees there is a bug in either the touch system itself or one of "
             "its subsystems, as this timeout is redundant.",
         )
