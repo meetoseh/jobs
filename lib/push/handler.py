@@ -197,7 +197,7 @@ async def delete_push_token(
     if deleted_token:
         logging.debug("Deleted push token")
         ContactMethodStatsPreparer(stats).incr_deleted(
-            unix_date, "push", "device_not_registered"
+            unix_date, channel="push", reason="device_not_registered"
         )
 
         await lib.push.token_stats.increment_event(
