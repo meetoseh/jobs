@@ -100,7 +100,7 @@ async def send_touch(
         await prepare_send_touch(redis, force=force)
 
     async def func():
-        return await send_touch_in_pipe(redis, enc_touch)
+        return await send_touch_in_pipe(redis, touch, enc_touch)
 
     result = await run_with_prep(prep, func)
     assert isinstance(result, bool)
@@ -152,7 +152,7 @@ def initialize_touch(
 
 def encode_touch(touch: TouchToSend) -> bytes:
     """Encodes the given touch for sending via `send_touch_in_pipe`"""
-    return touch.json().encode("utf-8")
+    return touch.model_dump_json().encode("utf-8")
 
 
 async def prepare_send_touch(redis: AsyncioRedisClient, *, force: bool) -> None:

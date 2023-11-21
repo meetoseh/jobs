@@ -1,12 +1,11 @@
 import secrets
-from typing import Literal, Optional
+from typing import Literal, Optional, List, Tuple, cast
 from itgs import Itgs
 from lib.transcripts.model import (
     Transcript,
     TranscriptSource,
     load_transcript_from_phrases,
 )
-from lib.db.utils import question_mark_list
 import time
 import json
 
@@ -66,7 +65,9 @@ async def fetch_transcript_for_content_file(
     if not response.results:
         return None
 
-    return load_transcript_from_phrases(response.results)
+    return load_transcript_from_phrases(
+        cast(List[Tuple[float, float, str]], response.results)
+    )
 
 
 async def store_transcript_for_content_file(

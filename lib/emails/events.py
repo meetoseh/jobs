@@ -113,4 +113,4 @@ async def push_email_event(itgs: Itgs, evt: EmailEvent) -> None:
         evt (EmailEvent): the event to push
     """
     redis = await itgs.redis()
-    await redis.rpush(b"email:event", evt.json().encode("utf-8"))
+    await redis.rpush(b"email:event", evt.model_dump_json().encode("utf-8"))  # type: ignore

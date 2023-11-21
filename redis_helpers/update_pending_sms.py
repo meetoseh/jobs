@@ -79,7 +79,7 @@ async def update_pending_sms(
     sid: Union[str, bytes],
     expected_num_changes: int,
     delta: Dict[Union[str, bytes], Union[str, bytes]],
-) -> bool:
+) -> Optional[bool]:
     """Updates the given sid within the pending sms set, but only if it exists in
     the pending set, the item exists and is a hash, and the number of changes on
     the item matches the expected number of changes.
@@ -95,7 +95,7 @@ async def update_pending_sms(
         delta (Dict[Union[str, bytes], Union[str, bytes]]): The changes to apply to the item
 
     Returns:
-        bool: True if the changes were applied, false otherwise
+        bool: True if the changes were applied, false otherwise. None if run within a transaction
 
     Raises:
         NoScriptError: If the script is not loaded into redis
@@ -105,13 +105,13 @@ async def update_pending_sms(
         flattened_delta.append(k)
         flattened_delta.append(v)
 
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         UPDATE_PENDING_SMS_LUA_SCRIPT_HASH,
         1,
-        src,
-        sid,
-        expected_num_changes,
-        *flattened_delta,
+        src,  # type: ignore
+        sid,  # type: ignore
+        expected_num_changes,  # type: ignore
+        *flattened_delta,  # type: ignore
     )
 
     if res is redis:
@@ -151,4 +151,6 @@ async def update_pending_sms_safe(
     async def func():
         return await update_pending_sms(redis, src, sid, expected_num_changes, delta)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

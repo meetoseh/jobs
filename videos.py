@@ -2,7 +2,7 @@ from fractions import Fraction
 import json
 import subprocess
 import time
-from typing import Dict, List, Tuple
+from typing import List, Sequence, Tuple
 from content import (
     ContentFile,
     ContentFileExport,
@@ -48,7 +48,7 @@ class VideoQuality:
     """The video bitrate, in kbps"""
 
 
-INSTAGRAM_VERTICAL: List[VideoQuality] = (
+INSTAGRAM_VERTICAL: Sequence[VideoQuality] = (
     VideoQuality(width=1080, height=1920, audio_bitrate=384, video_bitrate=10486),
 )
 """The bitrates we encode at"""
@@ -61,7 +61,7 @@ async def process_video(
     gd: GracefulDeath,
     max_file_size: int,
     name_hint: str,
-    exports: List[VideoQuality],
+    exports: Sequence[VideoQuality],
 ) -> ContentFile:
     """Performs our standard video processing on the video at the given
     local filepath, then uploads it to S3 and stores it in our database
@@ -116,7 +116,7 @@ async def process_video_into(
     gd: GracefulDeath,
     temp_folder: str,
     name: str,
-    exports: List[VideoQuality],
+    exports: Sequence[VideoQuality],
     ffmpeg: str,
     ffprobe: str,
 ) -> ContentFile:

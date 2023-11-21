@@ -31,8 +31,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     while True:
         response = await redis.zrange(
             "files:purgatory",
-            "-inf",
-            now,
+            "-inf",  # type: ignore
+            now,  # type: ignore
             byscore=True,
             offset=0,
             num=5,

@@ -14,8 +14,8 @@ class PinterestRawImage:
     """The path to the image file"""
 
     @classmethod
-    def from_dict(kls, raw: dict):
-        return kls(**raw)
+    def from_dict(cls, raw: dict):
+        return cls(**raw)
 
 
 async def create_raw_image(
@@ -63,3 +63,5 @@ async def create_raw_image(
                     f"Failed to generate image using prompt {img_prompt_idx + 1}/{len(prompt.prompts)} "
                     f"(attempt {attempt + 1}/{max_attempts_per_prompt})"
                 )
+
+    assert False, "unreachable"

@@ -100,7 +100,7 @@ async def touch_link_try_create(
     page_extra: Union[str, bytes],
     preview_identifier: Union[str, bytes],
     preview_extra: Union[str, bytes],
-    created_at: float,
+    created_at: Union[str, bytes, float],
     already_incremented_stats: bool,
     unix_date: int,
 ) -> Optional[bool]:
@@ -149,22 +149,22 @@ async def touch_link_try_create(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
-        TOUCH_LINK_TRY_CREATE_LUA_SCRIPT_HASH,
+    res = await redis.evalsha(  # type: ignore
+        TOUCH_LINK_TRY_CREATE_LUA_SCRIPT_HASH,  # type: ignore
         3,
-        buffer_key,
-        stats_key,
-        stats_earliest_key,
-        uid,
-        code,
-        touch_uid,
-        page_identifier,
-        page_extra,
-        preview_identifier,
-        preview_extra,
-        created_at,
-        int(already_incremented_stats),
-        unix_date,
+        buffer_key,  # type: ignore
+        stats_key,  # type: ignore
+        stats_earliest_key,  # type: ignore
+        uid,  # type: ignore
+        code,  # type: ignore
+        touch_uid,  # type: ignore
+        page_identifier,  # type: ignore
+        page_extra,  # type: ignore
+        preview_identifier,  # type: ignore
+        preview_extra,  # type: ignore
+        created_at,  # type: ignore
+        int(already_incremented_stats),  # type: ignore
+        unix_date,  # type: ignore
     )
     if res is redis:
         return None

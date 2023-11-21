@@ -94,12 +94,12 @@ async def ext_zpopmin(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         EXT_ZPOPMIN_LUA_SCRIPT_HASH,
         2,
-        sorted_set_key,
-        related_key_prefix,
-        maximum_score,
+        sorted_set_key,  # type: ignore
+        related_key_prefix,  # type: ignore
+        maximum_score,  # type: ignore
     )
     if res is redis:
         return None

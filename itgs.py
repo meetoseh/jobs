@@ -88,7 +88,7 @@ class Itgs:
             if self._conn is not None:
                 return self._conn
 
-            rqlite_ips = os.environ.get("RQLITE_IPS").split(",")
+            rqlite_ips = os.environ["RQLITE_IPS"].split(",")
             if not rqlite_ips:
                 raise ValueError("RQLITE_IPS not set -> cannot connect to rqlite")
 
@@ -113,7 +113,7 @@ class Itgs:
             if self._redis_main is not None:
                 return self._redis_main
 
-            redis_ips = os.environ.get("REDIS_IPS").split(",")
+            redis_ips = os.environ["REDIS_IPS"].split(",")
             if not redis_ips:
                 raise ValueError(
                     "REDIS_IPs is not set and so a redis connection cannot be established"
@@ -147,7 +147,7 @@ class Itgs:
             await s.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
-                await me._slack.__aexit__(None, None, None)
+                await s.__aexit__(None, None, None)
                 me._slack = None
 
             self._closures.append(cleanup)
@@ -177,7 +177,7 @@ class Itgs:
             await j.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
-                await me._jobs.__aexit__(None, None, None)
+                await j.__aexit__(None, None, None)
                 me._jobs = None
 
             self._closures.append(cleanup)
@@ -205,7 +205,7 @@ class Itgs:
             await fs.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
-                await me._file_service.__aexit__(None, None, None)
+                await fs.__aexit__(None, None, None)
                 me._file_service = None
 
             self._closures.append(cleanup)
@@ -234,7 +234,7 @@ class Itgs:
             await rc.__aenter__()
 
             async def cleanup(me: "Itgs") -> None:
-                await me._revenue_cat.__aexit__(None, None, None)
+                await rc.__aexit__(None, None, None)
                 me._revenue_cat = None
 
             self._closures.append(cleanup)

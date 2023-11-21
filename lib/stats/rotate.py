@@ -17,7 +17,7 @@ of the fancy field.
 
 import json
 import time
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Sequence
 from error_middleware import handle_contextless_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -32,8 +32,8 @@ async def rotate(
     gd: GracefulDeath,
     *,
     job_name: str,
-    regular_events: List[str],
-    breakdown_events: List[str],
+    regular_events: Sequence[str],
+    breakdown_events: Sequence[str],
     table_name: str,
     earliest_key: bytes,
     tz: pytz.BaseTzInfo,
@@ -116,9 +116,9 @@ async def rotate(
         )
 
         async with redis.pipeline(transaction=False) as pipe:
-            await pipe.hgetall(key_for_date(unix_date))
+            await pipe.hgetall(key_for_date(unix_date))  # type: ignore
             for event in breakdown_events:
-                await pipe.hgetall(key_for_date_and_event(unix_date, event))
+                await pipe.hgetall(key_for_date_and_event(unix_date, event))  # type: ignore
             result = await pipe.execute()
 
         assert isinstance(result, (list, tuple)), f"{type(result)=}"

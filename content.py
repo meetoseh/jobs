@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 import aiofiles
 import multiprocessing.pool
 from itgs import Itgs
@@ -66,7 +66,9 @@ class ContentFile:
 
 
 async def get_content_file(
-    itgs: Itgs, uid: str, consistency_level: str = "strong"
+    itgs: Itgs,
+    uid: str,
+    consistency_level: Literal["none", "weak", "strong"] = "strong",
 ) -> Optional[ContentFile]:
     """Gets information on the content file with the given uid, if it exists,
     otherwise returns null.
@@ -145,7 +147,7 @@ async def get_content_file(
         """,
         (uid,),
     )
-    for row in response.results:
+    for row in response.results or []:
         content_file.exports.append(
             ContentFileExport(
                 uid=row[0],
@@ -184,7 +186,7 @@ async def get_content_file(
             """,
             (exp.uid,),
         )
-        for row in response.results:
+        for row in response.results or []:
             exp.parts.append(
                 ContentFileExportPart(
                     uid=row[0],

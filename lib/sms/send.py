@@ -80,7 +80,7 @@ async def send_sms(
             failure_job=failure_job,
             success_job=success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -95,7 +95,7 @@ async def send_sms(
             await lib.sms.send_stats.attempt_increment_event(
                 pipe, event="queued", now=now
             )
-            await pipe.rpush(b"sms:to_send", entry)
+            await pipe.rpush(b"sms:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)
@@ -131,7 +131,7 @@ async def retry_send(
             failure_job=sms.failure_job,
             success_job=sms.success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -146,7 +146,7 @@ async def retry_send(
             await lib.sms.send_stats.attempt_increment_event(
                 pipe, event="retried", now=sms.initially_queued_at
             )
-            await pipe.rpush(b"sms:to_send", entry)
+            await pipe.rpush(b"sms:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)

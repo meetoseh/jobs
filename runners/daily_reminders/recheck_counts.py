@@ -42,8 +42,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             break
 
         real_counts = {channel: count for channel, count in response.results}
-        redis_counts_bytes: Dict[bytes, bytes] = await redis.hgetall(
-            b"daily_reminders:counts"
+        redis_counts_bytes: Dict[bytes, bytes] = await redis.hgetall(  # type: ignore
+            b"daily_reminders:counts"  # type: ignore
         )
         redis_counts = {
             channel.decode("utf-8"): int(count)
@@ -82,7 +82,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         async with redis.pipeline() as pipe:
             pipe.multi()
             for channel, count in drift.items():
-                await pipe.hincrby("daily_reminders:counts", channel, count)
+                await pipe.hincrby(b"daily_reminders:counts", channel, count)  # type: ignore
             await pipe.execute()
         break
 

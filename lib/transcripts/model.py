@@ -13,16 +13,16 @@ class Timestamp:
         return f"{self.hours:02d}:{self.minutes:02d}:{self.seconds:02d}.{self.milliseconds:03d}"
 
     @classmethod
-    def from_seconds(kls, seconds: float):
+    def from_seconds(cls, seconds: float):
         hours = int(seconds // (60 * 60))
         minutes = int((seconds // 60) % 60)
         seconds = int(seconds % 60)
         milliseconds = int((seconds % 1) * 1000)
-        return kls(hours, minutes, seconds, milliseconds)
+        return cls(hours, minutes, seconds, milliseconds)
 
     @classmethod
-    def from_dict(kls, raw: dict):
-        return kls(**raw)
+    def from_dict(cls, raw: dict):
+        return cls(**raw)
 
     def in_seconds(self) -> float:
         return (
@@ -101,8 +101,8 @@ class TimeRange:
         return self.end.in_seconds() - self.start.in_seconds()
 
     @classmethod
-    def from_dict(c, raw: dict):
-        return c(
+    def from_dict(cls, raw: dict):
+        return cls(
             start=Timestamp.from_dict(raw["start"]),
             end=Timestamp.from_dict(raw["end"]),
         )
@@ -152,8 +152,8 @@ class Transcript:
         )
 
     @classmethod
-    def from_dict(c, raw: dict):
-        return c(phrases=[(TimeRange.from_dict(p[0]), p[1]) for p in raw["phrases"]])
+    def from_dict(cls, raw: dict):
+        return cls(phrases=[(TimeRange.from_dict(p[0]), p[1]) for p in raw["phrases"]])
 
 
 def parse_vtt_transcript(raw: str) -> Transcript:

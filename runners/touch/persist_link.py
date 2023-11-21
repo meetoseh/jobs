@@ -1,6 +1,6 @@
 """Touch Persist Link Job"""
 import json
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable, List, Optional, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -16,6 +16,7 @@ from redis_helpers.touch_persist_cleanup import (
 )
 from redis_helpers.touch_read_to_persist import (
     TouchReadToPersistResult,
+    TouchReadToPersistResultWithData,
     ensure_touch_read_to_persist_script_exists,
     touch_read_to_persist,
 )
@@ -71,9 +72,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     ):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:persist_link_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+            b"stats:touch_links:persist_link_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         stats = RunStats()
@@ -123,6 +124,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         started_at,
                     ),
                 )
+                assert purgatory_size is not None
                 is_last_loop = purgatory_size < JOB_BATCH_SIZE
 
             if purgatory_size == 0:
@@ -134,20 +136,20 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             for start_idx in range(0, purgatory_size, REDIS_FETCH_BATCH_SIZE):
                 end_idx_excl = min(start_idx + REDIS_FETCH_BATCH_SIZE, purgatory_size)
-                batch.extend(
-                    await run_with_prep(
-                        lambda force: ensure_touch_read_to_persist_script_exists(
-                            redis, force=force
-                        ),
-                        lambda: touch_read_to_persist(
-                            redis,
-                            b"touch_links:persist_purgatory",
-                            b"touch_links:buffer",
-                            start_idx,
-                            end_idx_excl - 1,
-                        ),
-                    )
+                sub_batch = await run_with_prep(
+                    lambda force: ensure_touch_read_to_persist_script_exists(
+                        redis, force=force
+                    ),
+                    lambda: touch_read_to_persist(
+                        redis,
+                        b"touch_links:persist_purgatory",
+                        b"touch_links:buffer",
+                        start_idx,
+                        end_idx_excl - 1,
+                    ),
                 )
+                assert sub_batch is not None
+                batch.extend(sub_batch)
 
             assert len(batch) == purgatory_size
 
@@ -210,7 +212,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:persist_link_job",
+            b"stats:touch_links:persist_link_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -280,7 +282,7 @@ class Batch:
     lost: int
     """how many links were skipped because the data was None"""
 
-    persisting: List[TouchReadToPersistResult]
+    persisting: List[TouchReadToPersistResultWithData]
     """The touches we are actually trying to persist"""
 
     links: Optional[SqlQuery]
@@ -330,7 +332,7 @@ async def form_batch(
     )
 
     lost = 0
-    persisting: List[TouchReadToPersistResult] = []
+    persisting: List[TouchReadToPersistResultWithData] = []
     link_params = []
 
     for item in batch:
@@ -338,7 +340,7 @@ async def form_batch(
             lost += 1
             continue
 
-        persisting.append(item)
+        persisting.append(cast(TouchReadToPersistResultWithData, item))
         link_params.extend(
             [
                 item.data.uid,

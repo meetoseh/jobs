@@ -49,10 +49,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"sms:receipt_reconciliation_job:lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:sms:receipt_reconciliation_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:sms:receipt_reconciliation_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         stats = RunStats()
@@ -80,19 +80,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 break
 
             try:
-                event = MessageResourceEvent.parse_raw(
-                    event_raw, content_type="application/json"
-                )
+                event = MessageResourceEvent.model_validate_json(event_raw)
             except:
                 logging.warning(
                     f"SMS Receipt Reconciliation job skipping invalid event: {event_raw}",
                     exc_info=True,
                 )
-                await redis.lpop(b"sms:event:purgatory")
+                await redis.lpop(b"sms:event:purgatory")  # type: ignore
                 continue
 
-            pending_info_raw = await redis.hgetall(
-                f"sms:pending:{event.sid}".encode("utf-8")
+            pending_info_raw = await redis.hgetall(  # type: ignore
+                f"sms:pending:{event.sid}".encode("utf-8")  # type: ignore
             )
             if pending_info_raw is None or len(pending_info_raw) == 0:
                 pending_info = None
@@ -104,7 +102,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         f"SMS Receipt Reconciliation job skipping invalid pending info: {pending_info_raw}",
                         exc_info=True,
                     )
-                    await redis.lpop(b"sms:event:purgatory")
+                    await redis.lpop(b"sms:event:purgatory")  # type: ignore
                     continue
 
             attempted_at = time.time()
@@ -128,19 +126,19 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 # error and not some internal service giving a transient error. If redis is hiccuping
                 # this will fail anyway and it'll bubble up to be retried the next time the job is
                 # run which is also fine
-                await redis.lpop(b"sms:event:purgatory")
+                await redis.lpop(b"sms:event:purgatory")  # type: ignore
                 continue
 
             await increment_events(itgs, events=result.events, now=attempted_at)
             stats.add_stats(result.stats)
-            await redis.lpop(b"sms:event:purgatory")
+            await redis.lpop(b"sms:event:purgatory")  # type: ignore
 
         finished_at = time.time()
         logging.info(
             f"SMS Receipt Reconciliation Job: Finished: {stats=}, {stop_reason=}"
         )
         await redis.hset(
-            b"stats:sms:receipt_reconciliation_job",
+            b"stats:sms:receipt_reconciliation_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -224,7 +222,6 @@ async def reconcile_event(
             EventIncrement(name="received_via_polling", extra={"status": event.status})
         )
 
-    event_status_category: Literal["success", "failure", "pending"] = None
     if event.status in SUCCESS_STATUSES:
         stats.succeeded += 1
         event_status_category = "success"
@@ -360,6 +357,7 @@ async def reconcile_event(
                             if event.error_code is not None
                             else "failure_status_without_error_code",
                             retryable=False,
+                            extra=None,
                         ),
                     ),
                 },

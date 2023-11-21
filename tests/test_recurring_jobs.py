@@ -2,17 +2,18 @@ from typing import Optional, Tuple
 import unittest
 
 try:
-    import helper
+    import helper  # type: ignore
 except:
-    import tests.helper
-import main
+    import tests.helper  # type: ignore
+import main  # type: ignore
 from recurring_jobs import JobInterval, conditionally_zpopmin, JOBS_HASH
 import datetime
 import asyncio
 from itgs import Itgs
 from redis.asyncio import Redis
+import pytz
 
-tz = datetime.timezone.utc
+tz = pytz.utc
 
 
 class Test(unittest.TestCase):
@@ -391,27 +392,27 @@ class Test(unittest.TestCase):
                     await redis.zadd(key, mapping={"a": 1, "b": 2, "c": 3})
                     await redis.set(hash_key, bytes(str(JOBS_HASH), "ascii"))
                     self.assertEqual(await redis.zcard(key), 3)
-                    self.assertEqual(await redis.scard(purg_key), 0)
+                    self.assertEqual(await redis.scard(purg_key), 0)  # type: ignore
                     self.assertIsNone(await czpopmin(redis, key, 0))
                     self.assertEqual(await redis.zcard(key), 3)
-                    self.assertEqual(await redis.scard(purg_key), 0)
+                    self.assertEqual(await redis.scard(purg_key), 0)  # type: ignore
                     self.assertEqual(await czpopmin(redis, key, 1), (b"a", 1.0))
                     self.assertEqual(await redis.zcard(key), 2)
-                    self.assertEqual(await redis.scard(purg_key), 1)
-                    members = await redis.smembers(purg_key)
+                    self.assertEqual(await redis.scard(purg_key), 1)  # type: ignore
+                    members = await redis.smembers(purg_key)  # type: ignore
                     self.assertEqual(members, {b"a"})
                     self.assertIsNone(await czpopmin(redis, key, 1))
                     self.assertEqual(await redis.zcard(key), 2)
-                    self.assertEqual(await redis.scard(purg_key), 1)
+                    self.assertEqual(await redis.scard(purg_key), 1)  # type: ignore
                     self.assertEqual(await czpopmin(redis, key, 2), (b"b", 2.0))
                     self.assertEqual(await redis.zcard(key), 1)
-                    self.assertEqual(await redis.scard(purg_key), 2)
+                    self.assertEqual(await redis.scard(purg_key), 2)  # type: ignore
                     self.assertEqual(await czpopmin(redis, key, 3), (b"c", 3.0))
                     self.assertEqual(await redis.zcard(key), 0)
-                    self.assertEqual(await redis.scard(purg_key), 3)
+                    self.assertEqual(await redis.scard(purg_key), 3)  # type: ignore
                     self.assertIsNone(await czpopmin(redis, key, 3))
                     self.assertEqual(await redis.zcard(key), 0)
-                    self.assertEqual(await redis.scard(purg_key), 3)
+                    self.assertEqual(await redis.scard(purg_key), 3)  # type: ignore
                 finally:
                     await redis.delete(key)
                     await redis.delete(hash_key)

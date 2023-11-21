@@ -1,4 +1,4 @@
-import mpfix  # noqa
+import mpfix  # type: ignore
 import threading
 import time
 from typing import List

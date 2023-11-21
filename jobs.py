@@ -1,8 +1,7 @@
 import redis.asyncio
 import json
 import time
-import logging
-from typing import Callable, FrozenSet, List, Optional, TypedDict
+from typing import Callable, FrozenSet, Iterable, List, Optional, TypedDict
 from enum import IntEnum
 
 
@@ -61,8 +60,10 @@ class Jobs:
         self,
         conn: redis.asyncio.Redis,
         *,
-        allowed_job_categories: List[JobCategory] = tuple(),
-        get_job_category: Callable[[str], JobCategory] = lambda x: None,
+        allowed_job_categories: Iterable[JobCategory] = tuple(),
+        get_job_category: Callable[
+            [str], JobCategory
+        ] = lambda x: JobCategory.LOW_RESOURCE_COST,
     ) -> None:
         """initializes a new interface for queueing and retreiving jobs
 
@@ -77,8 +78,7 @@ class Jobs:
             get_job_category (Callable[[str], JobCategory]): a function which takes
                 the name of a job and returns the category of the job. Used to determine
                 whether a job is allowed to be retrieved by this instance. Ignored except
-                when retrieving jobs. By default always returns None, which causes an
-                error when retrieving jobs
+                when retrieving jobs. By default always returns low resource cost.
         """
         self.conn: redis.asyncio.Redis = conn
         """the redis connection containing the jobs queue"""
@@ -90,9 +90,6 @@ class Jobs:
             allowed_job_categories
         )
         """The categories of jobs that are useful to this instance when retrieving."""
-
-        if len(self.allowed_job_categories) != len(allowed_job_categories):
-            raise ValueError("duplicate job categories")
 
         self.all_queues: List[bytes] = [
             f"jobs:hot:{category.value}".encode("utf-8")
@@ -142,7 +139,7 @@ class Jobs:
         """
         job = {"name": name, "kwargs": kwargs, "queued_at": time.time()}
         job_serd = json.dumps(job)
-        await pipe.rpush(self.queue_key, job_serd.encode("utf-8"))
+        await pipe.rpush(self.queue_key, job_serd.encode("utf-8"))  # type: ignore
 
     async def retrieve(self, timeout: float) -> Optional[Job]:
         """blocking retrieve of the oldest job in the queue, if there is one, respecting
@@ -164,8 +161,8 @@ class Jobs:
             else:
                 remaining_timeout = 0
 
-            response: Optional[tuple] = await self.conn.blpop(
-                self.all_queues, timeout=remaining_timeout
+            response: Optional[tuple] = await self.conn.blpop(  # type: ignore
+                self.all_queues, timeout=int(remaining_timeout)  # type: ignore
             )
             if response is None:
                 return None
@@ -183,8 +180,8 @@ class Jobs:
                 raise
 
             if category not in self.allowed_job_categories:
-                await self.conn.rpush(
-                    f"jobs:hot:{category.value}".encode("utf-8"), job_serd_and_encoded
+                await self.conn.rpush(  # type: ignore
+                    f"jobs:hot:{category.value}".encode("utf-8"), job_serd_and_encoded  # type: ignore
                 )
                 continue
 

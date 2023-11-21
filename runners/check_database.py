@@ -57,7 +57,7 @@ async def verify_all_nodes_responsive_and_agree_on_leader(itgs: Itgs) -> None:
         tasks[(ip, port)] = task
 
     answers: Dict[Tuple[str, int], Tuple[str, int]] = {}
-    errors: Dict[Tuple[str, int], Exception] = {}
+    errors: Dict[Tuple[str, int], BaseException] = {}
 
     await asyncio.wait(tasks.values(), return_when=asyncio.ALL_COMPLETED)
     for node, task in tasks.items():
@@ -150,7 +150,7 @@ async def verify_nodes_agree_on_cluster(itgs: Itgs) -> None:
         tasks[(ip, port)] = task
 
     answers: Dict[Tuple[str, int], List[Tuple[str, int]]] = {}
-    errors: Dict[Tuple[str, int], Exception] = {}
+    errors: Dict[Tuple[str, int], BaseException] = {}
 
     await asyncio.wait(tasks.values(), return_when=asyncio.ALL_COMPLETED)
     for node, task in tasks.items():

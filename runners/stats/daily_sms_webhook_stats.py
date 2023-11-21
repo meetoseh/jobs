@@ -38,7 +38,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         )
 
         stored_stats = await redis.hgetall(
-            f"stats:sms_webhooks:daily:{unix_date}".encode("utf-8")
+            f"stats:sms_webhooks:daily:{unix_date}".encode("utf-8")  # type: ignore
         )
         async with redis.pipeline() as pipe:
             pipe.multi()

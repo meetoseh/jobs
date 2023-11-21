@@ -96,15 +96,15 @@ async def touch_send(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         TOUCH_SEND_LUA_SCRIPT_HASH,
         3,
-        touch_to_send_key,
-        stats_key,
-        stats_earliest_key,
-        touch,
-        max_length,
-        unix_date,
+        touch_to_send_key,  # type: ignore
+        stats_key,  # type: ignore
+        stats_earliest_key,  # type: ignore
+        touch,  # type: ignore
+        max_length,  # type: ignore
+        unix_date,  # type: ignore
     )
     if res is redis:
         return None

@@ -75,7 +75,7 @@ async def get_stale_receipts(
     now: float,
     bump_score_to: float,
     max_count: int,
-) -> List[dict]:
+) -> Optional[List[dict]]:
     """Fetches stale receipts from the given Receipt Pending Set, updating the score of any
     returned items to the given value.
 
@@ -110,12 +110,12 @@ async def get_stale_receipts(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
-        GET_STALE_RECEIPTS_LUA_SCRIPT_HASH, 1, src, now, bump_score_to, max_count
+    res = await redis.evalsha(  # type: ignore
+        GET_STALE_RECEIPTS_LUA_SCRIPT_HASH, 1, src, now, bump_score_to, max_count  # type: ignore
     )
     if res is redis:
         return None
-    return res
+    return res  # type: ignore
 
 
 async def get_stale_receipts_safe(
@@ -149,4 +149,6 @@ async def get_stale_receipts_safe(
     async def func():
         return await get_stale_receipts(redis, src, now, bump_score_to, max_count)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

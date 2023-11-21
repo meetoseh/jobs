@@ -19,7 +19,7 @@ async def basic_redis_lock(
     *,
     gd: Optional[GracefulDeath] = None,
     spin: bool = False,
-) -> None:
+):
     """Uses redis for a very basic lock on the given key, releasing it when done
 
     Args:
@@ -42,7 +42,7 @@ async def basic_redis_lock(
             break
         if not spin:
             raise LockHeldError(key)
-        if gd.received_term_signal:
+        if gd is None or gd.received_term_signal:
             return
         await asyncio.sleep(0.1)
 

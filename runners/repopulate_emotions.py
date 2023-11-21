@@ -11,7 +11,7 @@ import os
 import re
 import secrets
 import string
-from typing import AsyncIterator, FrozenSet, List, Literal, Optional, Set, Tuple
+from typing import AsyncIterator, FrozenSet, List, Literal, Optional, Set, Tuple, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -21,7 +21,7 @@ from lib.emotions.emotion_content import purge_emotion_content_statistics_everyw
 from lib.redis_api_limiter import ratelimit_using_redis
 from lib.transcripts.db import fetch_transcript_for_content_file
 from lib.transcripts.model import Transcript
-from lib.chatgpt.model import ChatCompletionMessage
+from openai.types.chat import ChatCompletionMessageParam
 from runners.backup_database import execute as backup_database
 import openai
 import json
@@ -109,7 +109,7 @@ PROMPT_VERSION = "1.0.3"
 
 def create_prompt_for_journey(
     title: str, description: str, instructor: str, transcript: Transcript
-) -> List[ChatCompletionMessage]:
+) -> List[ChatCompletionMessageParam]:
     """Creates the prompt that should be fed to chatgpt in order to generate
     the tags on the given journey.
 
@@ -199,9 +199,10 @@ def parse_emotions(
                         f"Invalid completion: {completion} (expected start of list, got {line})"
                     )
                 state = "in_list"
-                current_item = item_match.group(2)
+                current_item = cast(str, item_match.group(2))
         elif state == "in_list":
             if item_match:
+                assert current_item is not None
                 raw_emotions.append(current_item)
                 if int(item_match.group(1)) != len(raw_emotions) + 1:
                     raise ValueError(
@@ -209,6 +210,7 @@ def parse_emotions(
                     )
                 current_item = item_match.group(2)
             else:
+                assert current_item is not None
                 current_item += " " + line
 
     if current_item:
@@ -282,6 +284,7 @@ async def get_emotions_for_journey(
     """
 
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
     messages = create_prompt_for_journey(title, description, instructor, transcript)
     logging.info(
         f"Creating tags for {title} by {instructor} using the following prompt:\n\n{json.dumps(messages, indent=2)}"
@@ -294,16 +297,15 @@ async def get_emotions_for_journey(
                 key="external_apis:api_limiter:chatgpt",
                 time_between_requests=3,
             )
-            completion = openai.ChatCompletion.create(
+            completion = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
                 temperature=_temperature_for_attempt(attempt),
-                api_key=openai_api_key,
             )
             logging.info(f"Got completion:\n\n{completion}")
-            emotions = parse_emotions(
-                completion.choices[0].message.content, dropped=dropped
-            )
+            content = completion.choices[0].message.content
+            assert content is not None, completion
+            emotions = parse_emotions(content, dropped=dropped)
             logging.info(f"Parsed emotions: {json.dumps(list(emotions))}")
             return emotions
         except Exception:
@@ -404,7 +406,7 @@ async def store_emotions_for_journey(
 
 async def iter_journeys_for_emotions(
     itgs: Itgs, *, batch_size: int = 50
-) -> AsyncIterator[Tuple[str, str, str, str]]:
+) -> AsyncIterator[Tuple[str, str, str, str, str]]:
     """Iterates journeys which are not deleted and are not in a course,
     for which a transcript does exist.
 
@@ -451,7 +453,7 @@ async def iter_journeys_for_emotions(
             return
 
         for row in response.results:
-            yield row
+            yield cast(Tuple[str, str, str, str, str], row)
 
         if len(response.results) < batch_size:
             return
@@ -597,7 +599,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             GROUP BY emotions.id
             """
         )
-        emotion_counts = {row[0]: row[1] for row in response.results}
+        emotion_counts = {row[0]: row[1] for row in response.results or []}
 
         for emotion, _, _ in EMOTIONS:
             if emotion not in emotion_counts:

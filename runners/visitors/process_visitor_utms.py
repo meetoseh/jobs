@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Optional, Union, cast
 from error_middleware import handle_contextless_error, handle_warning
 from itgs import Itgs
 from pydantic import BaseModel, Field
@@ -39,7 +39,7 @@ async def execute(
     gd: GracefulDeath,
     *,
     limit: int = 5000,
-    now: float = None,
+    now: Optional[float] = None,
     trigger_races: bool = False,
 ):
     """Processes queued visitor utm associations on the redis key
@@ -100,7 +100,10 @@ async def execute(
                 f"{time_per(i, time_taken):.2f} associations/s"
             )
 
-        next_raw_entry = await redis.lpop(b"visitors:utms")
+        next_raw_entry = cast(
+            Union[str, bytes, None],  # newline here please
+            await redis.lpop(b"visitors:utms"),  # type: ignore
+        )
         if next_raw_entry is None:
             time_taken = time.perf_counter() - started_at
             logging.debug(
@@ -109,14 +112,12 @@ async def execute(
             )
             break
 
-        next_entry = QueuedVisitorUTM.parse_raw(
-            next_raw_entry, content_type="application/json"
-        )
+        next_entry = QueuedVisitorUTM.model_validate_json(next_raw_entry)
 
         if next_entry.clicked_at < cutoff_unix_time:
             await handle_warning(
                 f"{__name__}:cutoff",
-                f"Skipping visitor utm association {next_entry.json()}: too old (are we getting behind?)",
+                f"Skipping visitor utm association {next_entry.model_dump_json()}: too old (are we getting behind?)",
             )
             continue
 
@@ -186,9 +187,9 @@ async def execute(
 
         if not success:
             await handle_contextless_error(
-                extra_info=f"process_visitor_utms: failed to insert visitor utm (raced?): {next_entry.json()} (requeuing)"
+                extra_info=f"process_visitor_utms: failed to insert visitor utm (raced?): {next_entry.model_dump_json()} (requeuing)"
             )
-            await redis.rpush(b"visitors:utms", next_raw_entry)
+            await redis.rpush(b"visitors:utms", next_raw_entry)  # type: ignore
             continue
 
         changes = lib.visitors.deltas.compute_changes_from_visitor_utm(
@@ -215,10 +216,10 @@ async def execute(
             )
 
             await pipe.sadd(
-                f"stats:visitors:daily:{clicked_at_unix_date}:utms".encode("ascii"),
+                f"stats:visitors:daily:{clicked_at_unix_date}:utms".encode("ascii"),  # type: ignore
                 canonical_utm.encode("utf-8"),
             )
-            await pipe.hincrby(get_counts_key(utm), b"visits", 1)
+            await pipe.hincrby(get_counts_key(utm), b"visits", 1)  # type: ignore
 
             for last_click_removed in changes.last_clicks_changed_to_any_click:
                 is_holdover = (
@@ -228,8 +229,8 @@ async def execute(
                     < clicked_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(last_click_removed.utm),
-                    b"holdover_last_click_signups"
+                    get_counts_key(last_click_removed.utm),  # type: ignore
+                    b"holdover_last_click_signups"  # type: ignore
                     if is_holdover
                     else b"last_click_signups",
                     -1,
@@ -243,8 +244,8 @@ async def execute(
                     < clicked_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(last_click_added.utm),
-                    b"holdover_last_click_signups"
+                    get_counts_key(last_click_added.utm),  # type: ignore
+                    b"holdover_last_click_signups"  # type: ignore
                     if is_holdover
                     else b"last_click_signups",
                     1,
@@ -258,8 +259,8 @@ async def execute(
                     < clicked_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(any_click_added.utm),
-                    b"holdover_any_click_signups"
+                    get_counts_key(any_click_added.utm),  # type: ignore
+                    b"holdover_any_click_signups"  # type: ignore
                     if is_holdover
                     else b"any_click_signups",
                     1,
@@ -273,8 +274,8 @@ async def execute(
                     < clicked_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(preexisting_added.utm),
-                    b"holdover_preexisting" if is_holdover else b"preexisting",
+                    get_counts_key(preexisting_added.utm),  # type: ignore
+                    b"holdover_preexisting" if is_holdover else b"preexisting",  # type: ignore
                     1,
                 )
 

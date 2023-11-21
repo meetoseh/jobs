@@ -127,7 +127,7 @@ class MyFrameGenerator(fg.FrameGenerator):
         self._frame_size: Tuple[int, int] = frame_size
         """The size of the video, in pixels. Must match the background image"""
 
-        self.fonts: Optional[Dict[FontName, ImageFont.ImageFont]] = None
+        self.fonts: Optional[Dict[FontName, ImageFont.FreeTypeFont]] = None
         """If font's have been loaded, the loaded fonts. Otherwise None."""
 
         self.background_image: Optional[Image.Image] = None
@@ -163,21 +163,21 @@ class MyFrameGenerator(fg.FrameGenerator):
                 size=72,
                 index=0,
                 encoding="unic",
-                layout_engine=ImageFont.LAYOUT_BASIC,
+                layout_engine=ImageFont.Layout.BASIC,
             ),
             "300 44px Open Sans": ImageFont.truetype(
                 font=io.BytesIO(open_sans_light_raw),
                 size=44,
                 index=0,
                 encoding="unic",
-                layout_engine=ImageFont.LAYOUT_BASIC,
+                layout_engine=ImageFont.Layout.BASIC,
             ),
             "300 44px italic Open Sans": ImageFont.truetype(
                 font=io.BytesIO(open_sans_light_italic_raw),
                 size=44,
                 index=0,
                 encoding="unic",
-                layout_engine=ImageFont.LAYOUT_BASIC,
+                layout_engine=ImageFont.Layout.BASIC,
             ),
         }
 
@@ -187,7 +187,10 @@ class MyFrameGenerator(fg.FrameGenerator):
     def generate_at(self, time_ms):
         return fg.img_to_bytes(self.generate_at_pil(time_ms))
 
-    def generate_at_pil(self, time_ms: float) -> Image:
+    def generate_at_pil(self, time_ms: float) -> Image.Image:
+        assert self.background_image is not None
+        assert self.fonts is not None
+        assert self.audio_visualization is not None
         frame_index = round((time_ms * self.framerate) / 1000)
 
         result = self.background_image.copy()

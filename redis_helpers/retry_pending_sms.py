@@ -74,7 +74,7 @@ async def retry_pending_sms(
     dst: Union[str, bytes],
     sid: Union[str, bytes],
     num_changes: int,
-) -> bool:
+) -> Optional[bool]:
     """Appends the given sid to the receipt recovery queue, but only if it has the
     given number of changes in the receipt pending set. Returns if the sid was
     appended.
@@ -107,8 +107,8 @@ async def retry_pending_sms(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
-        RETRY_PENDING_SMS_LUA_SCRIPT_HASH, 2, src, dst, sid, num_changes
+    res = await redis.evalsha(  # type: ignore
+        RETRY_PENDING_SMS_LUA_SCRIPT_HASH, 2, src, dst, sid, num_changes  # type: ignore
     )
     if res is redis:
         return None
@@ -147,4 +147,6 @@ async def retry_pending_sms_safe(
     async def func():
         return await retry_pending_sms(redis, src, dst, sid, num_changes)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

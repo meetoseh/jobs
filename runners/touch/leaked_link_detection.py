@@ -50,9 +50,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     ):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:leaked_link_detection_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+            b"stats:touch_links:leaked_link_detection_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         stats = RunStats()
@@ -78,8 +78,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             next_leaked_link = await redis.zrange(
                 b"touch_links:buffer",
-                b"-inf",
-                started_at - LEAKED_AGE_SECONDS,
+                b"-inf",  # type: ignore
+                started_at - LEAKED_AGE_SECONDS,  # type: ignore
                 byscore=True,
                 withscores=True,
                 offset=0,
@@ -112,9 +112,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             await redis.zrem(b"touch_links:buffer", code)
             await redis.zrem(b"touch_links:to_persist", code)
-            data_raw = await redis.hgetall(data_key)
+            data_raw = await redis.hgetall(data_key)  # type: ignore
             await redis.delete(data_key)
-            clicks_raw = await redis.lrange(clicks_key, 0, -1)
+            clicks_raw = await redis.lrange(clicks_key, 0, -1)  # type: ignore
             await redis.delete(clicks_key)
 
             clicks_all_cleaned = True
@@ -145,9 +145,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 TouchLink.from_redis_mapping(data_raw) if data_raw is not None else None
             )
             clicks = [
-                TouchLinkBufferedClick.parse_raw(
-                    click_raw, content_type="application/json"
-                )
+                TouchLinkBufferedClick.model_validate_json(click_raw)
                 for click_raw in clicks_raw
             ]
 
@@ -196,7 +194,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 else None
             )
 
-            if response is not None and response.rows_affected == 1:
+            if (
+                data is not None
+                and response is not None
+                and response.rows_affected == 1
+            ):
                 logging.debug("Recovered leaked link, persisting clicks now")
                 parents = set()
                 for click in clicks:
@@ -299,7 +301,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:leaked_link_detection_job",
+            b"stats:touch_links:leaked_link_detection_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,

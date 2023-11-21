@@ -8,7 +8,7 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.shared.clean_for_slack import clean_for_non_code_slack, clean_for_preview
+from lib.shared.clean_for_slack import clean_for_preview
 from lib.shared.describe_user import describe_user
 
 category = JobCategory.LOW_RESOURCE_COST

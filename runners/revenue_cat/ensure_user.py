@@ -10,7 +10,6 @@ import os
 from jobs import JobCategory
 import time
 import datetime
-import socket
 from lib.contact_methods.user_primary_email import primary_email_join_clause
 from lib.shared.describe_user import enqueue_send_described_user_slack_message
 
@@ -68,7 +67,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         "environment": os.environ["ENVIRONMENT"],
     }
     if email is not None:
-        expected_attributes["$email"]: email
+        expected_attributes["$email"] = email
 
     rcat = await itgs.revenue_cat()
 

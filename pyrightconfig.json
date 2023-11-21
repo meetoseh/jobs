@@ -1,0 +1,5 @@
+{
+  "reportDeprecated": "warning",
+  "reportUnusedImport": "warning",
+  "useLibraryCodeForTypes": true
+}

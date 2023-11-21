@@ -85,10 +85,10 @@ async def zshift(
         NoScriptError: If the script is not loaded into redis
     """
     if max_score_to_shift is None:
-        res = await redis.evalsha(ZSHIFT_LUA_SCRIPT_HASH, 2, src, dst, max_to_shift)
+        res = await redis.evalsha(ZSHIFT_LUA_SCRIPT_HASH, 2, src, dst, max_to_shift)  # type: ignore
     else:
         res = await redis.evalsha(
-            ZSHIFT_LUA_SCRIPT_HASH, 2, src, dst, max_to_shift, max_score_to_shift
+            ZSHIFT_LUA_SCRIPT_HASH, 2, src, dst, max_to_shift, max_score_to_shift  # type: ignore
         )
 
     if res is redis:

@@ -102,7 +102,7 @@ async def run_pipeline(
     *,
     gd: GracefulDeath,
     folder: str = os.path.join("tmp", "shareables", "generate_pinterest_journey_post"),
-    journey_uid: str = None,
+    journey_uid: Optional[str] = None,
     resume: Optional[
         Literal[
             "get_journey_info",
@@ -207,6 +207,7 @@ async def run_pipeline(
     logging.info(
         f"Generated pinterest journey post:\n\n{json.dumps(dataclasses.asdict(result), indent=2)}"
     )
+    return result
 
 
 if __name__ == "__main__":

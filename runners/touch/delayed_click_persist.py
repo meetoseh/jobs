@@ -1,5 +1,5 @@
 """Touch Delayed Click Persist Job"""
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -71,9 +71,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     ):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:delayed_clicks_persist_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+            b"stats:touch_links:delayed_clicks_persist_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         stats = RunStats()
@@ -93,7 +93,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 stop_reason = "time_exhausted"
                 break
 
-            purgatory_size = await redis.zcard(b"touch_links:delayed_clicks_purgatory")
+            purgatory_size = cast(
+                int, await redis.zcard(b"touch_links:delayed_clicks_purgatory")
+            )
             if purgatory_size > 0:
                 if not expect_empty_purgatory:
                     raise Exception(
@@ -117,6 +119,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         started_at,
                     ),
                 )
+                assert purgatory_size is not None
 
             if purgatory_size == 0:
                 logging.info(
@@ -153,7 +156,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 async with redis.pipeline(transaction=False) as pipe:
                     for click_uid in click_uids_to_persist[start_index:end_index_excl]:
                         await pipe.hgetall(
-                            f"touch_links:delayed_clicks:{click_uid}".encode("utf-8")
+                            f"touch_links:delayed_clicks:{click_uid}".encode("utf-8")  # type: ignore
                         )
                     result = await pipe.execute()
                 assert len(result) == end_index_excl - start_index
@@ -170,7 +173,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 )
                 result = await redis.zmscore(
                     b"touch_links:persist_purgatory",
-                    [
+                    [  # type: ignore
                         c.uid.encode("utf-8")
                         for c in batch_clicks[start_index:end_index_excl]
                     ],
@@ -247,7 +250,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_links:delayed_clicks_persist_job",
+            b"stats:touch_links:delayed_clicks_persist_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -473,7 +476,7 @@ async def persist_clicks(
                 insert_query,
                 insert_params,
             ),
-            *([] if num_children == 0 else [(update_query, update_params)]),
+            *([] if update_query is None else [(update_query, update_params)]),
         )
     )
     num_persisted = response[0].rows_affected
@@ -500,6 +503,7 @@ async def persist_clicks(
     existing_params = [c.uid for c in clicks]
 
     response = await cursor.execute(existing_query, existing_params)
+    assert response.results, response
     num_existing = response.results[0][0]
     num_duplicates = max(num_existing - num_persisted, 0)
     num_lost = len(clicks) - num_persisted - num_duplicates

@@ -31,11 +31,10 @@ This is typically run as a daemon process from the main.py via the
 """
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Union
 import importlib
 import inspect
 import json
-from graceful_death import graceful_sleep
 from error_middleware import handle_error
 from redis.asyncio.client import Redis, Pipeline
 from redis.exceptions import NoScriptError
@@ -85,47 +84,47 @@ class JobInterval:
 
     def __init__(
         self,
-        tz: datetime.timezone,
+        tz: pytz.BaseTzInfo,
         *,
-        months: Optional[List[int]] = None,
-        days_of_month: Optional[List[int]] = None,
-        days_of_week: Optional[List[WeekDay]] = None,
-        hours: Optional[List[int]] = None,
-        minutes: Optional[List[int]] = None,
-        seconds: Optional[List[int]] = None,
+        months: Optional[Sequence[int]] = None,
+        days_of_month: Optional[Sequence[int]] = None,
+        days_of_week: Optional[Sequence[WeekDay]] = None,
+        hours: Optional[Sequence[int]] = None,
+        minutes: Optional[Sequence[int]] = None,
+        seconds: Optional[Sequence[int]] = None,
     ):
-        self.tz: datetime.timezone = tz
+        self.tz: pytz.BaseTzInfo = tz
         """The time zone relevant for this job"""
 
-        self.months: Optional[List[int]] = months
+        self.months: Optional[Sequence[int]] = months
         """the months in which the job runs, where 1 is january, in
         sorted order. None means any month is valid.
         """
 
-        self.days_of_month: Optional[List[int]] = days_of_month
+        self.days_of_month: Optional[Sequence[int]] = days_of_month
         """the days of the month when the job runs, where 1 is the
         first day of the month, in sorted order. None means any day
         of the month is valid.
         """
 
-        self.days_of_week: Optional[List[WeekDay]] = days_of_week
+        self.days_of_week: Optional[Sequence[WeekDay]] = days_of_week
         """the days of the week when the job runs, in sorted order
         (e.g., ["mon", "tue", "wed"]). None means any day of the week
         is valid.
         """
 
-        self.hours: Optional[List[int]] = hours
+        self.hours: Optional[Sequence[int]] = hours
         """the hours of the day when the job runs, where 0 is midnight and
         23 is 11pm, in sorted order. None means any hour is valid.
         """
 
-        self.minutes: Optional[List[int]] = minutes
+        self.minutes: Optional[Sequence[int]] = minutes
         """the minutes of the hour when the job runs, where 0 is the
         beginning of the hour and 59 is the end of the hour, in sorted order
         (e.g., [0, 15, 30, 45]). None means any minute is valid.
         """
 
-        self.seconds: Optional[List[int]] = seconds
+        self.seconds: Optional[Sequence[int]] = seconds
         """the seconds of the minute when the job runs, where 0 is the
         beginning of the minute and 59 is the end of the minute, in sorted order
         (e.g., [0, 15, 30, 45]). None means any second is valid.
@@ -377,14 +376,17 @@ class JobInterval:
         result = 31
 
         try:
-            current_utc_offset = self.tz.utcoffset(
-                datetime.datetime.now()
-            ).total_seconds()
+            current_utc_offset_timedelta = self.tz.utcoffset(datetime.datetime.now())
+            if current_utc_offset_timedelta is None:
+                raise pytz.exceptions.NonExistentTimeError()
+            current_utc_offset = current_utc_offset_timedelta.total_seconds()
         except pytz.exceptions.NonExistentTimeError:
             # it's currently daily savings skip hour, use the previous offset
-            current_utc_offset = self.tz.utcoffset(
+            current_utc_offset_timedelta = self.tz.utcoffset(
                 datetime.datetime.utcfromtimestamp(time.time() - 60 * 60 * 2)
-            ).total_seconds()
+            )
+            assert current_utc_offset_timedelta is not None
+            current_utc_offset = current_utc_offset_timedelta.total_seconds()
 
         result = 17 * result + int(current_utc_offset)
         for val in (
@@ -436,7 +438,7 @@ class Job:
     name: str
     """The name of the job, which is the module path within this repo, e.g., runners.example"""
 
-    kwargs: List[Tuple[str, Any]]
+    kwargs: Sequence[Tuple[str, Any]]
     """The keyword arguments to the job, specified as a immutable list of key,
     value pairs. Must be hashable"""
 
@@ -508,7 +510,7 @@ class Job:
 
 pst = pytz.timezone("US/Pacific")
 is_dev = os.environ.get("ENVIRONMENT") == "dev"
-JOBS: List[Job] = (
+JOBS: Tuple[Job, ...] = (
     Job(
         name="runners.example",
         kwargs=(("message", "Ping from recurring_jobs"),),
@@ -848,7 +850,7 @@ JOBS: List[Job] = (
 """The jobs that should be run."""
 
 
-def _stable_hash_jobs(jobs: List[Job]) -> int:
+def _stable_hash_jobs(jobs: Iterable[Job]) -> int:
     """Returns a hash of the jobs that is stable across runs"""
 
     def clip(x):
@@ -896,7 +898,7 @@ async def update_jobs(itgs: Itgs) -> None:
             (job.stable_hash(), job.interval.next_runtime_after(now)) for job in JOBS
         )
 
-        resp = await pipe.zrange("rjobs", "0", "-1", withscores=True)
+        resp = await pipe.zrange("rjobs", "0", "-1", withscores=True)  # type: ignore
         for job_hash, score in resp:
             job_hash = int(job_hash)
             score = float(score)
@@ -907,7 +909,7 @@ async def update_jobs(itgs: Itgs) -> None:
         await pipe.delete("rjobs")
         await pipe.delete("rjobs:hash")
         await pipe.delete("rjobs:purgatory")
-        await pipe.zadd("rjobs", mapping=new_scores_by_hash)
+        await pipe.zadd("rjobs", mapping=new_scores_by_hash)  # type: ignore
         await pipe.set("rjobs:hash", bytes(str(JOBS_HASH), "ascii"))
 
     await redis.transaction(inner, "rjobs:hash", "rjobs")
@@ -930,7 +932,7 @@ async def clean_purgatory(itgs: Itgs) -> None:
             current_hash is not None and int(current_hash) == JOBS_HASH
         ), f"{current_hash=}"
 
-        resp = await pipe.smembers("rjobs:purgatory")
+        resp = await pipe.smembers("rjobs:purgatory")  # type: ignore
         if not resp:
             return
 
@@ -1005,14 +1007,14 @@ async def conditionally_zpopmin(
         AssertionError: If the hash of the jobs in redis does not match JOBS_HASH
     """
     try:
-        res = await redis.evalsha(
+        res = await redis.evalsha(  # type: ignore
             CONDITIONALLY_ZPOPMIN_HASH,
             3,
-            key,
-            hash_key,
-            purgatory_key,
-            max_score,
-            JOBS_HASH,
+            key,  # type: ignore
+            hash_key,  # type: ignore
+            purgatory_key,  # type: ignore
+            max_score,  # type: ignore
+            JOBS_HASH,  # type: ignore
         )
         if res[0] == b"0":
             return None
@@ -1020,7 +1022,7 @@ async def conditionally_zpopmin(
             raise RuntimeError(
                 f"jobs hash mismatch; expected {JOBS_HASH} in {hash_key=}, got {repr(res[1] if len(res) > 1 else None)}"
             )
-        return res[1][0], float(res[1][1])
+        return res[1][0], float(res[1][1])  # type: ignore
     except NoScriptError:
         await redis.script_load(CONDITIONALLY_ZPOPMIN)
         return await conditionally_zpopmin(
@@ -1077,15 +1079,15 @@ async def move_from_purgatory(
         AssertionError: If the jobs hash does not match the expected hash
     """
     try:
-        res = await redis.evalsha(
+        res = await redis.evalsha(  # type: ignore
             MOVE_FROM_PURGATORY_HASH,
             3,
-            purgatory_key,
-            rjobs_key,
-            jobs_hash_key,
-            job_hash,
-            next_runtime,
-            JOBS_HASH,
+            purgatory_key,  # type: ignore
+            rjobs_key,  # type: ignore
+            jobs_hash_key,  # type: ignore
+            job_hash,  # type: ignore
+            next_runtime,  # type: ignore
+            JOBS_HASH,  # type: ignore
         )
         if res == b"-1":
             raise RuntimeError(

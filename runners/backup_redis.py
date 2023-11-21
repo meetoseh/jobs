@@ -1,11 +1,11 @@
 """Redis database backups"""
 import time
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, cast
+from file_service import SyncWritableBytesIO
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-import io
 import hashlib
 import redis.asyncio
 from redis.exceptions import NoScriptError
@@ -51,7 +51,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
 
 
-async def create_redis_dump(itgs: Itgs, out: io.BytesIO) -> None:
+async def create_redis_dump(itgs: Itgs, out: SyncWritableBytesIO) -> None:
     """Writes a redis dump file to the given output stream.
 
     The dump file is formatted as a repeated sequence of
@@ -108,17 +108,17 @@ async def scan_and_filter_expiring_and_dump(
     redis: redis.asyncio.Redis, cursor: int
 ) -> Tuple[int, List[bytes]]:
     try:
-        result = await redis.evalsha(
-            REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT_SHA, 0, cursor
+        result = await redis.evalsha(  # type: ignore
+            REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT_SHA, 0, cursor  # type: ignore
         )
     except NoScriptError:
         correct_sha = await redis.script_load(REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT)
         assert correct_sha == REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT_SHA
         result = await redis.evalsha(
-            REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT_SHA, 0, cursor
+            REDIS_SCAN_AND_FILTER_EXPIRING_SCRIPT_SHA, 0, cursor  # type: ignore
         )
 
-    return int(result[0]), result[1]
+    return int(result[0]), cast(List[bytes], result[1])
 
 
 if __name__ == "__main__":

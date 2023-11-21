@@ -46,13 +46,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"email:reconciliation_job:lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:email_events:reconciliation_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:email_events:reconciliation_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
-        num_in_purgatory = await redis.llen(b"email:reconciliation_purgatory")
+        num_in_purgatory = await redis.llen(b"email:reconciliation_purgatory")  # type: ignore
         if num_in_purgatory > 0:
             slack = await itgs.slack()
             await slack.send_web_error_message(
@@ -60,22 +60,22 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 "Email Reconc. Job - recovering from purgatory",
             )
 
-            next_to_send_raw = await redis.lindex(b"email:reconciliation_purgatory", 0)
+            next_to_send_raw = await redis.lindex(b"email:reconciliation_purgatory", 0)  # type: ignore
             if next_to_send_raw is None:
                 raise Exception(
                     f"Email Reconciliation Job - {num_in_purgatory=} but LINDEX 0 is None"
                 )
         else:
             next_to_send_raw = await redis.lmove(
-                b"email:event", b"email:reconciliation_purgatory", "LEFT", "RIGHT"
+                b"email:event", b"email:reconciliation_purgatory", "LEFT", "RIGHT"  # type: ignore
             )
             num_in_purgatory = 1
 
         if next_to_send_raw is None:
             logging.info("Email Reconciliation Job - no events to reconcile")
             finished_at = time.time()
-            await redis.hset(
-                b"stats:email_events:reconciliation_job",
+            await redis.hset(  # type: ignore
+                b"stats:email_events:reconciliation_job",  # type: ignore
                 mapping={
                     b"finished_at": finished_at,
                     b"running_time": finished_at - started_at,
@@ -101,18 +101,18 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             async with redis.pipeline() as pipe:
                 pipe.multi()
-                await pipe.lpop(b"email:reconciliation_purgatory")
+                await pipe.lpop(b"email:reconciliation_purgatory")  # type: ignore
                 num_in_purgatory -= 1
 
                 if num_in_purgatory == 0:
                     await pipe.lmove(
-                        b"email:event",
-                        b"email:reconciliation_purgatory",
+                        b"email:event",  # type: ignore
+                        b"email:reconciliation_purgatory",  # type: ignore
                         "LEFT",
                         "RIGHT",
                     )
                 else:
-                    await pipe.lindex(b"email:reconciliation_purgatory", 0)
+                    await pipe.lindex(b"email:reconciliation_purgatory", 0)  # type: ignore
                 result = await pipe.execute()
 
             next_to_send_raw = result[1]
@@ -139,16 +139,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 stop_reason = "time_exhausted"
                 break
 
-            event = EmailEvent.parse_raw(
-                next_to_send_raw, content_type="application/json"
-            )
+            event = EmailEvent.model_validate_json(next_to_send_raw)
 
             # If it's very close to when the event was received, we might
             # have raced the storing of the message in the receipt pending
             # set. hence, in that case, we'll retry for a bit.
             while True:
-                message_raw = await redis.hgetall(
-                    f"email:receipt_pending:{event.message_id}".encode("utf-8")
+                message_raw = await redis.hgetall(  # type: ignore
+                    f"email:receipt_pending:{event.message_id}".encode("utf-8")  # type: ignore
                 )
                 if isinstance(message_raw, dict) and len(message_raw) == 0:
                     message_raw = None
@@ -217,8 +215,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Complaint And Found: {run_stats.complaint_and_found}\n"
             f"- Complaint But Abandoned: {run_stats.complaint_and_abandoned}\n"
         )
-        await redis.hset(
-            b"stats:email_events:reconciliation_job",
+        await redis.hset(  # type: ignore
+            b"stats:email_events:reconciliation_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -265,10 +263,10 @@ async def handle_delivery_and_found(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"found", 1)
-            await pipe.hincrby(key, b"succeeded", 1)
-            await pipe.hincrby(succeeded_extra, b"found", 1)
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"found", 1)  # type: ignore
+            await pipe.hincrby(key, b"succeeded", 1)  # type: ignore
+            await pipe.hincrby(succeeded_extra, b"found", 1)  # type: ignore
             await pipe.delete(
                 f"email:receipt_pending:{event.message_id}".encode("utf-8")
             )
@@ -306,10 +304,10 @@ async def handle_delivery_but_abandoned(itgs: Itgs, event: EmailEvent):
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"abandoned", 1)
-            await pipe.hincrby(key, b"succeeded", 1)
-            await pipe.hincrby(succeeded_extra, b"abandoned", 1)
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"abandoned", 1)  # type: ignore
+            await pipe.hincrby(key, b"succeeded", 1)  # type: ignore
+            await pipe.hincrby(succeeded_extra, b"abandoned", 1)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)
@@ -348,12 +346,12 @@ async def handle_bounce_and_found(itgs: Itgs, event: EmailEvent, message: EmailP
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"found", 1)
-            await pipe.hincrby(key, b"bounced", 1)
-            await pipe.hincrby(
-                bounced_extra,
-                f"found:{notification.reason.primary}:{notification.reason.secondary}".encode(
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"found", 1)  # type: ignore
+            await pipe.hincrby(key, b"bounced", 1)  # type: ignore
+            await pipe.hincrby(  # type: ignore
+                bounced_extra,  # type: ignore
+                f"found:{notification.reason.primary}:{notification.reason.secondary}".encode(  # type: ignore
                     "utf-8"
                 ),
                 1,
@@ -389,7 +387,7 @@ async def handle_bounce_but_abandoned(itgs: Itgs, event: EmailEvent):
     redis = await itgs.redis()
     jobs = await itgs.jobs()
 
-    event_obj = event.dict()
+    event_obj = event.model_dump()
 
     async def prep(force: bool):
         await ensure_set_if_lower_script_exists(redis, force=force)
@@ -398,12 +396,12 @@ async def handle_bounce_but_abandoned(itgs: Itgs, event: EmailEvent):
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"found", 1)
-            await pipe.hincrby(key, b"bounced", 1)
-            await pipe.hincrby(
-                bounced_extra,
-                f"abandoned:{notification.reason.primary}:{notification.reason.secondary}".encode(
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"found", 1)  # type: ignore
+            await pipe.hincrby(key, b"bounced", 1)  # type: ignore
+            await pipe.hincrby(  # type: ignore
+                bounced_extra,  # type: ignore
+                f"abandoned:{notification.reason.primary}:{notification.reason.secondary}".encode(  # type: ignore
                     "utf-8"
                 ),
                 1,
@@ -455,12 +453,12 @@ async def handle_complaint_and_found(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"found", 1)
-            await pipe.hincrby(key, b"complaint", 1)
-            await pipe.hincrby(
-                complaint_extra,
-                f"found:{notification.feedback_type}".encode("utf-8"),
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"found", 1)  # type: ignore
+            await pipe.hincrby(key, b"complaint", 1)  # type: ignore
+            await pipe.hincrby(  # type: ignore
+                complaint_extra,  # type: ignore
+                f"found:{notification.feedback_type}".encode("utf-8"),  # type: ignore
                 1,
             )
             await pipe.delete(
@@ -493,7 +491,7 @@ async def handle_complaint_and_abandoned(itgs: Itgs, event: EmailEvent):
 
     notification = cast(EmailComplaintNotification, event.notification)
 
-    event_obj = event.dict()
+    event_obj = event.model_dump()
 
     redis = await itgs.redis()
     jobs = await itgs.jobs()
@@ -505,12 +503,12 @@ async def handle_complaint_and_abandoned(itgs: Itgs, event: EmailEvent):
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_events:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(attempted_extra, b"abandoned", 1)
-            await pipe.hincrby(key, b"complaint", 1)
-            await pipe.hincrby(
-                complaint_extra,
-                f"abandoned:{notification.feedback_type}".encode("utf-8"),
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(attempted_extra, b"abandoned", 1)  # type: ignore
+            await pipe.hincrby(key, b"complaint", 1)  # type: ignore
+            await pipe.hincrby(  # type: ignore
+                complaint_extra,  # type: ignore
+                f"abandoned:{notification.feedback_type}".encode("utf-8"),  # type: ignore
                 1,
             )
             await jobs.enqueue_in_pipe(

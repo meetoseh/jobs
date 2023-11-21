@@ -68,7 +68,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             )
             for _, uid in response.results
         ]
-        await jobs.conn.rpush(jobs.queue_key, *serd_jobs)
+        await jobs.conn.rpush(jobs.queue_key, *serd_jobs)  # type: ignore
 
 
 if __name__ == "__main__":

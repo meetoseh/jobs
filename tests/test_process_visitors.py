@@ -1,25 +1,23 @@
 import logging
 import time
-from typing import Optional, Tuple
+from typing import Optional,cast
 import unittest
 
 import yaml
+from graceful_death import GracefulDeath
 from lib.utms.parse import (
     UTM,
     get_canonical_utm_representation_from_wrapped as get_canon_utm,
 )
 
 try:
-    import helper
+    import helper  # type: ignore
 except:
-    import tests.helper
-import main
+    import tests.helper  # type: ignore
 import runners.visitors.process_visitor_users as process_visitor_users
 import runners.visitors.process_visitor_utms as process_visitor_utms
-import datetime
 import asyncio
 from itgs import Itgs
-from redis.asyncio import Redis
 from contextlib import asynccontextmanager
 import secrets
 from dataclasses import dataclass
@@ -28,6 +26,7 @@ import pytz
 import aiohttp
 import os
 import jwt
+import logging.config
 
 
 @dataclass
@@ -55,7 +54,7 @@ second_utm = UTM(
 )
 
 
-def time_in_day(unix_date: float, *, hour: int, minute: int, pm: bool) -> float:
+def time_in_day(unix_date: int, *, hour: int, minute: int, pm: bool) -> float:
     return (
         unix_dates.unix_date_to_timestamp(unix_date, tz=tz)
         + hour * 3600
@@ -124,7 +123,7 @@ async def temp_user(itgs: Itgs, *, created_at: Optional[float] = None):
                 "SELECT created_at FROM users WHERE sub=?", (sub,)
             )
             assert response.results
-            created_at = response.results[0][0]
+            created_at = cast(float, response.results[0][0])
 
         try:
             yield User(sub, created_at)
@@ -148,17 +147,17 @@ class Test(unittest.TestCase):
                 redis = await itgs.redis()
                 today = unix_dates.unix_date_today(tz=tz)
 
-                visits_raw = await redis.hget(
+                visits_raw = await redis.hget(  # type: ignore
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"visits",
+                    ),  # type: ignore
+                    b"visits",  # type: ignore
                 )
                 visits = int(visits_raw) if visits_raw is not None else 0
 
                 async with temp_visitor(itgs) as vis:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -168,16 +167,18 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=vis.created_at + 15,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
-                    await process_visitor_utms.execute(itgs, FakeGracefulDeath())
+                    await process_visitor_utms.execute(
+                        itgs, cast(GracefulDeath, FakeGracefulDeath())
+                    )
 
                 visits_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"visits",
+                    ),  # type: ignore
+                    b"visits",  # type: ignore
                 )
                 visits2 = int(visits_raw) if visits_raw is not None else 0
 
@@ -198,8 +199,8 @@ class Test(unittest.TestCase):
                 holdover_preexisting_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_preexisting",
+                    ),  # type: ignore
+                    b"holdover_preexisting",  # type: ignore
                 )
 
                 holdover_preexisting = (
@@ -212,7 +213,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now - 120
                 ) as vis:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -222,31 +223,31 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=vis.created_at,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
                 holdover_preexisting_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_preexisting",
+                    ),  # type: ignore
+                    b"holdover_preexisting",  # type: ignore
                 )
                 holdover_preexisting2 = (
                     int(holdover_preexisting_raw)
@@ -270,8 +271,8 @@ class Test(unittest.TestCase):
                 holdover_last_click_signups_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_last_click_signups",
+                    ),  # type: ignore
+                    b"holdover_last_click_signups",  # type: ignore
                 )
 
                 holdover_last_click_signups = (
@@ -284,7 +285,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -294,31 +295,31 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=vis.created_at,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
                 holdover_last_click_signups_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_last_click_signups",
+                    ),  # type: ignore
+                    b"holdover_last_click_signups",  # type: ignore
                 )
                 holdover_last_click_signups2 = (
                     int(holdover_last_click_signups_raw)
@@ -348,8 +349,8 @@ class Test(unittest.TestCase):
                 holdover_any_click_signups_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_any_click_signups",
+                    ),  # type: ignore
+                    b"holdover_any_click_signups",  # type: ignore
                 )
 
                 holdover_any_click_signups = (
@@ -362,7 +363,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -372,11 +373,11 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=now - 180,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=second_utm.source,
@@ -386,31 +387,31 @@ class Test(unittest.TestCase):
                             utm_term=second_utm.term,
                             clicked_at=now - 120,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
                 holdover_any_click_signups_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"holdover_any_click_signups",
+                    ),  # type: ignore
+                    b"holdover_any_click_signups",  # type: ignore
                 )
                 holdover_any_click_signups2 = (
                     int(holdover_any_click_signups_raw)
@@ -439,8 +440,8 @@ class Test(unittest.TestCase):
                 preexisting_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"preexisting",
+                    ),  # type: ignore
+                    b"preexisting",  # type: ignore
                 )
 
                 preexisting = int(preexisting_raw) if preexisting_raw is not None else 0
@@ -449,7 +450,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now - 120
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -459,31 +460,31 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=now - 60,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
-                preexisting_raw = await redis.hget(
+                preexisting_raw = await redis.hget(  # type: ignore
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"preexisting",
+                    ),  # type: ignore
+                    b"preexisting",  # type: ignore
                 )
                 preexisting2 = (
                     int(preexisting_raw) if preexisting_raw is not None else 0
@@ -506,8 +507,8 @@ class Test(unittest.TestCase):
                 last_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"last_click_signups",
+                    ),  # type: ignore
+                    b"last_click_signups",  # type: ignore
                 )
 
                 last_click = int(last_click_raw) if last_click_raw is not None else 0
@@ -516,7 +517,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -526,31 +527,31 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=now - 60,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
                 last_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"last_click_signups",
+                    ),  # type: ignore
+                    b"last_click_signups",  # type: ignore
                 )
                 last_click2 = int(last_click_raw) if last_click_raw is not None else 0
 
@@ -572,8 +573,8 @@ class Test(unittest.TestCase):
                 any_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"any_click_signups",
+                    ),  # type: ignore
+                    b"any_click_signups",  # type: ignore
                 )
 
                 any_click = int(any_click_raw) if any_click_raw is not None else 0
@@ -582,7 +583,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -592,11 +593,11 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=now - 120,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=second_utm.source,
@@ -606,31 +607,31 @@ class Test(unittest.TestCase):
                             utm_term=second_utm.term,
                             clicked_at=now - 60,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_utms.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await process_visitor_users.execute(
-                        itgs, FakeGracefulDeath(), now=now
+                        itgs, cast(GracefulDeath, FakeGracefulDeath()), now=now
                     )
 
                 any_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"any_click_signups",
+                    ),  # type: ignore
+                    b"any_click_signups",  # type: ignore
                 )
                 any_click2 = int(any_click_raw) if any_click_raw is not None else 0
 
@@ -650,8 +651,8 @@ class Test(unittest.TestCase):
                 last_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"last_click_signups",
+                    ),  # type: ignore
+                    b"last_click_signups",  # type: ignore
                 )
 
                 last_click = int(last_click_raw) if last_click_raw is not None else 0
@@ -659,7 +660,7 @@ class Test(unittest.TestCase):
                     itgs, created_at=now
                 ) as user:
                     await redis.rpush(
-                        b"visitors:utms",
+                        b"visitors:utms",  # type: ignore
                         process_visitor_utms.QueuedVisitorUTM(
                             visitor_uid=vis.uid,
                             utm_source=default_utm.source,
@@ -669,27 +670,33 @@ class Test(unittest.TestCase):
                             utm_term=default_utm.term,
                             clicked_at=now - 60,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     await redis.rpush(
-                        b"visitors:user_associations",
+                        b"visitors:user_associations",  # type: ignore
                         process_visitor_users.QueuedVisitorUser(
                             visitor_uid=vis.uid,
                             user_sub=user.sub,
                             seen_at=now,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8"),
                     )
                     task1 = asyncio.create_task(
                         process_visitor_utms.execute(
-                            itgs, FakeGracefulDeath(), now=now, trigger_races=True
+                            itgs,
+                            cast(GracefulDeath, FakeGracefulDeath()),
+                            now=now,
+                            trigger_races=True,
                         )
                     )
                     task2 = asyncio.create_task(
                         process_visitor_users.execute(
-                            itgs, FakeGracefulDeath(), now=now, trigger_races=True
+                            itgs,
+                            cast(GracefulDeath, FakeGracefulDeath()),
+                            now=now,
+                            trigger_races=True,
                         )
                     )
                     await asyncio.wait(
@@ -699,8 +706,8 @@ class Test(unittest.TestCase):
                 last_click_raw = await redis.hget(
                     f"stats:visitors:daily:{get_canon_utm(default_utm)}:{today}:counts".encode(
                         "utf-8"
-                    ),
-                    b"last_click_signups",
+                    ),  # type: ignore
+                    b"last_click_signups",  # type: ignore
                 )
                 last_click2 = int(last_click_raw) if last_click_raw is not None else 0
 

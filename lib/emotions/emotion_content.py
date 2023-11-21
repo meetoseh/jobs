@@ -42,7 +42,9 @@ async def purge_emotion_content_statistics_everywhere(
             specify them here. Currently unused, but left open for
             future use.
     """
-    message = EmotionContentPurgeMessage(replace_stats=None).json().encode("utf-8")
+    message = (
+        EmotionContentPurgeMessage(replace_stats=None).model_dump_json().encode("utf-8")
+    )
 
     redis = await itgs.redis()
     async with redis.pipeline(transaction=True) as pipe:

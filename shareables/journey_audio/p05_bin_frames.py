@@ -1,6 +1,5 @@
 from typing import List
 import numpy as np
-import scipy.special
 
 
 def bin_frames(fft_audio: np.ndarray, frequency_partition: List[int]) -> np.ndarray:

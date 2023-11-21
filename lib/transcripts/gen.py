@@ -1,5 +1,6 @@
 from typing import Optional
 import openai
+import openai._types
 import shutil
 import logging
 import json
@@ -85,19 +86,18 @@ async def create_transcript(
             f"Transcoded audio to {target_filepath} ({original_filesize} bytes -> {target_filesize} bytes)"
         )
         logging.info(
-            f"Producing transcript for {target_filepath} using OpenAI whisper-1"
+            f"Producing transcript for {target_filepath} using OpenAI whisper-2"
         )
         openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+        openai_client = openai.OpenAI(api_key=openai_api_key)
 
         try:
             with open(target_filepath, "rb") as f:
-                transcript_vtt: str = openai.Audio.translate(
-                    "whisper-1",
-                    f,
-                    api_key=openai_api_key,
+                transcript_vtt = openai_client.audio.translations.create(
+                    model="whisper-1",
+                    file=f,
                     response_format="vtt",
-                    language="en",
-                    prompt=prompt,
+                    prompt=prompt if prompt is not None else openai._types.NOT_GIVEN,
                 )
         except Exception:
             raise ValueError("OpenAI Transcription via API failed")
@@ -105,7 +105,7 @@ async def create_transcript(
         logging.info(
             f"Produced transcript for {target_filepath} using OpenAI whisper-1:\n\n{transcript_vtt}\n\n"
         )
-        result = parse_vtt_transcript(transcript_vtt)
+        result = parse_vtt_transcript(transcript_vtt.text)
         logging.debug(f"Parsed transcript: {result=}")
         return TranscriptWithSource(
             transcript=result,

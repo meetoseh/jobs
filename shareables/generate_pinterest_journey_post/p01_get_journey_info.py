@@ -33,8 +33,8 @@ class PinterestJourneyForPost:
     """The full transcript of the journey"""
 
     @classmethod
-    def from_dict(c, raw: dict):
-        return c(
+    def from_dict(cls, raw: dict):
+        return cls(
             uid=raw["uid"],
             title=raw["title"],
             description=raw["description"],

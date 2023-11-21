@@ -29,7 +29,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, event_obj: dict):
         gd (GracefulDeath): the signal tracker; provided automatically
         event (dict): the jsonified EmailEvent that was received
     """
-    event = EmailEvent.parse_obj(event_obj)
+    event = EmailEvent.model_validate(event_obj)
     logging.warning(f"abandoned email {event.message_id} -> {event.notification.type}")
 
     if event.notification.type == "Delivery":

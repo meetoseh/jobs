@@ -118,14 +118,14 @@ async def touch_pending_cleanup_stale(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         TOUCH_PENDING_CLEANUP_STALE_LUA_SCRIPT_HASH,
         2,
-        pending_key,
-        jobs_key,
-        max_timestamp_for_stale,
-        now,
-        max_to_clean,
+        pending_key,  # type: ignore
+        jobs_key,  # type: ignore
+        max_timestamp_for_stale,  # type: ignore
+        now,  # type: ignore
+        max_to_clean,  # type: ignore
     )
     if res is redis:
         return None

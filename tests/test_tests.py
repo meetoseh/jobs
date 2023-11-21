@@ -1,10 +1,10 @@
 import unittest
 
 try:
-    import helper
+    import helper  # type: ignore
 except:
-    import tests.helper
-import main
+    import tests.helper  # type: ignore
+import main  # type: ignore
 
 
 class Test(unittest.TestCase):

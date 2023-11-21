@@ -43,10 +43,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"email:stale_receipt_job:lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:email_events:stale_receipt_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:email_events:stale_receipt_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         jobs = await itgs.jobs()
@@ -79,7 +79,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             email = EmailPending.from_redis_mapping(next_raw_mapping)
             logging.debug(f"Abandoning stale email in receipt pending set: {email}")
-            jobs.enqueue(
+            await jobs.enqueue(
                 email.failure_job.name,
                 **email.failure_job.kwargs,
                 data_raw=encode_data_for_failure_job(
@@ -103,8 +103,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Stop Reason: {stop_reason}\n"
             f"- Abandoned: {run_stats.abandoned}\n"
         )
-        await redis.hset(
-            b"stats:email_events:stale_receipt_job",
+        await redis.hset(  # type: ignore
+            b"stats:email_events:stale_receipt_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,

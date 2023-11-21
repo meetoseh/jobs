@@ -6,7 +6,7 @@ import redis_helpers.run_with_prep
 from itgs import Itgs
 from dataclasses import dataclass
 
-MOVE_COLD_TO_HOT_LUA_SCRIPT = """
+MOVE_COLD_TO_HOT_LUA_SCRIPT: str = """
 local src = KEYS[1]
 local dst = KEYS[2]
 local max_score = tonumber(ARGV[1])
@@ -122,14 +122,14 @@ async def move_cold_to_hot(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         MOVE_COLD_TO_HOT_LUA_SCRIPT_HASH,
         2,
-        src,
-        dst,
-        max_score,
-        max_count,
-        backpressure if backpressure is not None else b"",
+        src,  # type: ignore
+        dst,  # type: ignore
+        max_score,  # type: ignore
+        max_count,  # type: ignore
+        backpressure if backpressure is not None else b"",  # type: ignore
     )
     if res is redis:
         return None
@@ -191,4 +191,6 @@ async def move_cold_to_hot_safe(
             redis, src, dst, max_score, max_count, backpressure=backpressure
         )
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

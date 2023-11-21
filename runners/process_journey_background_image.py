@@ -2,7 +2,7 @@
 import os
 import secrets
 import time
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -123,7 +123,7 @@ def get_webp_settings(width: int, height: int) -> dict:
     return {"lossless": False, "quality": 90, "method": 4}
 
 
-def make_standard_targets(resolutions: List[Tuple[int, int]]) -> List[ImageTarget]:
+def make_standard_targets(resolutions: Sequence[Tuple[int, int]]) -> List[ImageTarget]:
     return [
         *(
             ImageTarget(

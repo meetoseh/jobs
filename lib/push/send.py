@@ -80,7 +80,7 @@ async def send_push(
             failure_job=failure_job,
             success_job=success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -95,10 +95,11 @@ async def send_push(
             await lib.push.ticket_stats.attempt_increment_event(
                 pipe, event="queued", now=now
             )
-            await pipe.rpush(b"push:message_attempts:to_send", entry)
+            await pipe.rpush(b"push:message_attempts:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    return uid
 
 
 async def retry_send_push(
@@ -130,7 +131,7 @@ async def retry_send_push(
             failure_job=attempt.failure_job,
             success_job=attempt.success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -145,7 +146,7 @@ async def retry_send_push(
             await lib.push.ticket_stats.attempt_increment_event(
                 pipe, event="retried", now=attempt.initially_queued_at
             )
-            await pipe.rpush(b"push:message_attempts:to_send", entry)
+            await pipe.rpush(b"push:message_attempts:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)

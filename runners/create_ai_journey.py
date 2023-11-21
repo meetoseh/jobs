@@ -19,7 +19,6 @@ import urllib.parse
 from runners.process_instructor_profile_picture import (
     process_instructor_profile_picture,
 )
-import requests
 
 category = JobCategory.HIGH_RESOURCE_COST
 
@@ -50,7 +49,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, only_in_env: Optional[str] =
         if gd.received_term_signal:
             logging.info("Received term signal, aborting creating class")
             return
-
+        assert generated is not None
         generated_class_at = time.time()
         logging.info(
             f"Finished generating class audio in {generated_class_at - started_at:.3f} seconds, processing..."
@@ -79,6 +78,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, only_in_env: Optional[str] =
         response = await cursor.execute(
             "SELECT uid FROM journey_background_images ORDER BY RANDOM() LIMIT 1"
         )
+        assert (
+            response.results is not None
+        ), "no journey background images to choose from"
         background_uid = response.results[0][0]
         background_selected_at = time.time()
         logging.info(

@@ -4,7 +4,7 @@ from fractions import Fraction
 import json
 import random
 import secrets
-from typing import Dict, List, Literal, Optional, Set, Tuple, Type
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, Type, cast
 from abc import ABCMeta, abstractmethod
 from lib.redis_api_limiter import ratelimit_using_redis
 from shareables.journey_audio_with_dynamic_background.p07_image_descriptions import (
@@ -38,7 +38,7 @@ class ImagesError(ShareablePipelineException):
         super().__init__(message, 8, "images")
 
 
-MODEL_CAPABLE_IMAGE_SIZES: Dict[str, List[Tuple[int, int]]] = {
+MODEL_CAPABLE_IMAGE_SIZES: Dict[str, Sequence[Tuple[int, int]]] = {
     "dall-e": ((256, 256), (512, 512), (1024, 1024)),
 }
 
@@ -68,6 +68,7 @@ class Frame:
             return res
 
         assert self.style == "video"
+        assert self.video_info is not None
         ffmpeg = shutil.which("ffmpeg")
 
         wrapped_timestamp = timestamp % self.video_info.duration
@@ -168,6 +169,7 @@ class Images:
            00:00:22.500 - "A smiling person on a street." -> /path/to/image4.jpg
         """
 
+        out = io.StringIO()
         visible_timerange_index: Optional[int] = None
         current_timerange_index = 0
         for idx, (visible_at, frame) in enumerate(self.images):
@@ -176,7 +178,7 @@ class Images:
                 < len(self.image_descriptions.transcript.phrases)
                 and self.image_descriptions.transcript.phrases[
                     current_timerange_index + 1
-                ][0].start
+                ][0].start.in_seconds()
                 <= visible_at
             ):
                 current_timerange_index += 1
@@ -186,11 +188,13 @@ class Images:
                     current_timerange_index
                 ][0]
                 print(
-                    f'Phrase {current_timerange_index + 1}. ({timerange}) "{self.image_descriptions.transcript.phrases[current_timerange_index][1]}"'
+                    f'Phrase {current_timerange_index + 1}. ({timerange}) "{self.image_descriptions.transcript.phrases[current_timerange_index][1]}"',
+                    file=out,
                 )
                 visible_timerange_index = current_timerange_index
 
-            print(f'   {visible_at} - "{self.prompts[idx]}" -> {frame.path}')
+            print(f'   {visible_at} - "{self.prompts[idx]}" -> {frame.path}', file=out)
+        return out.getvalue()
 
 
 class ImageGenerator(metaclass=ABCMeta):
@@ -199,6 +203,10 @@ class ImageGenerator(metaclass=ABCMeta):
 
     height: int
     """The height of the images to generate. Readonly"""
+
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
 
     @abstractmethod
     async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
@@ -237,16 +245,22 @@ class DalleImageGenerator(ImageGenerator):
             itgs, key="external_apis:api_limiter:dall-e", time_between_requests=5
         )
 
-        response = openai.Image.create(
-            api_key=self.openai_api_key,
+        openai_client = openai.Client(api_key=self.openai_api_key)
+        raw_size = f"{self.width}x{self.height}"
+        assert raw_size in ("256x256", "512x512", "1024x1024", "1792x1024", "1024x1792")
+
+        response = openai_client.images.generate(
             prompt=prompt,
             n=1,
-            size=f"{self.width}x{self.height}",
+            size=cast(
+                Literal["256x256", "512x512", "1024x1024", "1792x1024", "1024x1792"],
+                raw_size,
+            ),
             response_format="b64_json",
         )
-        img = Image.open(
-            io.BytesIO(base64.b64decode(bytes(response.data[0].b64_json, "utf-8")))
-        )
+        img_b64_json = response.data[0].b64_json
+        assert img_b64_json is not None, response
+        img = Image.open(io.BytesIO(base64.b64decode(bytes(img_b64_json, "utf-8"))))
 
         filename = f"{secrets.token_urlsafe(8)}.webp"
         filepath = os.path.join(folder, filename)
@@ -339,6 +353,7 @@ class PexelsImageGenerator(ImageGenerator):
                     quality_settings={"lossless": False, "quality": 95, "method": 4},
                 ),
                 out_path,
+                (0.5, 0.5),
             )
 
             if target is None:
@@ -736,6 +751,7 @@ class TransformationImageGenerator(ImageGenerator):
             return inner_frame
 
         assert inner_frame.style == "video"
+        assert inner_frame.video_info is not None
 
         outpath = os.path.join(folder, f"{secrets.token_urlsafe(8)}.mp4")
         ffmpeg = shutil.which("ffmpeg")
@@ -755,6 +771,7 @@ class TransformationImageGenerator(ImageGenerator):
             "pipe:1",
         ]
         reader = subprocess.Popen(reader_cmd, stdout=subprocess.PIPE)
+        assert reader.stdout is not None
 
         writer_cmd = [
             ffmpeg,
@@ -788,6 +805,7 @@ class TransformationImageGenerator(ImageGenerator):
         writer = subprocess.Popen(
             writer_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
+        assert writer.stdin is not None
 
         while True:
             bmp = b""
@@ -928,11 +946,13 @@ class CropImageGenerator(TransformationImageGenerator):
         )
 
 
+ImageModel = Literal["dall-e", "pexels", "pexels-video", "stability-ai"]
+
 def create_image_generator(
     width: int,
     height: int,
     *,
-    model: Optional[Literal["dall-e", "pexels", "pexels-video", "stability-ai"]] = None,
+    model: Optional[ImageModel] = None,
 ) -> ImageGenerator:
     """Produces the standard image generator for generating images of the given
     width and height, based on what is actually installed.
@@ -982,7 +1002,7 @@ def create_image_generator(
 
 
 def generate_image_from_prompt(
-    prompt: str, width: int, height: int, model: str, out: str
+    prompt: str, width: int, height: int, model: ImageModel, out: str
 ) -> None:
     """Generates an image from the given prompt at the given width. The model that
     we use can only produce images of certain sizes, so in order to produce
@@ -1102,6 +1122,8 @@ async def create_images(
             image_duration = time_until_next_segment
 
         found_frame = False
+        prompt = None
+        frame = None
         while not found_frame:
             if not prompts_remaining_in_segment:
                 err_msg = f"Ran out of prompts to attempt for segment; original prompts: {image_descriptions.image_descriptions[current_segment_index][1]}"
@@ -1123,11 +1145,15 @@ async def create_images(
                     logging.info(
                         f"Failing to generate image (attempt {attempt+1}/{max_retries})"
                     )
-
+        
+        assert prompt is not None
+        assert frame is not None
         prompts.append(prompt)
         images.append((next_image_starts_at, frame))
 
         if frame.style == "video":
+            assert frame.video_info is not None
+            
             # 1. show at least 20 seconds
             image_duration = max(image_duration, 20.0)
 

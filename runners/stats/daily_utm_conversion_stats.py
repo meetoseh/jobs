@@ -98,6 +98,7 @@ async def rotate_utm_conversion_stats(itgs: Itgs, unix_date: int, utm: str) -> N
         utm (str): the utm to rotate
     """
     utm_parts = get_utm_parts(utm)
+    assert utm_parts is not None, f"{utm=} {utm_parts=}"
     redis = await itgs.redis()
     retrieved_at = time.time()
     (
@@ -109,7 +110,7 @@ async def rotate_utm_conversion_stats(itgs: Itgs, unix_date: int, utm: str) -> N
         last_click_signups_raw,
         any_click_signups_raw,
     ) = await redis.hmget(
-        counts_key(utm, unix_date),
+        counts_key(utm, unix_date),  # type: ignore
         [
             b"visits",
             b"holdover_preexisting",
@@ -236,12 +237,11 @@ async def rotate_utm_conversion_stats(itgs: Itgs, unix_date: int, utm: str) -> N
         logging.debug(f"redis delete {counts_key(utm, unix_date)}")
         await pipe.delete(counts_key(utm, unix_date))
         logging.debug(f"redis srem {utms_set_key(unix_date)} {utm}")
-        await pipe.srem(utms_set_key(unix_date), utm)
+        await pipe.srem(utms_set_key(unix_date), utm)  # type: ignore
         await pipe.execute()
 
 
 if __name__ == "__main__":
-
     import asyncio
 
     async def main():

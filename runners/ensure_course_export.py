@@ -5,6 +5,7 @@ import socket
 from typing import Dict, List, Optional
 from content import hash_content_sync
 from error_middleware import handle_contextless_error
+from file_service import SyncWritableBytesIO
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from dataclasses import dataclass
@@ -12,14 +13,12 @@ from dataclasses import dataclass
 from jobs import JobCategory
 from lib.image_files.get_biggest_export import (
     ImageFileExportRef,
-    download_export_ref as download_image_export_ref,
     get_biggest_export_ref,
 )
 import io
 import hashlib
 from log_helpers import format_bps
 from temp_files import temp_dir, temp_file
-import textwrap
 import zipfile
 import logging
 import time
@@ -151,12 +150,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, course_uid: str):
         )
         if response[0].rows_affected is None or response[0].rows_affected < 1:
             await handle_contextless_error(
-                f"failed to insert s3_file {s3_file_uid=}, {s3_file_key=}, {export_file_size=}, {upload_completed_at=}"
+                extra_info=f"failed to insert s3_file {s3_file_uid=}, {s3_file_key=}, {export_file_size=}, {upload_completed_at=}"
             )
             return
         if response[1].rows_affected is None or response[1].rows_affected < 1:
             await handle_contextless_error(
-                f"failed to insert course_export {course_export_uid=}, {course_hash=}, {export_sha512=}, {upload_completed_at=}, {course_uid=}, {s3_file_uid=}"
+                extra_info=f"failed to insert course_export {course_export_uid=}, {course_hash=}, {export_sha512=}, {upload_completed_at=}, {course_uid=}, {s3_file_uid=}"
             )
             return
         await redis.zrem("files:purgatory", purgatory_key)
@@ -245,7 +244,7 @@ class JourneyRelpaths:
 
 
 async def download_video(
-    itgs: Itgs, video: ContentFileExportRef, f: io.BytesIO
+    itgs: Itgs, video: ContentFileExportRef, f: SyncWritableBytesIO
 ) -> None:
     conn = await itgs.conn()
     cursor = conn.cursor("none")
@@ -417,9 +416,10 @@ async def get_course(itgs: Itgs, uid: str) -> Optional[CourseForExport]:
         """,
         (uid,),
     )
+    assert response.results, response
     num_journeys = response.results[0][0]
     if num_journeys <= 0:
-        await handle_contextless_error(f"course {uid=} has no journeys")
+        await handle_contextless_error(extra_info=f"course {uid=} has no journeys")
         return None
 
     response = await cursor.execute(

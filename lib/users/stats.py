@@ -4,7 +4,6 @@ rqlite, since that is done by the jobs repo.
 
 This is not an exhausitive list of callbacks: see also interactive_prompts/lib/stats.py
 """
-from typing import Literal
 from itgs import Itgs
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import pytz
@@ -50,7 +49,7 @@ async def on_user_created(itgs: Itgs, sub: str, created_at: float) -> None:
         await pipe.incr(f"stats:daily_new_users:{unix_date}")
         await set_if_lower(pipe, "stats:daily_new_users:earliest", unix_date)
         for period_days in RETENTION_PERIOD_DAYS:
-            await pipe.sadd(f"stats:retention:{period_days}day:false:{unix_date}", sub)
+            await pipe.sadd(f"stats:retention:{period_days}day:false:{unix_date}", sub)  # type: ignore
             await set_if_lower(
                 pipe, f"stats:retention:{period_days}day:false:earliest", unix_date
             )
@@ -105,9 +104,9 @@ async def on_interactive_prompt_session_started(
         await set_if_lower(
             pipe, "stats:daily_active_users:earliest", started_at_unix_date
         )
-        await pipe.sadd(f"stats:daily_active_users:{started_at_unix_date}", sub)
+        await pipe.sadd(f"stats:daily_active_users:{started_at_unix_date}", sub)  # type: ignore
 
-        await pipe.sadd(f"stats:monthly_active_users:{started_at_unix_month}", sub)
+        await pipe.sadd(f"stats:monthly_active_users:{started_at_unix_month}", sub)  # type: ignore
         await set_if_lower(
             pipe, "stats:monthly_active_users:earliest", started_at_unix_month
         )
@@ -116,9 +115,9 @@ async def on_interactive_prompt_session_started(
                 if started_at_unix_date - created_at_unix_date < period_days:
                     continue
 
-                await pipe.smove(
-                    f"stats:retention:{period_days}day:false:{created_at_unix_date}",
-                    f"stats:retention:{period_days}day:true:{created_at_unix_date}",
+                await pipe.smove(  # type: ignore
+                    f"stats:retention:{period_days}day:false:{created_at_unix_date}",  # type: ignore
+                    f"stats:retention:{period_days}day:true:{created_at_unix_date}",  # type: ignore
                     sub,
                 )
                 await set_if_lower(

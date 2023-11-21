@@ -8,3 +8,4 @@ updater.lock
 *.log.*
 sd-venv
 test.webp
+/update_deps.py

@@ -1,6 +1,6 @@
 """Hands sending emails from the To Send queue"""
 import time
-from typing import Dict, Literal, Optional, cast
+from typing import Dict, Literal, Optional
 from error_middleware import handle_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -17,6 +17,7 @@ from lib.basic_redis_lock import basic_redis_lock
 from lib.emails.email_info import (
     EmailAttempt,
     EmailFailureInfo,
+    EmailFailureInfoErrorIdentifier,
     EmailPending,
     encode_data_for_failure_job,
 )
@@ -51,11 +52,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     started_at = time.time()
     async with basic_redis_lock(itgs, b"email:send_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:email_send:send_job", b"started_at", str(started_at).encode("ascii")
+        await redis.hset(  # type: ignore
+            b"stats:email_send:send_job", b"started_at", str(started_at).encode("ascii")  # type: ignore
         )
 
-        num_in_purgatory = await redis.llen(b"email:send_purgatory")
+        num_in_purgatory = await redis.llen(b"email:send_purgatory")  # type: ignore
         if num_in_purgatory > 0:
             slack = await itgs.slack()
             await slack.send_web_error_message(
@@ -63,14 +64,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 "Email Send Job - recovering from purgatory",
             )
 
-            next_to_send_raw = await redis.lindex(b"email:send_purgatory", 0)
+            next_to_send_raw = await redis.lindex(b"email:send_purgatory", 0)  # type: ignore
             if next_to_send_raw is None:
                 raise Exception(
                     f"Email Send Job - {num_in_purgatory=} but LINDEX 0 is None"
                 )
         else:
             next_to_send_raw = await redis.lmove(
-                b"email:to_send", b"email:send_purgatory", "LEFT", "RIGHT"
+                b"email:to_send", b"email:send_purgatory", "LEFT", "RIGHT"  # type: ignore
             )
             num_in_purgatory = 1
 
@@ -78,7 +79,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             logging.info("Email Send Job - no messages to send")
             finished_at = time.time()
             await redis.hset(
-                b"stats:email_send:send_job",
+                b"stats:email_send:send_job",  # type: ignore
                 mapping={
                     b"finished_at": finished_at,
                     b"running_time": finished_at - started_at,
@@ -110,15 +111,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             async with redis.pipeline() as pipe:
                 pipe.multi()
-                await pipe.lpop(b"email:send_purgatory")
+                await pipe.lpop(b"email:send_purgatory")  # type: ignore
                 num_in_purgatory -= 1
 
                 if num_in_purgatory == 0:
                     await pipe.lmove(
-                        b"email:to_send", b"email:send_purgatory", "LEFT", "RIGHT"
+                        b"email:to_send", b"email:send_purgatory", "LEFT", "RIGHT"  # type: ignore
                     )
                 else:
-                    await pipe.lindex(b"email:send_purgatory", 0)
+                    await pipe.lindex(b"email:send_purgatory", 0)  # type: ignore
                 result = await pipe.execute()
 
             next_to_send_raw = result[1]
@@ -137,7 +138,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         num_failures = 0
         jwts_by_slug: Dict[str, str] = dict()
 
-        async with session.client("sesv2") as sesv2, client as conn:
+        async with session.client("sesv2") as sesv2, client as conn:  # type: ignore
             while True:
                 if next_to_send_raw is None:
                     logging.debug("Email Send Job - no more messages to send, stopping")
@@ -169,9 +170,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await asyncio.sleep(sleep_time)
 
                 try:
-                    next_to_send = EmailAttempt.parse_raw(
-                        next_to_send_raw, content_type="application/json"
-                    )
+                    next_to_send = EmailAttempt.model_validate_json(next_to_send_raw)
                 except Exception as exc:
                     await handle_error(
                         exc,
@@ -543,7 +542,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Failed Transiently: {run_stats.failed_transiently}"
         )
         await redis.hset(
-            b"stats:email_send:send_job",
+            b"stats:email_send:send_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -571,7 +570,7 @@ async def fail_job_and_update_stats(
     *,
     email: EmailAttempt,
     action: Literal["template", "send"],
-    identifier: str,
+    identifier: EmailFailureInfoErrorIdentifier,
     retryable: bool,
     extra: Optional[str] = None,
     events: Dict[bytes, Optional[bytes]],
@@ -601,13 +600,13 @@ async def fail_job_and_update_stats(
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_send:daily:earliest", today)
             for event, event_extra in events.items():
-                await pipe.hincrby(key, event, 1)
+                await pipe.hincrby(key, event, 1)  # type: ignore
                 if event_extra is not None:
-                    await pipe.hincrby(
-                        f"stats:email_send:daily:{today}:extra:{event.decode('utf-8')}".encode(
+                    await pipe.hincrby(  # type: ignore
+                        f"stats:email_send:daily:{today}:extra:{event.decode('utf-8')}".encode(  # type: ignore
                             "utf-8"
                         ),
-                        event_extra,
+                        event_extra,  # type: ignore
                         1,
                     )
             await jobs.enqueue_in_pipe(
@@ -652,18 +651,18 @@ async def add_to_pending_and_update_stats(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_send:daily:earliest", today)
-            await pipe.hincrby(key, b"attempted", 1)
-            await pipe.hincrby(key, b"templated", 1)
-            await pipe.hincrby(key, b"accepted", 1)
-            await pipe.hincrby(accepted_extra, email.template.encode("utf-8"), 1)
+            await pipe.hincrby(key, b"attempted", 1)  # type: ignore
+            await pipe.hincrby(key, b"templated", 1)  # type: ignore
+            await pipe.hincrby(key, b"accepted", 1)  # type: ignore
+            await pipe.hincrby(accepted_extra, email.template.encode("utf-8"), 1)  # type: ignore
             await pipe.zadd(
                 b"email:receipt_pending",
                 mapping={
                     message_id.encode("utf-8"): now,
                 },
             )
-            await pipe.hset(
-                f"email:receipt_pending:{message_id}".encode("utf-8"), mapping=entry
+            await pipe.hset(  # type: ignore
+                f"email:receipt_pending:{message_id}".encode("utf-8"), mapping=entry  # type: ignore
             )
             await pipe.execute()
 

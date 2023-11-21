@@ -1,7 +1,7 @@
 """Deletes a single s3 file. Usually used as part of a larger task,
 e.g., deleting a user.
 """
-from typing import Optional
+from typing import Optional, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from error_middleware import handle_warning
@@ -34,16 +34,17 @@ async def execute(
         )
         return
 
+    conn = await itgs.conn()
+    cursor = conn.cursor("weak")
+
     if key is None:
-        conn = await itgs.conn()
-        cursor = conn.cursor("weak")
         response = await cursor.execute("SELECT key FROM s3_files WHERE uid=?", (uid,))
         if not response.results:
             await handle_warning(
                 f"{__name__}:no_such_uid", f"No s3 file with uid {uid}"
             )
             return
-        key = response.results[0][0]
+        key = cast(str, response.results[0][0])
 
     files = await itgs.files()
     await files.delete(bucket=files.default_bucket, key=key)

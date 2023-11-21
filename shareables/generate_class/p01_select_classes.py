@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import secrets
-from typing import Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Dict, List, Literal, Optional, Set, Tuple, Union, cast
 from graceful_death import GracefulDeath
 from itgs import Itgs
 import random
@@ -67,11 +67,11 @@ def prompt_from_dict(prompt_obj: Dict[str, str]) -> InputJourneyPrompt:
     came from dataclasses.asdict(prompt)
     """
     if prompt_obj["style"] == "word":
-        return InputJourneyPromptWord(**prompt_obj)
+        return InputJourneyPromptWord(**prompt_obj)  # type: ignore
     elif prompt_obj["style"] == "color":
-        return InputJourneyPromptColor(**prompt_obj)
+        return InputJourneyPromptColor(**prompt_obj)  # type: ignore
     elif prompt_obj["style"] == "numeric":
-        return InputJourneyPromptNumeric(**prompt_obj)
+        return InputJourneyPromptNumeric(**prompt_obj)  # type: ignore
     else:
         raise ValueError(f"Unknown prompt style: {prompt_obj['style']}")
 
@@ -143,8 +143,8 @@ async def select_classes(
             """
         )
         subcategories = [
-            row[0]
-            for row in response.results
+            cast(str, row[0])
+            for row in response.results or []
             if row[1] > 2 and row[0] not in exclude_categories
         ]
         if not subcategories:
@@ -181,7 +181,7 @@ async def select_classes(
             (category,),
         )
         emotions = [
-            row[0]
+            cast(str, row[0])
             for row in (response.results or [])
             if row[1] >= 2 and row[0] not in exclude_emotions
         ]
@@ -202,7 +202,7 @@ async def select_classes(
     batch_size = 50
     last_uid: Optional[str] = None
 
-    chosen: List[Tuple[str, str, str, str, str]] = []
+    chosen: List[Tuple[str, str, str, str, str, str]] = []
     num_seen = 0
     target_number = 3
 
@@ -255,7 +255,8 @@ async def select_classes(
         if not response.results:
             break
 
-        for row in response.results:
+        for row_uncasted in response.results:
+            row = cast(Tuple[str, str, str, str, str, str], row_uncasted)
             if len(chosen) < target_number:
                 chosen.append(row)
             elif random.randint(0, num_seen) < target_number:

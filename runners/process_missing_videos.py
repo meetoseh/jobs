@@ -47,6 +47,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             sample_content_file_id: Optional[int] = row[1]
             video_content_file_id: Optional[int] = row[2]
 
+            last_uid = uid
+
             if sample_content_file_id is None:
                 logging.debug(
                     f"Queueing process_journey_video_sample for journey {uid=}"
@@ -60,8 +62,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         if len(response.results) < batch_size:
             break
-
-        last_uid = uid
 
 
 if __name__ == "__main__":

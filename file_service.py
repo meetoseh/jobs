@@ -1,6 +1,4 @@
-from abc import ABC
-from io import BytesIO
-from typing import Literal, Union
+from typing import Union, Protocol, cast as typing_cast
 import aioboto3
 import botocore.exceptions
 import aiofiles
@@ -10,7 +8,7 @@ from temp_files import temp_file
 import io
 
 
-class AsyncReadableBytesIO(ABC):
+class AsyncReadableBytesIO(Protocol):
     """A type that represents a stream that can be read asynchronously"""
 
     async def read(self, n: int) -> bytes:
@@ -18,68 +16,27 @@ class AsyncReadableBytesIO(ABC):
         raise NotImplementedError()
 
 
-class AsyncWritableBytesIO(ABC):
+class SyncReadableBytesIO(Protocol):
+    """A type that represents a stream that can be read synchronously"""
+
+    def read(self, n: int) -> bytes:
+        """Reads n bytes from the file-like object"""
+        raise NotImplementedError()
+
+
+class AsyncWritableBytesIO(Protocol):
     """A type that represents a stream that can be written asynchronously"""
 
-    async def write(self, b: Union[bytes, bytearray]) -> int:
+    async def write(self, b: Union[bytes, bytearray], /) -> int:
         """Writes the given bytes to the file-like object"""
         raise NotImplementedError()
 
 
-class FileService(ABC):
-    """Describes something suitable for storing large binary blobs as key-value pairs,
-    where the keys are formed from two strings (a bucket and a key) and the values
-    are binary blobs.
-    """
+class SyncWritableBytesIO(Protocol):
+    """A type that represents a stream that can be written synchronously"""
 
-    @property
-    def default_bucket(self) -> str:
-        raise NotImplementedError()
-
-    async def __aenter__(self) -> "FileService":
-        raise NotImplementedError()
-
-    async def __aexit__(self, exc_type, exc, tb):
-        raise NotImplementedError()
-
-    async def upload(
-        self,
-        f: Union[BytesIO, AsyncReadableBytesIO],
-        *,
-        bucket: str,
-        key: str,
-        sync: bool,
-    ) -> None:
-        """Uploads the file from the given file-like object to the given bucket and key.
-        This will overwrite any existing file at that location.
-
-        sync should be true if f is a synchronous file-like object, and false if it is
-        an asynchronous file-like object.
-        """
-        raise NotImplementedError()
-
-    async def download(
-        self,
-        f: Union[BytesIO, AsyncWritableBytesIO],
-        *,
-        bucket: str,
-        key: str,
-        sync: bool,
-    ) -> bool:
-        """Downloads the file at the given bucket and key to the given file-like object.
-
-        sync should be true if f is a synchronous file-like object, and false if it is
-        an asynchronous file-like object.
-
-        Returns:
-            True if the file was downloaded, False if it did not exist.
-        """
-        raise NotImplementedError()
-
-    async def delete(self, *, bucket: str, key: str) -> bool:
-        """Deletes the file at the given bucket and key. Returns True if the file was
-        deleted, False if it did not exist.
-        """
+    def write(self, b: Union[bytes, bytearray], /) -> int:
+        """Writes the given bytes to the file-like object"""
         raise NotImplementedError()
 
 
@@ -104,48 +61,37 @@ class S3:
         self._s3 = None
         """The result from __aenter__ on the client creator"""
 
-        self._state: Literal[
-            "unentered", "entering", "entered", "exiting", "exited"
-        ] = "unentered"
-        """The current state of this instance, for debugging purposes"""
-
     async def __aenter__(self) -> "S3":
-        assert self._state in ("unentered", "exited"), self._state
-        self._state = "entering"
         self._session = aioboto3.Session()
         self.__s3_creator = self._session.client("s3")
         self._s3 = await self.__s3_creator.__aenter__()
-        assert self._s3 is not None, self._s3
-        self._state = "entered"
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        assert self._state == "entered", self._state
-        self._state = "exiting"
+        assert self.__s3_creator is not None
         await self.__s3_creator.__aexit__(exc_type, exc, tb)
         self._session = None
         self.__s3_creator = None
         self._s3 = None
-        self._state = "exited"
 
     async def upload(
         self,
-        f: Union[BytesIO, AsyncReadableBytesIO],
+        f: Union[SyncReadableBytesIO, AsyncReadableBytesIO],
         *,
         bucket: str,
         key: str,
         sync: bool,
     ) -> None:
         logging.info(f"[file_service/s3]: upload {bucket=}, {key=}")
-        assert self._state == "entered", self._state
-        assert self._s3 is not None, "_s3 lost despite being entered?"
+        assert self._s3 is not None
         if not sync:
+            async_file = typing_cast(AsyncReadableBytesIO, f)
             with temp_file() as tmp:
                 async with aiofiles.open(tmp, "wb") as f2:
-                    data = await f.read(8192)
+                    data = await async_file.read(8192)
                     while data:
                         await f2.write(data)
-                        data = await f.read(8192)
+                        data = await async_file.read(8192)
 
                 with open(tmp, "rb") as f2:
                     await self._s3.put_object(Bucket=bucket, Key=key, Body=f2)
@@ -157,12 +103,13 @@ class S3:
             # big performance hit for converting spooled files this way, but since it goes
             # away once our python version is higher, we can live with it.
 
+            sync_file = typing_cast(io.IOBase, f)
             with temp_file() as tmp:
                 async with aiofiles.open(tmp, "wb") as f2:
-                    data = f.read(8192)
+                    data = sync_file.read(8192)
                     while data:
                         await f2.write(data)
-                        data = f.read(8192)
+                        data = sync_file.read(8192)
 
                 with open(tmp, "rb") as f2:
                     await self._s3.put_object(Bucket=bucket, Key=key, Body=f2)
@@ -173,15 +120,14 @@ class S3:
 
     async def download(
         self,
-        f: Union[BytesIO, AsyncWritableBytesIO],
+        f: Union[SyncWritableBytesIO, AsyncWritableBytesIO],
         *,
         bucket: str,
         key: str,
         sync: bool,
     ) -> bool:
         logging.info(f"[file_service/s3]: download {bucket=}, {key=}")
-        assert self._state == "entered", self._state
-        assert self._s3 is not None, "_s3 lost despite being entered?"
+        assert self._s3 is not None
         try:
             s3_ob = await self._s3.get_object(Bucket=bucket, Key=key)
 
@@ -190,12 +136,14 @@ class S3:
             try:
                 data = await stream.read(8192)
                 if sync:
+                    sync_file = typing_cast(SyncWritableBytesIO, f)
                     while data:
-                        f.write(data)
+                        sync_file.write(data)
                         data = await stream.read(8192)
                 else:
+                    async_file = typing_cast(AsyncWritableBytesIO, f)
                     while data:
-                        await f.write(data)
+                        await async_file.write(data)
                         data = await stream.read(8192)
             finally:
                 stream.close()
@@ -208,8 +156,7 @@ class S3:
 
     async def delete(self, *, bucket: str, key: str) -> bool:
         logging.info(f"[file_service/s3]: delete {bucket=}, {key=}")
-        assert self._state == "entered", self._state
-        assert self._s3 is not None, "_s3 lost despite being entered?"
+        assert self._s3 is not None
         try:
             await self._s3.delete_object(Bucket=bucket, Key=key)
             return True
@@ -237,7 +184,7 @@ class LocalFiles:
 
     async def upload(
         self,
-        f: Union[BytesIO, AsyncReadableBytesIO],
+        f: Union[SyncReadableBytesIO, AsyncReadableBytesIO],
         *,
         bucket: str,
         key: str,
@@ -248,19 +195,21 @@ class LocalFiles:
         os.makedirs(dst_folder, exist_ok=True)
         async with aiofiles.open(dst, "wb") as f2:
             if sync:
-                chunk = f.read(8192)
+                sync_file = typing_cast(SyncReadableBytesIO, f)
+                chunk = sync_file.read(8192)
                 while chunk:
                     await f2.write(chunk)
-                    chunk = f.read(8192)
+                    chunk = sync_file.read(8192)
             else:
-                chunk = await f.read(8192)
+                async_file = typing_cast(AsyncReadableBytesIO, f)
+                chunk = await async_file.read(8192)
                 while chunk:
                     await f2.write(chunk)
-                    chunk = await f.read(8192)
+                    chunk = await async_file.read(8192)
 
     async def download(
         self,
-        f: Union[BytesIO, AsyncWritableBytesIO],
+        f: Union[SyncWritableBytesIO, AsyncWritableBytesIO],
         *,
         bucket: str,
         key: str,
@@ -271,12 +220,14 @@ class LocalFiles:
             async with aiofiles.open(os.path.join(self._root, bucket, key), "rb") as f2:
                 chunk = await f2.read(8192)
                 if sync:
+                    sync_file = typing_cast(SyncWritableBytesIO, f)
                     while chunk:
-                        f.write(chunk)
+                        sync_file.write(chunk)
                         chunk = await f2.read(8192)
                 else:
+                    async_file = typing_cast(AsyncWritableBytesIO, f)
                     while chunk:
-                        await f.write(chunk)
+                        await async_file.write(chunk)
                         chunk = await f2.read(8192)
 
             return True
@@ -290,3 +241,6 @@ class LocalFiles:
             return True
         except FileNotFoundError:
             return False
+
+
+FileService = Union[S3, LocalFiles]

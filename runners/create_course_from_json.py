@@ -47,7 +47,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, course_data: str):
         gd (GracefulDeath): the signal tracker; provided automatically
         course_data (str): the course to create
     """
-    course = CourseData.parse_raw(course_data, content_type="application/json")
+    course = CourseData.model_validate_json(course_data)
 
     files = await itgs.files()
     with temp_file() as temp_path:
@@ -166,7 +166,7 @@ if __name__ == "__main__":
 
     async def main():
         course_data: str = input("course_data: ")
-        CourseData.parse_raw(course_data, content_type="application/json")
+        CourseData.model_validate_json(course_data)
         async with Itgs() as itgs:
             jobs = await itgs.jobs()
             await jobs.enqueue(

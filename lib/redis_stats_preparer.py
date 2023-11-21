@@ -141,7 +141,7 @@ class RedisStatsPreparer:
         """Writes the stat increments to the given pipe"""
         for key, updates in self.stats.items():
             for subkey, amt in updates.items():
-                await pipe.hincrby(key, subkey, amt)
+                await pipe.hincrby(key, subkey, amt)  # type: ignore
 
     async def store(self, itgs: Itgs) -> None:
         """Stores the prepared stats in redis within their own transaction"""

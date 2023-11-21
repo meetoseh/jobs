@@ -106,6 +106,21 @@ class MessageAttemptSuccess(BaseModel):
     contents: MessageContents = Field(description="The contents of the message")
 
 
+MessageAttemptFailureInfoIdentifier = Literal[
+    "DeviceNotRegistered",
+    "ClientError429",
+    "ClientErrorOther",
+    "ServerError",
+    "MessageTooBig",
+    "MessageRateExceeded",
+    "MismatchSenderId",
+    "InvalidCredentials",
+    "InternalError",
+    "NetworkError",
+    "NotReadyYet",
+]
+
+
 class MessageAttemptFailureInfo(BaseModel):
     """Information about where a message attempt is within the push notification
     send flow.
@@ -131,19 +146,7 @@ class MessageAttemptFailureInfo(BaseModel):
         )
     )
 
-    identifier: Literal[
-        "DeviceNotRegistered",
-        "ClientError429",
-        "ClientErrorOther",
-        "ServerError",
-        "MessageTooBig",
-        "MessageRateExceeded",
-        "MismatchSenderId",
-        "InvalidCredentials",
-        "InternalError",
-        "NetworkError",
-        "NotReadyYet",
-    ] = Field(
+    identifier: MessageAttemptFailureInfoIdentifier = Field(
         description=(
             "The cause of the last failure:\n"
             "- DeviceNotRegistered (send, check): The device token is no longer valid\n"
@@ -252,7 +255,7 @@ def encode_data_for_failure_job(
     return base64.urlsafe_b64encode(
         gzip.compress(
             MessageAttemptFailureData(attempt=attempt, failure_info=failure_info)
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
             compresslevel=6,
             mtime=0,
@@ -266,9 +269,8 @@ def decode_data_for_failure_job(
     Union[MessageAttemptToSend, MessageAttemptToCheck], MessageAttemptFailureInfo
 ]:
     """Undoes the encoding done by encode_data_for_failure_job"""
-    result = MessageAttemptFailureData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = MessageAttemptFailureData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.attempt, result.failure_info)
 
@@ -294,7 +296,7 @@ def encode_data_for_success_job(
     return base64.urlsafe_b64encode(
         gzip.compress(
             MessageAttemptSuccessData(attempt=attempt, result=result)
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
             compresslevel=6,
             mtime=0,
@@ -306,8 +308,7 @@ def decode_data_for_success_job(
     data_raw: str,
 ) -> Tuple[MessageAttemptSuccess, MessageAttemptSuccessResult]:
     """Undoes the encoding done by encode_data_for_success_job"""
-    result = MessageAttemptSuccessData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = MessageAttemptSuccessData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.attempt, result.result)

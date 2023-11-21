@@ -3,13 +3,12 @@ when sending slack messages
 """
 import asyncio
 import os
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, cast as typing_cast
 from pydantic import BaseModel, Field
 from lib.image_files.auth import create_jwt
 from itgs import Itgs
 import urllib.parse
 import pytz
-import unix_dates
 from lib.shared.clean_for_slack import clean_for_non_code_slack, clean_for_slack
 import datetime
 import time
@@ -83,7 +82,7 @@ class DescribedUser(BaseModel):
         Literal["Google", "SignInWithApple", "Direct", "Dev"]
     ] = Field(
         description="The providers of the identities associated with the user",
-        unique_items=True,
+        max_length=4,
     )
     timezone: Optional[str] = Field(
         description="The users timezone as an IANA timezone string, if set"
@@ -107,7 +106,7 @@ class DescribedUser(BaseModel):
     @property
     def details_for_slack(self) -> str:
         """Formats a list of details about the user for slack"""
-        now_in_timezone: Optional[str] = None
+        now_in_timezone = None
         if self.timezone is not None:
             try:
                 tz = pytz.timezone(self.timezone)
@@ -152,7 +151,7 @@ class DescribedUser(BaseModel):
                     [
                         f"timezone: `{clean_for_slack(self.timezone)}` (currently {clean_for_non_code_slack(now_in_timezone)})"
                     ]
-                    if self.timezone is not None
+                    if self.timezone is not None and now_in_timezone is not None
                     else []
                 ),
                 f"identity providers: `{', '.join(self.identity_providers) if self.identity_providers else 'none'}`",
@@ -262,7 +261,7 @@ async def describe_user(itgs: Itgs, sub: str) -> Optional[DescribedUser]:
 
     await redis.set(
         f"described_users:{sub}".encode("utf-8"),
-        real.json().encode("utf-8"),
+        real.model_dump_json().encode("utf-8"),
         ex=60 * 15,
     )
     return real
@@ -286,7 +285,7 @@ async def _get_or_lock_described_user_from_cache(
         if result[1] == b"1":
             await asyncio.sleep(1)
             continue
-        return DescribedUser.parse_raw(result[1], content_type="application/json")
+        return DescribedUser.model_validate_json(result[1])
 
 
 async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[DescribedUser]:
@@ -302,6 +301,7 @@ async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[Described
             users.created_at,
             profile_image_files.uid,
             attributed_utms.canonical_query_param,
+            attributed_journeys.uid,
             attributed_journeys.title,
             attributed_journey_links.code
         FROM users 
@@ -382,14 +382,17 @@ async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[Described
     if not response.results:
         return None
 
-    given_name: Optional[str] = response.results[0][0]
-    family_name: Optional[str] = response.results[0][1]
-    timezone: Optional[str] = response.results[0][2]
-    created_at: float = response.results[0][3]
-    profile_image_uid: Optional[str] = response.results[0][4]
-    attributed_utm_canonical_query_param: Optional[str] = response.results[0][5]
-    attributed_journey_title: Optional[str] = response.results[0][6]
-    attributed_journey_code: Optional[str] = response.results[0][7]
+    given_name = typing_cast(Optional[str], response.results[0][0])
+    family_name = typing_cast(Optional[str], response.results[0][1])
+    timezone = typing_cast(Optional[str], response.results[0][2])
+    created_at = typing_cast(float, response.results[0][3])
+    profile_image_uid = typing_cast(Optional[str], response.results[0][4])
+    attributed_utm_canonical_query_param = typing_cast(
+        Optional[str], response.results[0][5]
+    )
+    attributed_journey_uid = typing_cast(Optional[str], response.results[0][6])
+    attributed_journey_title = typing_cast(Optional[str], response.results[0][7])
+    attributed_journey_code = typing_cast(Optional[str], response.results[0][8])
 
     response = await cursor.execute(
         """
@@ -473,11 +476,15 @@ async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[Described
         attribution=Attribution(
             utm=attributed_utm_canonical_query_param,
             journey=Journey(
-                uid=attributed_journey_code,
+                uid=attributed_journey_uid,
                 title=attributed_journey_title,
                 code=attributed_journey_code,
             )
-            if attributed_journey_code
+            if (
+                attributed_journey_code is not None
+                and attributed_journey_title is not None
+                and attributed_journey_uid is not None
+            )
             else None,
         )
         if attributed_utm_canonical_query_param or attributed_journey_code
@@ -502,10 +509,10 @@ def get_name_equivalent(user: DescribedUser) -> str:
         return clean_for_non_code_slack(user.family_name)
 
     if user.emails:
-        return clean_for_non_code_slack(user.emails[0])
+        return clean_for_non_code_slack(user.emails[0].address)
 
     if user.phones:
-        return clean_for_non_code_slack(user.phones[0])
+        return clean_for_non_code_slack(user.phones[0].number)
 
     return clean_for_non_code_slack(user.sub)
 

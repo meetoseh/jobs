@@ -9,14 +9,14 @@ def process_redis_hgetall_ints(raw: dict) -> Dict[str, int]:
     if not isinstance(raw, dict):
         raise ValueError(f"expected dict, got {type(raw)}")
 
-    res: Dict[str, str] = dict()
+    res: Dict[str, int] = dict()
     for key, value in raw.items():
         if not isinstance(key, (str, bytes)):
             raise ValueError(f"expected str or bytes, got {type(key)=}")
         if not isinstance(value, (str, bytes)):
             raise ValueError(f"expected str or bytes, got {type(value)=}")
 
-        str_key = key if isinstance(key, str) else key.decode("ascii")
+        str_key = key if isinstance(key, str) else str(key, "ascii")
         try:
             int_value = int(value)
         except ValueError:

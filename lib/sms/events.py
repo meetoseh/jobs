@@ -35,18 +35,19 @@ class MessageResourceEvent(BaseModel):
 
     @classmethod
     def from_webhook(cls, data: dict, request_at: float) -> "MessageResourceEvent":
-        assert isinstance(data.get("MessageSid", str))
-        assert isinstance(data.get("MessageStatus", str))
-        assert isinstance(data.get("ErrorCode", (str, type(None), int)))
+        assert isinstance(data.get("MessageSid"), str)
+        assert isinstance(data.get("MessageStatus"), str)
+        assert isinstance(data.get("ErrorCode"), (str, type(None), int))
         return MessageResourceEvent(
             sid=data["MessageSid"],
             status=data["MessageStatus"],
             error_code=str(data["ErrorCode"])
-            if data["ErrorCode"] is not None
+            if data.get("ErrorCode") is not None
             else None,
             error_message=None,
             date_updated=None,
             information_received_at=request_at,
+            received_via="webhook",
         )
 
 
@@ -59,4 +60,4 @@ async def push_message_resource_event(itgs: Itgs, evt: MessageResourceEvent) -> 
         evt (MessageResourceEvent): the event to push
     """
     redis = await itgs.redis()
-    await redis.rpush(b"sms:event", evt.json().encode("utf-8"))
+    await redis.rpush(b"sms:event", evt.model_dump_json().encode("utf-8"))  # type: ignore

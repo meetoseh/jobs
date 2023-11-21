@@ -52,15 +52,15 @@ async def retry_or_abandon_standard(
 
     attempt = cast(EmailAttempt, email)
 
-    if attempt.retry > 3 or (now - email.initially_queued_at) > 60 * 60 * 12:
+    if attempt.retry > 3 or (now - attempt.initially_queued_at) > 60 * 60 * 12:
         logging.info(
-            f"Abandoning email {email.uid} after {email.retry} retries during {failure_info.step} step"
+            f"Abandoning email {attempt.uid} after {attempt.retry} retries during {failure_info.step} step"
         )
-        await abandon_send(itgs, email=email, now=now)
+        await abandon_send(itgs, email=attempt, now=now)
         return EmailRetryOrAbandonStandardResult(wanted_to_retry=False, succeeded=True)
 
     logging.info(
-        f"Retrying email {email.uid} {failure_info.step} (this will be attempt {email.retry + 1})"
+        f"Retrying email {email.uid} {failure_info.step} (this will be attempt {attempt.retry + 1})"
     )
-    await retry_send(itgs, email=email, now=now)
+    await retry_send(itgs, email=attempt, now=now)
     return EmailRetryOrAbandonStandardResult(wanted_to_retry=True, succeeded=None)

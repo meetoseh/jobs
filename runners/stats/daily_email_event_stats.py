@@ -2,7 +2,7 @@
 import json
 import time
 from typing import Dict, List
-from error_middleware import handle_contextless_error, handle_error
+from error_middleware import handle_contextless_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -54,9 +54,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         )
 
         async with redis.pipeline(transaction=False) as pipe:
-            await pipe.hgetall(key_for_date(unix_date))
+            await pipe.hgetall(key_for_date(unix_date))  # type: ignore
             for event in BREAKDOWN_EVENTS:
-                await pipe.hgetall(key_for_date_and_event(unix_date, event))
+                await pipe.hgetall(key_for_date_and_event(unix_date, event))  # type: ignore
             result = await pipe.execute()
 
         assert isinstance(result, (list, tuple)), f"{type(result)=}"
@@ -79,25 +79,25 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         if overall.get("attempted", 0) != sum(attempted_breakdown.values()):
             await handle_contextless_error(
-                f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
+                extra_info=f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
                 f"{overall.get('attempted', 0)=} != {sum(attempted_breakdown.values())=}"
             )
 
         if overall.get("succeeded", 0) != sum(succeeded_breakdown.values()):
             await handle_contextless_error(
-                f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
+                extra_info=f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
                 f"{overall.get('succeeded', 0)=} != {sum(succeeded_breakdown.values())=}"
             )
 
         if overall.get("bounced", 0) != sum(bounced_breakdown.values()):
             await handle_contextless_error(
-                f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
+                extra_info=f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
                 f"{overall.get('bounced', 0)=} != {sum(bounced_breakdown.values())=}"
             )
 
         if overall.get("complaint", 0) != sum(complaint_breakdown.values()):
             await handle_contextless_error(
-                f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
+                extra_info=f"Daily email event stats for {unix_dates.unix_date_to_date(unix_date).isoformat()} are inconsistent: "
                 f"{overall.get('complaint', 0)=} != {sum(complaint_breakdown.values())=}"
             )
 

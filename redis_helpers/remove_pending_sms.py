@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Union
+from typing import Optional, List, Union
 import hashlib
 import time
 import redis.asyncio.client
@@ -74,7 +74,7 @@ async def remove_pending_sms(
     sid: Union[str, bytes],
     expected_num_changes: int,
     job: Union[str, bytes],
-) -> bool:
+) -> Optional[bool]:
     """If the message resource indicated by the given sid is in the pending set and
     is unchanged (as identified by num_changes), it's removed and the given job is
     enqueued.
@@ -99,14 +99,14 @@ async def remove_pending_sms(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         REMOVE_PENDING_SMS_LUA_SCRIPT_HASH,
         2,
-        src,
-        job_queue,
-        sid,
-        expected_num_changes,
-        job,
+        src,  # type: ignore
+        job_queue,  # type: ignore
+        sid,  # type: ignore
+        expected_num_changes,  # type: ignore
+        job,  # type: ignore
     )
     if res is redis:
         return None
@@ -149,4 +149,6 @@ async def remove_pending_sms_safe(
             redis, src, job_queue, sid, expected_num_changes, job
         )
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

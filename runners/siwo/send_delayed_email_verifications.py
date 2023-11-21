@@ -34,10 +34,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     """
     started_at = time.time()
     redis = await itgs.redis()
-    await redis.hset(
-        b"stats:sign_in_with_oseh:send_delayed_job",
-        b"started_at",
-        str(started_at).encode("ascii"),
+    await redis.hset(  # type: ignore
+        b"stats:sign_in_with_oseh:send_delayed_job",  # type: ignore
+        b"started_at",  # type: ignore
+        str(started_at).encode("ascii"),  # type: ignore
     )
 
     stop_reason: Optional[str] = None
@@ -82,7 +82,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         f"- Moved: {num_moved}\n"
     )
     await redis.hset(
-        b"stats:sign_in_with_oseh:send_delayed_job",
+        b"stats:sign_in_with_oseh:send_delayed_job",  # type: ignore
         mapping={
             b"finished_at": str(finished_at).encode("ascii"),
             b"running_time": str(finished_at - started_at).encode("ascii"),

@@ -41,7 +41,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         key = f"stats:daily_active_users:{unix_date}"
         retrieved_at = time.time()
         retrieved_for = unix_dates.unix_date_to_date(unix_date)
-        total = await redis.scard(key)
+        total = await redis.scard(key)  # type: ignore
 
         response = await cursor.execute(
             """

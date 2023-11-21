@@ -174,7 +174,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     async with basic_redis_lock(itgs, b"touch:send_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_send:send_job", b"started_at", str(started_at).encode("ascii")
+            b"stats:touch_send:send_job", b"started_at", str(started_at).encode("ascii")  # type: ignore
         )
 
         job_batch_handler = JobBatchHandler()
@@ -209,6 +209,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             if job_batch_handler.purgatory_size is None:
                 await job_batch_handler.get_next_batch(itgs)
+                assert job_batch_handler.purgatory_size is not None
 
             if job_batch_handler.purgatory_size == 0:
                 logging.info("Touch Send Job - list exhausted, stopping")
@@ -252,7 +253,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         ),
                         queued_at=batch_at,
                     )
-                    .json()
+                    .model_dump_json()
                     .encode("utf-8"),
                     TouchLogUserTouchDebugLogInsert(
                         table="user_touch_debug_log",
@@ -268,7 +269,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         ),
                         queued_at=batch_at,
                     )
-                    .json()
+                    .model_dump_json()
                     .encode("utf-8"),
                 ]
                 job: Optional[bytes] = None
@@ -291,12 +292,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         await set_if_lower(
                             pipe, touch_send_stats_earliest_key, unix_date
                         )
-                        await pipe.hincrby(stats_key, b"attempted", 1)
-                        await pipe.hincrby(attempted_extra_key, attempt_breakdown, 1)
-                        await pipe.hincrby(stats_key, b"stale", 1)
-                        await pipe.rpush(b"touch:to_log", *logs)
+                        await pipe.hincrby(stats_key, b"attempted", 1)  # type: ignore
+                        await pipe.hincrby(attempted_extra_key, attempt_breakdown, 1)  # type: ignore
+                        await pipe.hincrby(stats_key, b"stale", 1)  # type: ignore
+                        await pipe.rpush(b"touch:to_log", *logs)  # type: ignore
                         if job is not None:
-                            await pipe.rpush(b"jobs:hot", job)
+                            await pipe.rpush(b"jobs:hot", job)  # type: ignore
                         await pipe.execute()
 
                 redis_transactions.append(
@@ -397,7 +398,7 @@ class JobBatchHandler:
         """
         assert self.purgatory_size is None, "already have a batch"
         redis = await itgs.redis()
-        initial_size = await redis.llen(b"touch:send_purgatory")
+        initial_size = await redis.llen(b"touch:send_purgatory")  # type: ignore
         if initial_size > 0:
             logging.warning(
                 f"Touch Send Job - Resuming failed previous run, have {initial_size} items in purgatory"
@@ -478,14 +479,14 @@ class PurgatoryReader:
 
         redis = await itgs.redis()
         result = await redis.lrange(
-            b"touch:send_purgatory",
+            b"touch:send_purgatory",  # type: ignore
             self.index,
             end_index_inclusive,
         )
 
         self.index = end_index_inclusive + 1
         return [
-            TouchToSend.parse_raw(item, content_type="application/json")
+            TouchToSend.model_validate_json(item)
             for item in result
         ]
 
@@ -579,6 +580,7 @@ class TouchPointsSet:
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for itm in done:
             return itm.result()
+        assert False, "all tasks are pending despite asyncio.wait"
 
     async def _fetch(self, itgs: Itgs, event_slug: str) -> TouchPoint:
         """Fetches the touch point with the given event slug. Once fetched, its
@@ -597,8 +599,8 @@ class TouchPointsSet:
         encoded_compressed_messages = row[2]
         compressed_messages = base64.b85decode(encoded_compressed_messages)
         raw_messages = gzip.decompress(compressed_messages)
-        messages = TouchPointMessages.parse_raw(
-            raw_messages, content_type="application/json"
+        messages = TouchPointMessages.model_validate_json(
+            raw_messages
         )
         result = TouchPoint(
             uid=row[0],
@@ -1096,9 +1098,9 @@ async def any_subqueue_backpressure(itgs: Itgs) -> bool:
     redis = await itgs.redis()
 
     async with redis.pipeline(transaction=False) as pipe:
-        await pipe.llen(b"sms:to_send")
-        await pipe.llen(b"email:to_send")
-        await pipe.llen(b"push:message_attempts:to_send")
+        await pipe.llen(b"sms:to_send")  # type: ignore
+        await pipe.llen(b"email:to_send")  # type: ignore
+        await pipe.llen(b"push:message_attempts:to_send")  # type: ignore
         sms_size, email_size, push_size = await pipe.execute()
 
     return any(
@@ -1115,7 +1117,7 @@ class MyRedisStatUpdatePreparer(RedisStatsPreparer):
         super().__init__()
 
     def incr_touch_send_stats(
-        self, touch: TouchToSend, event: str, *, extra: str = None
+        self, touch: TouchToSend, event: str, *, extra: Optional[str] = None
     ) -> None:
         """Increments the touch send stats event by one, optionally incrementing
         a breakdown stat by the same amount. Generally prefer one of the typed variants,
@@ -1288,7 +1290,7 @@ class MessageBatchSegmentPreparer(
                     ),
                     queued_at=batch_at,
                 )
-                .json()
+                .model_dump_json()
                 .encode("utf-8")
             )
 
@@ -1310,7 +1312,7 @@ class MessageBatchSegmentPreparer(
                         ),
                         queued_at=batch_at,
                     )
-                    .json()
+                    .model_dump_json()
                     .encode("utf-8")
                 )
                 if touch.failure_callback is not None:
@@ -1332,7 +1334,7 @@ class MessageBatchSegmentPreparer(
                 message_contents = cls.format_message_contents(touch, message)
             except KeyError:
                 raise Exception(
-                    f"failed to form message contents for touch {touch.json()}"
+                    f"failed to form message contents for touch {touch.model_dump_json()}"
                 )
 
             run_stats.reachable += 1
@@ -1353,7 +1355,7 @@ class MessageBatchSegmentPreparer(
                     ),
                     queued_at=batch_at,
                 )
-                .json()
+                .model_dump_json()
                 .encode("utf-8")
             )
 
@@ -1367,11 +1369,11 @@ class MessageBatchSegmentPreparer(
                                 touch_point_uid=touch_point.uid,
                                 user_sub=touch.user_sub,
                                 channel=touch.channel,
-                                state=new_state,
+                                state=new_state.state,
                             ),
                             queued_at=batch_at,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8")
                     )
                 else:
@@ -1384,11 +1386,11 @@ class MessageBatchSegmentPreparer(
                                 touch_point_uid=touch_point.uid,
                                 user_sub=touch.user_sub,
                                 channel=touch.channel,
-                                state=new_state,
+                                state=new_state.state,
                             ),
                             queued_at=batch_at,
                         )
-                        .json()
+                        .model_dump_json()
                         .encode("utf-8")
                     )
 
@@ -1433,12 +1435,12 @@ class MessageBatchSegmentPreparer(
                 if pending_zset_adds:
                     await pipe.zadd(b"touch:pending", mapping=pending_zset_adds)
                 for cb_key, cbs in pending_callbacks.items():
-                    await pipe.hset(cb_key, mapping=cbs)
+                    await pipe.hset(cb_key, mapping=cbs)  # type: ignore
                 for rem_key, remaining in pending_remaining.items():
-                    await pipe.sadd(rem_key, *remaining)
+                    await pipe.sadd(rem_key, *remaining)  # type: ignore
                 if jobs_to_queue:
-                    await pipe.rpush(b"jobs:hot", *jobs_to_queue)
-                await pipe.rpush(b"touch:to_log", *logs)
+                    await pipe.rpush(b"jobs:hot", *jobs_to_queue)  # type: ignore
+                await pipe.rpush(b"touch:to_log", *logs)  # type: ignore
                 await pipe.execute()
 
         return RedisTransaction(cls.promote_stats(run_stats), _prep, _func)
@@ -1640,7 +1642,7 @@ class PushBatchSegmentPreparer(
                     },
                 ),
             )
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
         )
 
@@ -1649,7 +1651,7 @@ class PushBatchSegmentPreparer(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
         if messages:
-            await pipe.rpush(b"push:message_attempts:to_send", *messages)
+            await pipe.rpush(b"push:message_attempts:to_send", *messages)  # type: ignore
 
     @classmethod
     def incr_subqueue_queued_stats(
@@ -1746,7 +1748,7 @@ class SmsBatchSegmentPreparer(
                     },
                 ),
             )
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
         )
 
@@ -1755,7 +1757,7 @@ class SmsBatchSegmentPreparer(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
         if messages:
-            await pipe.rpush(b"sms:to_send", *messages)
+            await pipe.rpush(b"sms:to_send", *messages)  # type: ignore
 
     @classmethod
     def incr_subqueue_queued_stats(
@@ -1843,7 +1845,7 @@ class EmailBatchSegmentPreparer(
         user_sub: str,
         touch_point_uid: str,
         touch_uid: str,
-    ) -> bytes:
+    ) -> Tuple[bytes, bytes]:
         email_uid = create_email_uid()
         return (
             email_uid.encode("utf-8"),
@@ -1875,7 +1877,7 @@ class EmailBatchSegmentPreparer(
                     },
                 ),
             )
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
         )
 
@@ -1884,7 +1886,7 @@ class EmailBatchSegmentPreparer(
         cls, pipe: AsyncioRedisClient, messages: List[bytes]
     ) -> None:
         if messages:
-            await pipe.rpush(b"email:to_send", *messages)
+            await pipe.rpush(b"email:to_send", *messages)  # type: ignore
 
     @classmethod
     def incr_subqueue_queued_stats(
@@ -1924,14 +1926,14 @@ def select_message(
 
     selected = random.choice(choices)
     seen_set.add(selected.uid)
-    return selected, list(seen_set)
+    return selected, UserTouchPointState(state.version + 1 if state is not None else 1, list(seen_set))
 
 
 def select_push_message(
     touch: TouchToSend,
     touch_point: TouchPoint,
     state: Optional[UserTouchPointState],
-) -> Tuple[TouchPointPushMessage, Optional[UserTouchPointStateState]]:
+) -> Tuple[TouchPointPushMessage, Optional[UserTouchPointState]]:
     """Determines which push message to send for the given touch, using the touch
     point for the options and the state for the selection strategy.
     """
@@ -1942,7 +1944,7 @@ def select_sms_message(
     touch: TouchToSend,
     touch_point: TouchPoint,
     state: Optional[UserTouchPointState],
-) -> Tuple[TouchPointSmsMessage, Optional[UserTouchPointStateState]]:
+) -> Tuple[TouchPointSmsMessage, Optional[UserTouchPointState]]:
     """Determines which sms message to send for the given touch, using the touch
     point for the options and the state for the selection strategy.
     """
@@ -1953,7 +1955,7 @@ def select_email_message(
     touch: TouchToSend,
     touch_point: TouchPoint,
     state: Optional[UserTouchPointState],
-) -> Tuple[TouchPointSmsMessage, Optional[UserTouchPointStateState]]:
+) -> Tuple[TouchPointEmailMessage, Optional[UserTouchPointState]]:
     """Determines which email message to send for the given touch, using the touch
     point for the options and the state for the selection strategy.
     """
@@ -2034,7 +2036,7 @@ async def report_run_stats(
 
     redis = await itgs.redis()
     await redis.hset(
-        b"stats:touch_send:send_job",
+        b"stats:touch_send:send_job",  # type: ignore
         mapping={
             b"finished_at": finished_at,
             b"running_time": finished_at - started_at,

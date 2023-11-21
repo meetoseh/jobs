@@ -2,7 +2,7 @@
 import json
 import random
 import time
-from typing import Dict, List, Literal, Optional, Set, Tuple
+from typing import Dict, List, Literal, Optional, Set, Tuple, cast
 from error_middleware import handle_error, handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -90,10 +90,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"daily_reminders:assign_time_job_lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:daily_reminders:assign_time_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:daily_reminders:assign_time_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         start_unix_date_raw: Optional[bytes] = await redis.get(
@@ -229,8 +229,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Email Queued: {stats.email_queued}\n"
             f"- Stop Reason: {stopper.reason}\n"
         )
-        await redis.hset(
-            b"stats:daily_reminders:assign_time_job",
+        await redis.hset(  # type: ignore
+            b"stats:daily_reminders:assign_time_job",  # type: ignore
             mapping={
                 b"finished_at": str(finished_at).encode("ascii"),
                 b"running_time": str(running_time).encode("ascii"),
@@ -245,7 +245,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 b"sms_queued": str(stats.sms_queued).encode("ascii"),
                 b"push_queued": str(stats.push_queued).encode("ascii"),
                 b"email_queued": str(stats.email_queued).encode("ascii"),
-                b"stop_reason": stopper.reason.encode("ascii"),
+                b"stop_reason": stopper.reason.encode("ascii")
+                if stopper.reason is not None
+                else "none",
             },
         )
 
@@ -330,6 +332,8 @@ class Stopper:
         queue_length = await redis.zcard(b"daily_reminders:queued")
         if queue_length > QUEUE_BACKPRESSURE_LENGTH:
             self.on_backpressure()
+            return True
+        return False
 
 
 async def get_timezones_from_db(itgs: Itgs) -> List[str]:
@@ -349,7 +353,7 @@ async def get_timezones_from_db(itgs: Itgs) -> List[str]:
 
     result = []
     seen_default = False
-    for row in response.results:
+    for row in response.results or []:
         timezone = row[0]
         seen_default = seen_default or timezone == DEFAULT_TIMEZONE
         try:
@@ -362,7 +366,9 @@ async def get_timezones_from_db(itgs: Itgs) -> List[str]:
     return result
 
 
-async def get_timezones_from_redis_for_date(itgs: Itgs, unix_date: int) -> List[str]:
+async def get_timezones_from_redis_for_date(
+    itgs: Itgs, unix_date: int
+) -> Optional[List[str]]:
     """Fetches the timezones that are being iterated over for the given unix
     date. The list is empty if the timezones have not been initialized yet
     for that date.
@@ -444,11 +450,11 @@ async def progress_pair(
 
     redis = await itgs.redis()
     progress_key = f"daily_reminders:progress:{timezone}:{unix_date}".encode("utf-8")
-    cursor_info_raw = await redis.hmget(
-        progress_key,
-        b"start_time",
-        b"uid",
-        b"finished",
+    cursor_info_raw = await redis.hmget(  # type: ignore
+        progress_key,  # type: ignore
+        b"start_time",  # type: ignore
+        b"uid",  # type: ignore
+        b"finished",  # type: ignore
     )
 
     start_time: Optional[int] = (
@@ -526,13 +532,13 @@ async def progress_pair(
 
             for item_index in range(redis_batch_start_idx, redis_batch_end_idx):
                 row = rows[item_index]
-                uid: str = row[0]
-                channel: str = row[1]
-                start_time: int = row[2]
-                end_time: int = row[3]
+                row_uid = cast(str, row[0])
+                row_channel = cast(Literal["email", "sms", "push"], row[1])
+                row_start_time = cast(int, row[2])
+                row_end_time = cast(int, row[3])
 
-                start_time_as_timestamp = midnight_timestamp + start_time
-                end_time_as_timestamp = midnight_timestamp + end_time
+                start_time_as_timestamp = midnight_timestamp + row_start_time
+                end_time_as_timestamp = midnight_timestamp + row_end_time
 
                 redis_stats.incr_attempted(unix_date)
                 stats.attempted += 1
@@ -542,7 +548,7 @@ async def progress_pair(
 
                     if end_time_as_timestamp < job_started_at - STALE_THRESHOLD_SECONDS:
                         redis_stats.incr_skipped_assigning_time(
-                            unix_date, channel=channel
+                            unix_date, channel=row_channel
                         )
                         stats.stale += 1
                         continue
@@ -559,18 +565,21 @@ async def progress_pair(
                         ),
                     )
                 )
-                redis_stats.incr_time_assigned(unix_date, channel=channel)
-                if channel == "sms":
+                redis_stats.incr_time_assigned(unix_date, channel=row_channel)
+                if row_channel == "sms":
                     stats.sms_queued += 1
-                elif channel == "push":
+                elif row_channel == "push":
                     stats.push_queued += 1
-                elif channel == "email":
+                elif row_channel == "email":
                     stats.email_queued += 1
                 items[
                     json.dumps(
-                        {"uid": uid, "unix_date": unix_date}, sort_keys=True
+                        {"uid": row_uid, "unix_date": unix_date}, sort_keys=True
                     ).encode("utf-8")
                 ] = assigned_timestamp
+
+            last_row_uid = cast(str, rows[redis_batch_end_idx - 1][0])
+            last_start_time = cast(int, rows[redis_batch_end_idx - 1][2])
 
             async def _prep(force: bool):
                 await ensure_set_if_lower_script_exists(redis, force=force)
@@ -581,11 +590,11 @@ async def progress_pair(
                     await redis_stats.write_earliest(pipe)
                     if items:
                         await pipe.zadd(b"daily_reminders:queued", mapping=items)
-                    await pipe.hset(
-                        progress_key,
+                    await pipe.hset(  # type: ignore
+                        progress_key,  # type: ignore
                         mapping={
-                            b"start_time": str(start_time).encode("ascii"),
-                            b"uid": uid.encode("utf-8"),
+                            b"start_time": str(last_start_time).encode("ascii"),
+                            b"uid": last_row_uid.encode("utf-8"),
                         },
                     )
                     await redis_stats.write_increments(pipe)
@@ -593,11 +602,15 @@ async def progress_pair(
 
             await run_with_prep(_prep, _func)
 
+        if rows:
+            uid = cast(str, rows[-1][0])
+            start_time = cast(int, rows[-1][2])
+
         if len(rows) < DATABASE_READ_BATCH_SIZE:
             if iterating_to_start_time > 86400:
                 finished = True
-                await redis.hset(
-                    progress_key,
+                await redis.hset(  # type: ignore
+                    progress_key,  # type: ignore
                     mapping={
                         b"finished": str(int(finished)).encode("ascii"),
                     },

@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, cast
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from shareables.generate_class.p01_select_classes import (
@@ -132,7 +132,14 @@ def parse_completion(message: str, emotion: str, category: str) -> GeneratedClas
     )
     parts: Dict[str, str] = {}
     current_section: Optional[
-        Literal["Title", "Description", "Prompt", "Transcript"]
+        Literal[
+            "Title",
+            "Description",
+            "Prompt",
+            "Prompt Type",
+            "Prompt Options",
+            "Transcript",
+        ]
     ] = None
     current_section_value: Optional[str] = None
     section_header = re.compile(r"^([A-Z][^:]+):\s*(.+)$")
@@ -141,22 +148,38 @@ def parse_completion(message: str, emotion: str, category: str) -> GeneratedClas
         match = section_header.match(line)
         if not match:
             if current_section is not None:
+                assert line is not None
+                assert current_section_value is not None
                 current_section_value += line + "\n"
             continue
 
         if current_section is not None:
+            assert current_section_value is not None
             parts[current_section] = current_section_value.strip()
 
-        current_section = match.group(1)
+        current_section_raw = cast(str, match.group(1))
         current_section_value = match.group(2) + "\n"
 
-        if current_section in parts:
-            raise ValueError(f"Duplicate section: {current_section}")
+        if current_section_raw in parts:
+            raise ValueError(f"Duplicate section: {current_section_raw}")
 
-        if current_section not in valid_titles:
-            raise ValueError(f"Invalid section: {current_section}")
+        if current_section_raw not in valid_titles:
+            raise ValueError(f"Invalid section: {current_section_raw}")
+
+        current_section = cast(
+            Literal[
+                "Title",
+                "Description",
+                "Prompt",
+                "Prompt Type",
+                "Prompt Options",
+                "Transcript",
+            ],
+            current_section_raw,
+        )
 
     if current_section is not None:
+        assert current_section_value is not None
         parts[current_section] = current_section_value.strip()
 
     if "Title" not in parts:
@@ -265,6 +288,7 @@ async def create_class_meta(
     """
     prompt = create_prompt(input)
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
 
     logging.info(f"Generating a new class using prompt:\n\n{prompt}")
     for attempt in range(max_attempts):
@@ -277,15 +301,16 @@ async def create_class_meta(
                 key="external_apis:api_limiter:chatgpt",
                 time_between_requests=3,
             )
-            completion = openai.ChatCompletion.create(
+            completion = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=prompt,
                 temperature=_temperature_for_attempt(attempt),
-                api_key=openai_api_key,
             )
             logging.info(f"Got completion:\n\n{completion}")
+            content = completion.choices[0].message.content
+            assert content is not None, completion
             generated_class_meta = parse_completion(
-                completion.choices[0].message.content, input.emotion, input.category
+                content, input.emotion, input.category
             )
             logging.info(f"Parsed completion:\n\n{generated_class_meta}")
             return generated_class_meta
@@ -295,3 +320,4 @@ async def create_class_meta(
             logging.exception(
                 f"Failed to generate class on attempt {attempt + 1}", exc_info=True
             )
+    raise Exception("unreachable")

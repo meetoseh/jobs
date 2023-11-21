@@ -18,7 +18,7 @@ from lib.transcripts.db import fetch_transcript_for_content_file
 from lib.transcripts.model import Transcript
 from dataclasses import dataclass
 import requests
-from lib.chatgpt.model import ChatCompletionMessage
+from openai.types.chat import ChatCompletionMessageParam
 import unix_dates
 import asyncio
 
@@ -183,6 +183,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, dry_run: Optional[bool] = No
         return
 
     idempotency_key = secrets.token_urlsafe(16)
+    submission_id = None
+    submission_uri = None
+    submission_author = None
     for attempt in range(5):
         try:
             response = requests.post(
@@ -214,6 +217,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, dry_run: Optional[bool] = No
             await asyncio.sleep(5)
 
     jmp_uid = f"oseh_jmp_{secrets.token_urlsafe(16)}"
+    assert submission_id is not None
+    assert submission_uri is not None
+    assert submission_author is not None
     response = await cursor.execute(
         """
         INSERT INTO journey_mastodon_posts (
@@ -260,7 +266,7 @@ def create_prompt_for_llm(
     category: str,
     emotions: List[str],
     transcript: Transcript,
-) -> List[ChatCompletionMessage]:
+) -> List[ChatCompletionMessageParam]:
     """Creates the prompt for chatgpt to create a status for the given journey."""
     tz = pytz.timezone("America/Los_Angeles")
     unix_day_today = unix_dates.unix_date_today(tz=tz)
@@ -368,19 +374,23 @@ async def create_post_info(
         transcript=transcript,
     )
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
     await ratelimit_using_redis(
         itgs,
         key="external_apis:api_limiter:chatgpt",
         time_between_requests=3,
     )
-    completion = openai.ChatCompletion.create(
+    completion = openai_client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=prompt,
         temperature=_temperature_for_attempt(attempt),
-        api_key=openai_api_key,
     )
     logging.info(f"Got completion:\n\n{completion}")
-    return parse_completion(completion.choices[0].message.content)
+    best_choice = completion.choices[0]
+    best_choice_message = best_choice.message
+    best_content = best_choice_message.content
+    assert best_content is not None, completion
+    return parse_completion(best_content)
 
 
 def make_code(text: str) -> str:

@@ -3,7 +3,7 @@ import io
 import json
 import os
 import time
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Protocol, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -74,8 +74,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"daily_reminders:send_job_lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:daily_reminders:send_job",
+        await redis.hset(  # type: ignore
+            b"stats:daily_reminders:send_job",  # type: ignore
             mapping={b"started_at": str(started_at).encode("ascii")},
         )
 
@@ -117,6 +117,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         started_at,
                     ),
                 )
+                assert purgatory_size is not None
                 is_last_iteration = purgatory_size < JOB_BATCH_SIZE
 
             if purgatory_size == 0:
@@ -170,9 +171,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             lost = [itm for itm in augmented_batch if itm.info is None]
             found = (
-                augmented_batch
+                cast(List[RequiredAugmentedBatchItem], augmented_batch)
                 if not lost
-                else [itm for itm in augmented_batch if itm.info is not None]
+                else [cast(RequiredAugmentedBatchItem, itm) for itm in augmented_batch if itm.info is not None]
             )
 
             if lost:
@@ -241,6 +242,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         name="runners.touch.abandon_links", kwargs={"codes": []}
                     ),
                 )
+                assert touch.success_callback is not None
+                assert touch.failure_callback is not None
 
                 if touch.channel == "email":
                     touch.event_parameters["name"] = itm.info.name
@@ -398,7 +401,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Stop Reason: {stop_reason}\n"
         )
         await redis.hset(
-            b"stats:daily_reminders:send_job",
+            b"stats:daily_reminders:send_job",  # type: ignore
             mapping={
                 b"finished_at": str(finished_at).encode("ascii"),
                 b"running_time": str(running_time).encode("ascii"),
@@ -444,6 +447,11 @@ class BatchItemAugmentedInfo:
 class AugmentedBatchItem:
     item: BatchItem
     info: Optional[BatchItemAugmentedInfo]
+
+
+class RequiredAugmentedBatchItem(Protocol):
+    item: BatchItem
+    info: BatchItemAugmentedInfo
 
 
 @dataclass

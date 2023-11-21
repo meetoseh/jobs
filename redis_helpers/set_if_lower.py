@@ -50,7 +50,7 @@ async def ensure_set_if_lower_script_exists(
 
 
 async def set_if_lower(
-    redis: redis.asyncio.client.Redis, key: Union[str, bytes], val: int
+    redis: redis.asyncio.client.Redis, key: Union[str, bytes], val: Union[bytes, int]
 ) -> Optional[bool]:
     """Updates the value in the given key to the given value iff
     the key is unset or the value is lower than the current value.
@@ -68,7 +68,7 @@ async def set_if_lower(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(SET_IF_LOWER_LUA_SCRIPT_HASH, 1, key, val)
+    res = await redis.evalsha(SET_IF_LOWER_LUA_SCRIPT_HASH, 1, key, val)  # type: ignore
     if res is redis:
         return None
     return bool(res)

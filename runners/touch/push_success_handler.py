@@ -56,7 +56,7 @@ async def execute(
 
     redis = await itgs.redis()
     await redis.rpush(
-        b"touch:to_log",
+        b"touch:to_log",  # type: ignore
         TouchLogUserTouchDebugLogInsert(
             table="user_touch_debug_log",
             action="insert",
@@ -72,7 +72,7 @@ async def execute(
             ),
             queued_at=now,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8"),
         TouchLogUserTouchInsert(
             table="user_touches",
@@ -92,7 +92,7 @@ async def execute(
             ),
             queued_at=now,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8"),
         TouchLogUserPushTokenUpdate(
             table="user_push_tokens",
@@ -103,7 +103,7 @@ async def execute(
             ),
             queued_at=now,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8"),
     )
     await on_touch_destination_success(itgs, touch_uid=touch_uid)

@@ -6,7 +6,7 @@ import secrets
 import shutil
 import time
 import aiofiles
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, cast as typing_cast
 from file_service import AsyncWritableBytesIO
 from graceful_death import GracefulDeath
 from itgs import Itgs
@@ -16,7 +16,7 @@ from si_prefix import si_format
 
 class StitchFileAbortedException(Exception):
     def __init__(self, *args, **kwargs):
-        super(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
 
 async def stitch_file_upload(
@@ -114,7 +114,7 @@ async def _stitch_file_upload(
                 or next_write_part_number <= last_part_number
             ):
                 if gd.received_term_signal:
-                    asyncio.wait(
+                    await asyncio.wait(
                         [
                             t
                             for t in [
@@ -166,7 +166,7 @@ async def _stitch_file_upload(
                 if upload_part_task is None and next_write_part_number in ready_parts:
                     upload_part_task = asyncio.create_task(
                         _upload_part(
-                            out, ready_parts[next_write_part_number], out_stream
+                            itgs, ready_parts[next_write_part_number], out_stream
                         )
                     )
                     del ready_parts[next_write_part_number]
@@ -185,8 +185,9 @@ async def _stitch_file_upload(
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                if get_s3_keys_task in done:
-                    if get_s3_keys_task.exception() is not None:
+                if get_s3_keys_task is not None and get_s3_keys_task in done:
+                    get_s3_keys_task_exc = get_s3_keys_task.exception()
+                    if get_s3_keys_task_exc is not None:
                         await asyncio.wait(
                             [
                                 t
@@ -195,7 +196,7 @@ async def _stitch_file_upload(
                             ],
                             return_when=asyncio.ALL_COMPLETED,
                         )
-                        raise get_s3_keys_task.exception()
+                        raise get_s3_keys_task_exc
 
                     known_part_s3_keys.update(get_s3_keys_task.result())
                     get_s3_keys_task = None
@@ -239,7 +240,7 @@ async def _get_part_s3_keys(
         (file_upload_uid, start_part_number, end_part_number - 1),
     )
 
-    res = dict(response.results)
+    res = typing_cast(Dict[int, str], dict(response.results or []))
     assert len(res) == end_part_number - start_part_number
     return res
 

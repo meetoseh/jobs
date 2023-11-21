@@ -31,8 +31,8 @@ class PinterestImagePrompt:
     """
 
     @classmethod
-    def from_dict(kls, raw: dict):
-        return kls(**raw)
+    def from_dict(cls, raw: dict):
+        return cls(**raw)
 
 
 def anify(word: str):
@@ -175,6 +175,7 @@ async def create_image_prompt(
 
     llm_prompt = create_prompt(journey, text_content)
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
 
     logging.info(
         f"Generating image prompts using llm prompt\n{json.dumps(llm_prompt, indent=2)}"
@@ -188,14 +189,15 @@ async def create_image_prompt(
                 key="external_apis:api_limiter:chatgpt",
                 time_between_requests=3,
             )
-            completion = openai.ChatCompletion.create(
+            completion = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=llm_prompt,
                 temperature=_temperature_for_attempt(attempt),
-                api_key=openai_api_key,
             )
             logging.info(f"Got completion: {completion}")
-            image_prompts = parse_completion(completion.choices[0].message.content)
+            content = completion.choices[0].message.content
+            assert content is not None, completion
+            image_prompts = parse_completion(content)
             return PinterestImagePrompt(
                 llm_model=llm_model,
                 image_model=image_model,
@@ -207,3 +209,5 @@ async def create_image_prompt(
             logging.exception(
                 f"Failed to generate image prompts (attempt {attempt + 1}/{max_attempts})..."
             )
+
+    assert False, "unreachable"

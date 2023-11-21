@@ -1,7 +1,6 @@
 """Checks if a given users profile picture matches the given url, and if it does not,
 downloads the image, modifies it appropriately, and updates our database
 """
-from typing import Optional
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -189,6 +188,7 @@ async def execute(
         """,
         (user_sub, user_sub, picture_url, user_sub, jwt_iat),
     )
+    assert response.results is not None, response
     user_exists = bool(response.results[0][0])
     picture_exists = bool(response.results[0][1])
     newer_picture_exists = bool(response.results[0][2])
@@ -212,7 +212,7 @@ async def execute(
     jobs = await itgs.jobs()
 
     async def _bounce():
-        jobs.enqueue(
+        await jobs.enqueue(
             "runners.check_profile_picture",
             user_sub=user_sub,
             picture_url=picture_url,

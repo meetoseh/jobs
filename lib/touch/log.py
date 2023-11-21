@@ -22,4 +22,4 @@ async def queue_touch_db_write_in_pipe(redis: redis.asyncio.Redis, event: TouchL
         redis (redis.Redis): the redis instance to use
         event (TouchLog): the event to queue
     """
-    await redis.rpush(b"touch:to_log", event.json().encode("utf-8"))
+    await redis.rpush(b"touch:to_log", event.model_dump_json().encode("utf-8"))  # type: ignore

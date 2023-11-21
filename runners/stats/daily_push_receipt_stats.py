@@ -44,8 +44,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         logging.debug(
             f"Rotating push receipt stats for {unix_dates.unix_date_to_date(unix_date).isoformat()}"
         )
-        raw_values = await redis.hgetall(
-            f"stats:push_receipts:daily:{unix_date}".encode("ascii")
+        raw_values = await redis.hgetall(  # type: ignore
+            f"stats:push_receipts:daily:{unix_date}".encode("ascii")  # type: ignore
         )
         if raw_values is None:
             raw_values = dict()

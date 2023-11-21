@@ -287,8 +287,10 @@ async def get_visitor_utm_state(
         created_at: float = row[3]
         last_click_utm: Optional[UTMAndTimeAndRowUID] = None
         if row[4] is not None and row[5] is not None and row[6] is not None:
+            last_click_utm_utm = get_utm_parts(row[4])
+            assert last_click_utm_utm is not None, row
             last_click_utm = UTMAndTimeAndRowUID(
-                utm=get_utm_parts(row[4]), clicked_at=row[5], visitor_utm_uid=row[6]
+                utm=last_click_utm_utm, clicked_at=row[5], visitor_utm_uid=row[6]
             )
 
         users.append(
@@ -396,8 +398,10 @@ async def get_visitor_user_state(
         prev_visitor_uid: str = row[2]
         prev_visitor_version: int = row[3]
         if row[4] is not None and row[5] is not None and row[6] is not None:
+            prev_last_click_utm_utm = get_utm_parts(row[6])
+            assert prev_last_click_utm_utm is not None, row
             prev_last_click_utm = UTMAndTimeAndRowUID(
-                utm=get_utm_parts(row[6]), clicked_at=row[5], visitor_utm_uid=row[4]
+                utm=prev_last_click_utm_utm, clicked_at=row[5], visitor_utm_uid=row[4]
             )
 
             if user_last_click_utm is None or (
@@ -444,8 +448,10 @@ async def get_visitor_user_state(
     visitor_attributable_clicks: List[UTMAndTimeAndRowUID] = []
     visitor_unattributable_clicks: List[UTMAndTimeAndRowUID] = []
     for row in response.results or []:
+        row_utm = get_utm_parts(row[2])
+        assert row_utm is not None
         parsed = UTMAndTimeAndRowUID(
-            utm=get_utm_parts(row[2]), clicked_at=row[1], visitor_utm_uid=row[0]
+            utm=row_utm, clicked_at=row[1], visitor_utm_uid=row[0]
         )
         if parsed.clicked_at <= user_created_at:
             visitor_attributable_clicks.append(parsed)

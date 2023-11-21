@@ -62,7 +62,7 @@ async def execute(
     redis = await itgs.redis()
     if not info.retryable:
         await redis.rpush(
-            b"touch:to_log",
+            b"touch:to_log",  # type: ignore
             TouchLogUserTouchDebugLogInsert(
                 table="user_touch_debug_log",
                 action="insert",
@@ -79,7 +79,7 @@ async def execute(
                 ),
                 queued_at=now,
             )
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
         )
         await _handle_if_email_is_bad(
@@ -98,7 +98,7 @@ async def execute(
 
     if result.wanted_to_retry:
         await redis.rpush(
-            b"touch:to_log",
+            b"touch:to_log",  # type: ignore
             TouchLogUserTouchDebugLogInsert(
                 table="user_touch_debug_log",
                 action="insert",
@@ -115,13 +115,13 @@ async def execute(
                 ),
                 queued_at=now,
             )
-            .json()
+            .model_dump_json()
             .encode("utf-8"),
         )
         return
 
     await redis.rpush(
-        b"touch:to_log",
+        b"touch:to_log",  # type: ignore
         TouchLogUserTouchDebugLogInsert(
             table="user_touch_debug_log",
             action="insert",
@@ -138,7 +138,7 @@ async def execute(
             ),
             queued_at=now,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8"),
     )
     await on_touch_destination_abandoned_or_permanently_failed(

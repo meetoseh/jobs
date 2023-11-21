@@ -3,7 +3,6 @@ import io
 import json
 import secrets
 from typing import List, Optional
-from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -61,7 +60,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     async with basic_redis_lock(itgs, b"touch:log_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_log:log_job", b"started_at", str(started_at).encode("ascii")
+            b"stats:touch_log:log_job", b"started_at", str(started_at).encode("ascii")  # type: ignore
         )
 
         stats = RunStats()
@@ -83,6 +82,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             if job_batch_handler.purgatory_size is None:
                 await job_batch_handler.get_next_batch(itgs)
+                assert job_batch_handler.purgatory_size is not None
 
             if job_batch_handler.purgatory_size == 0:
                 logging.info("Touch Log Job - list exhausted, stopping")
@@ -158,7 +158,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:touch_log:log_job",
+            b"stats:touch_log:log_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -387,7 +387,7 @@ async def write_user_touch_inserts(
             params.append(itm.fields.channel)
             params.append(itm.fields.touch_point_uid)
             params.append(itm.fields.destination)
-            params.append(itm.fields.message.json())
+            params.append(itm.fields.message.model_dump_json())
             params.append(itm.fields.created_at)
 
         response = await cursor.execute(query, params)
@@ -443,7 +443,7 @@ async def write_user_touch_debug_log_inserts(
             itm = rows[idx]
             params.append(f"oseh_utbl_{secrets.token_urlsafe(16)}")
             params.append(itm.fields.user_sub)
-            params.append(itm.fields.event.json())
+            params.append(itm.fields.event.model_dump_json())
             params.append(itm.fields.created_at)
 
         response = await cursor.execute(query, params)
@@ -556,7 +556,7 @@ class JobBatchHandler:
         """
         assert self.purgatory_size is None, "already have a batch"
         redis = await itgs.redis()
-        initial_size = await redis.llen(b"touch:log_purgatory")
+        initial_size = await redis.llen(b"touch:log_purgatory")  # type: ignore
         if initial_size > 0:
             logging.warning(
                 f"Touch Log Job - Resuming failed previous run, have {initial_size} items in purgatory"
@@ -637,7 +637,7 @@ class PurgatoryReader:
 
         redis = await itgs.redis()
         result = await redis.lrange(
-            b"touch:log_purgatory",
+            b"touch:log_purgatory",  # type: ignore
             self.index,
             end_index_inclusive,
         )

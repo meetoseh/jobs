@@ -4,7 +4,7 @@ https://en.wikipedia.org/wiki/M3U
 import asyncio
 from dataclasses import dataclass
 import os
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, cast
 import aiofiles
 
 
@@ -91,7 +91,7 @@ async def parse_m3u_vod(local_filepath: str) -> M3UVod:
     """
     state: Literal["start", "x-tags", "content-header", "content-path"] = "start"
     claims: Dict[str, str] = dict()
-    content_header_claims: List[str] = None
+    content_header_claims: Optional[List[str]] = None
     content: List[M3UContent] = list()
     async with aiofiles.open(local_filepath, "r") as f:
         async for line in f:
@@ -239,6 +239,7 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
                 cur_val: Optional[str] = None
                 for char in value:
                     if quote_char is not None:
+                        assert cur_val is not None
                         if char == quote_char:
                             quote_char = None
                             last_vod_claims.append((cur_key, cur_val))
@@ -260,7 +261,7 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
                         )
 
                     if cur_val == "" and char in quote_chars:
-                        quote_char = char
+                        quote_char = cast(Literal['"', "'"], char)
                         continue
 
                     if char == item_sep_char:
@@ -326,7 +327,7 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
                 codecs=last_vod_codecs,
                 claims=last_vod_claims,
                 path=line,
-                vod=None,
+                vod=None,  # type: ignore (we will double check later)
             )
             pending_vod_refs.append(new_ref)
             vods.append(new_ref)

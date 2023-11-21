@@ -4,7 +4,7 @@ consistency across setups.
 """
 import logging
 import click
-from typing import Optional
+from typing import Literal, Optional
 from copy import copy
 import sys
 
@@ -36,7 +36,7 @@ class ColourizedFormatter(logging.Formatter):
         self,
         fmt: Optional[str] = None,
         datefmt: Optional[str] = None,
-        style: str = "%",
+        style: Literal["%", "{", "$"] = "%",
         use_colors: Optional[bool] = None,
     ):
         if use_colors in (True, False):

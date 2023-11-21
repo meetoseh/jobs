@@ -152,6 +152,8 @@ async def run_pipeline(
                 instructor=data["instructor"],
                 prompt=p01.prompt_from_dict(data["prompt"]),
                 transcript=p03.parse_vtt_transcript("WEBVTT\n\n" + data["transcript"]),
+                emotion=data["emotion"],
+                category=data["category"],
             )
         else:
             generated_class_meta = await p03.create_class_meta(

@@ -247,3 +247,4 @@ async def maybe_suppress_phone_due_to_failure(
         },
         now=time.time(),
     )
+    return True

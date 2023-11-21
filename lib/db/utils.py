@@ -2,7 +2,7 @@
 but not enough to warrant pypika.
 """
 from dataclasses import dataclass
-from pypika.terms import Criterion, Term, ComplexCriterion
+from pypika.terms import Criterion, Term, ComplexCriterion, ValueWrapper
 from pypika.enums import Comparator
 from typing import Any, Dict, List, Optional, Union
 
@@ -89,7 +89,7 @@ def handle_parameters_with_unknown_position(
     # substitutions typically have a marker character, so it's not
     # helpful to break them down by the first character alone, but
     # two should do reasonably well
-    substitutions_by_first_2_chars: Dict[int, List[str]] = dict()
+    substitutions_by_first_2_chars: Dict[int, List[memoryview]] = dict()
     for k in bsubstitutions:
         first_2_chars = _two_bytes_hash(k)
         if first_2_chars not in substitutions_by_first_2_chars:
@@ -153,8 +153,8 @@ def sqlite_string_concat(a: Union[str, Term], b: Union[str, Term]) -> ComplexCri
     """
     return ComplexCriterion(
         StringComparator.concat,
-        a if not isinstance(a, str) else Term.wrap_constant(a),
-        b if not isinstance(b, str) else Term.wrap_constant(b),
+        a if not isinstance(a, str) else ValueWrapper(a),
+        b if not isinstance(b, str) else ValueWrapper(b),
     )
 
 

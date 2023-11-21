@@ -93,7 +93,7 @@ async def release_update_lock_if_held(itgs: Itgs):
         return
 
     redis = await itgs.redis()
-    await redis.eval(DELETE_IF_MATCH_SCRIPT, 1, b"updates:jobs:lock", our_identifier)
+    await redis.eval(DELETE_IF_MATCH_SCRIPT, 1, b"updates:jobs:lock", our_identifier)  # type: ignore
     local_cache.delete(b"updater-lock-key")
 
 
@@ -105,7 +105,7 @@ def do_update():
             stdin=None,
             stdout=None,
             stderr=None,
-            preexec_fn=os.setpgrp,
+            preexec_fn=os.setpgrp,  # type: ignore
         )
     else:
         subprocess.Popen(

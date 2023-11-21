@@ -2,13 +2,12 @@ import json
 import logging
 import os
 import secrets
-from typing import Any, Coroutine, List, Literal, Optional
+from typing import List, Literal, Optional
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from lib.redis_api_limiter import ratelimit_using_redis
-from shareables.generate_class.p03_create_class_meta import GeneratedClassMeta
 from shareables.generate_class.p05_stitch_audio import (
     AudioInfo,
     GeneratedClassWithJustVoice,
@@ -82,7 +81,7 @@ class MusicGenerator(ABC):
     @abstractmethod
     async def generate_prompts(
         self, itgs: Itgs, *, voice: GeneratedClassWithJustVoice, voice_info: AudioInfo
-    ) -> Coroutine[Any, Any, List[MusicPrompt]]:
+    ) -> List[MusicPrompt]:
         """Generates a new list of prompts of the music to use for the given class.
         The music will be generated using generate_music in order of the prompts until
         the entire class has background music.
@@ -292,7 +291,7 @@ async def combine_music_segments(
         else:
             tmp_path = os.path.join(folder, f"{secrets.token_urlsafe(16)}.wav")
             pad_end_with_silence(
-                segment.path, duration=segment.delay_after, output_path=tmp_path
+                segment.path, duration=segment.delay_after, out=tmp_path
             )
             padded_segments.append(
                 Music(

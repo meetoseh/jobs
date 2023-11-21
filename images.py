@@ -1,7 +1,16 @@
 import asyncio
 from dataclasses import dataclass
 import math
-from typing import AsyncGenerator, Any, Dict, List, Optional, Set, Tuple
+from typing import (
+    AsyncGenerator,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    cast as typing_cast,
+)
 from content import hash_content
 from error_middleware import handle_error, handle_warning
 from graceful_death import GracefulDeath
@@ -441,7 +450,7 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
         (uid,),
     )
 
-    for row in response.results:
+    for row in response.results or []:
         export = ImageFileExport(
             uid=row[0],
             s3_file=S3File(
@@ -454,7 +463,7 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
             ),
             width=row[6],
             height=row[7],
-            crop=tuple(row[8:12]),
+            crop=typing_cast(Tuple[int, int, int, int], tuple(row[8:12])),
             format=row[12],
             quality_settings=json.loads(row[13]),
             created_at=row[14],
@@ -865,12 +874,14 @@ async def _make_targets(
                 running, return_when=asyncio.FIRST_COMPLETED
             )
 
-            if any(task.exception() is not None for task in done):
+            first_exc = next(
+                (task.exception() for task in done if task.exception() is not None),
+                None
+            )
+            if first_exc is not None:
                 for task in running:
                     task.cancel()
-                raise next(
-                    task.exception() for task in done if task.exception() is not None
-                )
+                raise first_exc
 
             for task in done:
                 idx, local_image_file_export = task.result()
@@ -1178,9 +1189,9 @@ async def _rasterize(
     height_at_min_width = min_final_width / svg_natural_aspect_ratio
     if height_at_min_width >= min_final_height:
         target_width = min_final_width
-        target_height = height_at_min_width
+        target_height = round(height_at_min_width)
     else:
-        target_width = min_final_height * svg_natural_aspect_ratio
+        target_width = round(min_final_height * svg_natural_aspect_ratio)
         target_height = min_final_height
 
     loop = asyncio.get_event_loop()
@@ -1209,7 +1220,7 @@ async def _rasterize(
                 await fut
                 rast_succeeded = True
             except Exception as e:
-                handle_error(e)
+                await handle_error(e)
                 rast_succeeded = False
 
         if rast_succeeded:

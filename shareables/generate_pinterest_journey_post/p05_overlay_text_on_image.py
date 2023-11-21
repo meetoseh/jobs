@@ -21,8 +21,8 @@ class PinterestFinalImage:
     """The path to the image file with the text overlaid on it"""
 
     @classmethod
-    def from_dict(kls, raw: dict):
-        return kls(**raw)
+    def from_dict(cls, raw: dict):
+        return cls(**raw)
 
 
 @dataclass
@@ -141,7 +141,7 @@ async def overlay_text_on_image(
         size=44,
         index=0,
         encoding="unic",
-        layout_engine=ImageFont.LAYOUT_BASIC,
+        layout_engine=ImageFont.Layout.BASIC,
     )
 
     img = Image.open(image.path)

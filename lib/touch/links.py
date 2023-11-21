@@ -161,8 +161,10 @@ async def persist_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
             redis, score=now + PERSIST_LINK_DELAY, code=code
         ),
     )
+    assert result is not None
 
     if result.persist_queued:
+        assert result.link is not None
         unix_date = unix_dates.unix_timestamp_to_unix_date(
             result.link.created_at, tz=tz
         )
@@ -178,6 +180,7 @@ async def persist_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
         )
         return True
 
+    assert result.failure_reason is not None, result
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=tz)
     await (
         LinkStatsPreparer()
@@ -219,7 +222,7 @@ async def abandon_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
         lambda force: ensure_touch_click_try_abandon_script_exists(redis, force=force),
         lambda: touch_click_try_abandon(redis, code=code.encode("utf-8")),
     )
-
+    assert result is not None
     if result.abandoned_link is not None:
         link_created_at = result.abandoned_link.created_at
         link_unix_date = unix_dates.unix_timestamp_to_unix_date(link_created_at, tz=tz)
@@ -236,6 +239,7 @@ async def abandon_link(itgs: Itgs, *, code: str, now: Optional[float] = None) ->
         )
         return True
 
+    assert result.failure_reason is not None, result
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=tz)
     await (
         LinkStatsPreparer()
@@ -334,6 +338,7 @@ async def click_link(
             should_track=should_track,
         ),
     )
+    assert buffer_result is not None
 
     if buffer_result.link is not None:
         if should_track:
@@ -383,6 +388,7 @@ async def click_link(
     conn = await itgs.conn()
     cursor = conn.cursor()
 
+    response = None
     for attempt in range(2):
         response = await cursor.execute(
             """
@@ -406,6 +412,7 @@ async def click_link(
         if response.results:
             break
 
+    assert response is not None
     if not response.results:
         return None
 
@@ -731,12 +738,12 @@ async def _create_buffered_link_assuming_no_collisions(
             pipe.multi()
             await set_if_lower(pipe, b"stats:touch_links:daily:earliest", unix_date)
             await pipe.zadd(b"touch_links:buffer", mapping={code.encode("ascii"): now})
-            await pipe.hset(
-                f"touch_links:buffer:{code}".encode("ascii"),
+            await pipe.hset(  # type: ignore
+                f"touch_links:buffer:{code}".encode("ascii"),  # type: ignore
                 mapping=link.as_redis_mapping(),
             )
-            await pipe.hincrby(
-                f"stats:touch_links:daily:{unix_date}".encode("ascii"), b"created"
+            await pipe.hincrby(  # type: ignore
+                f"stats:touch_links:daily:{unix_date}".encode("ascii"), b"created"  # type: ignore
             )
             await pipe.execute()
 

@@ -1,4 +1,4 @@
-from typing import Optional, List, Union
+from typing import Optional, List, Sequence, Union
 import hashlib
 import time
 import redis.asyncio.client
@@ -70,7 +70,7 @@ async def touch_persist_cleanup(
     redis: redis.asyncio.client.Redis,
     persist_key: Union[str, bytes],
     buffer_key: Union[str, bytes],
-    codes: List[Union[str, bytes]],
+    codes: Sequence[Union[str, bytes]],
 ) -> Optional[int]:
     """Deletes the given codes from the touch persist purgatory, removing all related
     keys and returning the new purgatory size
@@ -97,7 +97,7 @@ async def touch_persist_cleanup(
         NoScriptError: If the script is not loaded into redis
     """
     res = await redis.evalsha(
-        TOUCH_PERSIST_CLEANUP_LUA_SCRIPT_HASH, 2, persist_key, buffer_key, *codes
+        TOUCH_PERSIST_CLEANUP_LUA_SCRIPT_HASH, 2, persist_key, buffer_key, *codes  # type: ignore
     )
     if res is redis:
         return None

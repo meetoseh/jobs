@@ -99,4 +99,5 @@ def compute_frame(audio: np.ndarray, out: np.ndarray) -> np.ndarray:
     storing the result in out.
     """
     destroyable_converted_x = audio.astype(np.float64, copy=True)
-    np.abs(scipy.fft.rfft(destroyable_converted_x, overwrite_x=True)[:-1], out=out)
+    np.abs(scipy.fft.rfft(destroyable_converted_x, overwrite_x=True)[:-1], out=out)  # type: ignore
+    return out

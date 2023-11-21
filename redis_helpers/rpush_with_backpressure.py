@@ -79,8 +79,8 @@ async def rpush_with_backpressure(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
-        RPUSH_WITH_BACKPRESSURE_LUA_SCRIPT_HASH, 1, key, value, max_length
+    res = await redis.evalsha(  # type: ignore
+        RPUSH_WITH_BACKPRESSURE_LUA_SCRIPT_HASH, 1, key, value, max_length  # type: ignore
     )
     if res is redis:
         return None

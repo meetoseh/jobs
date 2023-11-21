@@ -3,7 +3,6 @@ import base64
 import os
 import time
 from typing import Literal, Optional, Union
-from error_middleware import handle_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -37,25 +36,25 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs, b"sms:receipt_recovery_job:lock", gd=gd, spin=False
     ):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:sms:receipt_recovery_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:sms:receipt_recovery_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         # We fast-path the case where there is no work to do to avoid
         # initializing the HTTP client
         async with redis.pipeline() as pipe:
             pipe.multi()
-            await pipe.llen(b"sms:recovery")
-            await pipe.llen(b"sms:recovery_purgatory")
+            await pipe.llen(b"sms:recovery")  # type: ignore
+            await pipe.llen(b"sms:recovery_purgatory")  # type: ignore
             result = await pipe.execute()
 
         if result[0] == 0 and result[1] == 0:
             finished_at = time.time()
             logging.info(f"SMS Receipt Recovery Job: No work to do")
             await redis.hset(
-                b"stats:sms:receipt_recovery_job",
+                b"stats:sms:receipt_recovery_job",  # type: ignore
                 mapping={
                     b"finished_at": finished_at,
                     b"running_time": finished_at - started_at,
@@ -133,14 +132,16 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                 try:
                     sid = (
-                        sid_raw.decode("utf-8")
-                        if isinstance(sid_raw, bytes)
+                        str(sid_raw, "utf-8")
+                        if isinstance(sid_raw, (bytes, bytearray, memoryview))
                         else sid_raw
                     )
                 except:
                     logging.exception(f"Failed to decode {sid_raw=}")
-                    await poll_stats.increment_event(itgs, event="error_internal")
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await poll_stats.increment_event(
+                        itgs, event="error_internal", now=time.time()
+                    )
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     permanent_error += 1
                     continue
 
@@ -154,8 +155,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         "SMS Receipt Recovery Job - failed to connect to Twilio",
                         exc_info=True,
                     )
-                    await poll_stats.increment_event(itgs, event="error_network")
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await poll_stats.increment_event(
+                        itgs, event="error_network", now=time.time()
+                    )
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     transient_error += 1
                     last_requires_sleep = True
                     continue
@@ -172,12 +175,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             date_updated=None,
                             information_received_at=response_received_at,
                             received_via="poll",
+                            error_code=None,
+                            error_message=None,
                         ),
                     )
                     await poll_stats.increment_event(
                         itgs, event="error_client_404", now=response_received_at
                     )
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     lost += 1
                     continue
 
@@ -186,7 +191,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await poll_stats.increment_event(
                         itgs, event="error_client_429", now=response_received_at
                     )
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     transient_error += 1
                     last_requires_sleep = True
                     continue
@@ -207,7 +212,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             "http_status_code": response.status,
                         },
                     )
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     permanent_error += 1
                     continue
 
@@ -223,7 +228,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             "http_status_code": response.status,
                         },
                     )
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     transient_error += 1
                     last_requires_sleep = True
                     continue
@@ -234,8 +239,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     logging.exception(
                         f"Failed to decode response as json for {response.status=}"
                     )
-                    await poll_stats.increment_event(itgs, event="error_internal")
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await poll_stats.increment_event(
+                        itgs, event="error_internal", now=response_received_at
+                    )
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     permanent_error += 1
                     continue
 
@@ -262,13 +269,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     logging.exception(
                         f"Failed to parse response as MessageResourceEvent for {response.status=}"
                     )
-                    await poll_stats.increment_event(itgs, event="error_internal")
-                    await redis.lpop(b"sms:recovery_purgatory")
+                    await poll_stats.increment_event(
+                        itgs, event="error_internal", now=response_received_at
+                    )
+                    await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                     permanent_error += 1
                     continue
 
-                old_status: Optional[Union[str, bytes]] = await redis.hget(
-                    f"sms:pending:{sid}".encode("utf-8"), b"message_resource_status"
+                old_status: Optional[Union[str, bytes]] = await redis.hget(  # type: ignore
+                    f"sms:pending:{sid}".encode("utf-8"), b"message_resource_status"  # type: ignore
                 )
                 if isinstance(old_status, bytes):
                     old_status = old_status.decode("utf-8")
@@ -289,7 +298,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         "new_status": response_parsed.status,
                     },
                 )
-                await redis.lpop(b"sms:recovery_purgatory")
+                await redis.lpop(b"sms:recovery_purgatory")  # type: ignore
                 if response_parsed.status in ("delivered", "sent", "read"):
                     succeeded += 1
                 elif response_parsed.status in ("canceled", "undelivered", "failed"):
@@ -313,7 +322,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Transient Error: {transient_error}"
         )
         await redis.hset(
-            b"stats:sms:receipt_recovery_job",
+            b"stats:sms:receipt_recovery_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,

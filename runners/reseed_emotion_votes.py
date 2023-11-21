@@ -37,8 +37,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         await pipe.delete(key)
 
         for emotion, votes in zip(emotions, votes):
-            await pipe.hincrby(key, emotion.encode("utf-8"), votes)
-        await pipe.hincrby(key, b"__total", total_votes)
+            await pipe.hincrby(key, emotion.encode("utf-8"), votes)  # type: ignore
+        await pipe.hincrby(key, b"__total", total_votes)  # type: ignore
         await pipe.execute()
 
     logging.info(f"Seeded {total_votes} votes for {len(emotions)} emotions")

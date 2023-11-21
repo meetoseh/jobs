@@ -81,7 +81,7 @@ class _PreparedM3UVodExportPart:
 
 
 @dataclass
-class _PreparedM3UVodExport:
+class PreparedM3UVodExport:
     """Acts like a ContentFileExport, but for a prepared m3u vod, which means it's
     for a specific
     """
@@ -120,7 +120,7 @@ class _PreparedM3UPlaylist:
     containing `master_file_path`
     """
 
-    vods: List[_PreparedM3UVodExport]
+    vods: List[PreparedM3UVodExport]
     """The hls vods we've decided to export. Note we don't need to export the
     actual master file, since it's produced from the available vods
     """
@@ -340,7 +340,7 @@ async def process_audio_into(
             master_file_path=hls_master_file_path,
             playlist=master_m3u,
             vods=[
-                _PreparedM3UVodExport(
+                PreparedM3UVodExport(
                     uid=f"oseh_cfe_{secrets.token_urlsafe(16)}",
                     format="m3u8",
                     bandwidth=vod.bandwidth,
@@ -778,7 +778,27 @@ async def _upsert_prepared(
                 ),
             )
 
-        exports.append(vod)
+        exports.append(
+            ContentFileExport(
+                uid=vod.uid,
+                format=vod.format,
+                bandwidth=vod.bandwidth,
+                codecs=vod.codecs,
+                target_duration=vod.target_duration,
+                quality_parameters=vod.quality_parameters,
+                created_at=vod.created_at,
+                parts=[
+                    ContentFileExportPart(
+                        uid=part.uid,
+                        s3_file=part.s3_file,
+                        position=part.position,
+                        duration_seconds=part.duration_seconds,
+                        created_at=part.created_at,
+                    )
+                    for part in vod.parts
+                ],
+            )
+        )
 
     return ContentFile(
         uid=content_file_uid,
@@ -1029,18 +1049,24 @@ async def produce_m3u8_async(
 
 
 if __name__ == "__main__":
-    os.makedirs(os.path.join("tmp", "audio_test", "out"), exist_ok=True)
-    for bitrate in AUDIO_BITRATES:
-        produce_mp4(
-            os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
-            os.path.join("tmp", "audio_test", "out", f"out_{bitrate}.mp4"),
-            ffmpeg=shutil.which("ffmpeg"),
-            bitrate_kbps=bitrate,
+
+    def _inner():
+        ffmpeg_loc = shutil.which("ffmpeg")
+        assert ffmpeg_loc is not None
+        os.makedirs(os.path.join("tmp", "audio_test", "out"), exist_ok=True)
+        for bitrate in AUDIO_BITRATES:
+            produce_mp4(
+                os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
+                os.path.join("tmp", "audio_test", "out", f"out_{bitrate}.mp4"),
+                ffmpeg=ffmpeg_loc,
+                bitrate_kbps=bitrate,
+            )
+        print(
+            produce_m3u8(
+                os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
+                os.path.join("tmp", "audio_test", "out"),
+                ffmpeg=ffmpeg_loc,
+            )
         )
-    print(
-        produce_m3u8(
-            os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
-            os.path.join("tmp", "audio_test", "out"),
-            ffmpeg=shutil.which("ffmpeg"),
-        )
-    )
+
+    _inner()

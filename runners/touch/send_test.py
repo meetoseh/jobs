@@ -10,7 +10,6 @@ from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.shared.job_callback import JobCallback
 from lib.touch.send import send_touch
 
 category = JobCategory.LOW_RESOURCE_COST

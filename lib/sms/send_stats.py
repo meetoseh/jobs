@@ -172,19 +172,23 @@ async def attempt_increment_event(
     if expected_extra_type is not None and extra is None:
         raise ValueError(f"Event {event} requires extra data ({expected_extra_type})")
 
-    typed_extra = None if extra is None else expected_extra_type.parse_obj(extra)
+    typed_extra = (
+        None
+        if expected_extra_type is None
+        else expected_extra_type.model_validate(extra)
+    )
 
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=timezone)
     await set_if_lower(client, b"stats:sms_send:daily:earliest", unix_date)
-    await client.hincrby(
-        f"stats:sms_send:daily:{unix_date}".encode("ascii"),
-        event.encode("utf-8"),
+    await client.hincrby(  # type: ignore
+        f"stats:sms_send:daily:{unix_date}".encode("ascii"),  # type: ignore
+        event.encode("utf-8"),  # type: ignore
         amount,
     )
 
     if typed_extra is not None:
-        await client.hincrby(
-            f"stats:sms_send:daily:{unix_date}:extra:{event}".encode("utf-8"),
-            typed_extra.redis_key,
+        await client.hincrby(  # type: ignore
+            f"stats:sms_send:daily:{unix_date}:extra:{event}".encode("utf-8"),  # type: ignore
+            typed_extra.redis_key,  # type: ignore
             amount,
         )

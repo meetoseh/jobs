@@ -106,8 +106,8 @@ class EmailPending(BaseModel):
                 "utf-8"
             ),
             b"send_accepted_at": str(self.send_accepted_at).encode("utf-8"),
-            b"failure_job": self.failure_job.json().encode("utf-8"),
-            b"success_job": self.success_job.json().encode("utf-8"),
+            b"failure_job": self.failure_job.model_dump_json().encode("utf-8"),
+            b"success_job": self.success_job.model_dump_json().encode("utf-8"),
         }
 
     @classmethod
@@ -122,22 +122,24 @@ class EmailPending(BaseModel):
         corresponding object.
         """
         data = RedisHash(mapping_raw)
-        return cls(
-            aud=data.get_str(b"aud"),
-            uid=data.get_str(b"uid"),
-            message_id=data.get_str(b"message_id"),
-            email=data.get_str(b"email"),
-            subject=data.get_str(b"subject"),
-            template=data.get_str(b"template"),
-            template_parameters=json.loads(data.get_str(b"template_parameters")),
-            send_initially_queued_at=data.get_float(b"send_initially_queued_at"),
-            send_accepted_at=data.get_float(b"send_accepted_at"),
-            failure_job=JobCallback.parse_raw(
-                data.get_bytes(b"failure_job"), content_type="application/json"
-            ),
-            success_job=JobCallback.parse_raw(
-                data.get_bytes(b"success_job"), content_type="application/json"
-            ),
+        return cls.model_validate(
+            {
+                "aud": data.get_str(b"aud"),
+                "uid": data.get_str(b"uid"),
+                "message_id": data.get_str(b"message_id"),
+                "email": data.get_str(b"email"),
+                "subject": data.get_str(b"subject"),
+                "template": data.get_str(b"template"),
+                "template_parameters": json.loads(data.get_str(b"template_parameters")),
+                "send_initially_queued_at": data.get_float(b"send_initially_queued_at"),
+                "send_accepted_at": data.get_float(b"send_accepted_at"),
+                "failure_job": JobCallback.model_validate_json(
+                    data.get_bytes(b"failure_job")
+                ),
+                "success_job": JobCallback.model_validate_json(
+                    data.get_bytes(b"success_job")
+                ),
+            }
         )
 
 
@@ -160,27 +162,30 @@ class EmailSuccessData(BaseModel):
     )
 
 
+EmailFailureInfoErrorIdentifier = Literal[
+    "TemplateNotFound",
+    "TemplateUnprocessable",
+    "TemplateClientError",
+    "TemplateServerError",
+    "TemplateNetworkError",
+    "TemplateInternalError",
+    "SESTooManyRequestsException",
+    "SESClientError",
+    "SESServerError",
+    "SESNetworkError",
+    "SESInternalError",
+    "Bounce",
+    "Complaint",
+    "ReceiptTimeout",
+    "Suppressed",
+]
+
+
 class EmailFailureInfo(BaseModel):
     step: Literal["template", "send", "receipt"] = Field(
         description="The step that encountered an error"
     )
-    error_identifier: Literal[
-        "TemplateNotFound",
-        "TemplateUnprocessable",
-        "TemplateClientError",
-        "TemplateServerError",
-        "TemplateNetworkError",
-        "TemplateInternalError",
-        "SESTooManyRequestsException",
-        "SESClientError",
-        "SESServerError",
-        "SESNetworkError",
-        "SESInternalError",
-        "Bounce",
-        "Complaint",
-        "ReceiptTimeout",
-        "Suppressed",
-    ] = Field(
+    error_identifier: EmailFailureInfoErrorIdentifier = Field(
         description=(
             "An identifier that categorizes the issue:\n"
             "- TemplateNotFound: 404 from email-templates\n"
@@ -248,7 +253,7 @@ def encode_data_for_failure_job(
     """
     return base64.urlsafe_b64encode(
         gzip.compress(
-            EmailFailureData(email=email, info=info).json().encode("utf-8"),
+            EmailFailureData(email=email, info=info).model_dump_json().encode("utf-8"),
             compresslevel=6,
             mtime=0,
         )
@@ -259,9 +264,8 @@ def decode_data_for_failure_job(
     data_raw: str,
 ) -> Tuple[Union[EmailAttempt, EmailPending], EmailFailureInfo]:
     """Undoes the encoding done by encode_data_for_failure_job"""
-    result = EmailFailureData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = EmailFailureData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.email, result.info)
 
@@ -285,7 +289,7 @@ def encode_data_for_success_job(email: EmailPending, info: EmailSuccessInfo) -> 
     """
     return base64.urlsafe_b64encode(
         gzip.compress(
-            EmailSuccessData(email=email, info=info).json().encode("utf-8"),
+            EmailSuccessData(email=email, info=info).model_dump_json().encode("utf-8"),
             compresslevel=6,
             mtime=0,
         )
@@ -294,8 +298,7 @@ def encode_data_for_success_job(email: EmailPending, info: EmailSuccessInfo) -> 
 
 def decode_data_for_success_job(data_raw: str) -> Tuple[EmailPending, EmailSuccessInfo]:
     """Undoes the encoding done by encode_data_for_success_job"""
-    result = EmailSuccessData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = EmailSuccessData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.email, result.info)

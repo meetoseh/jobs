@@ -177,16 +177,16 @@ async def touch_send_destination_failed(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
+    res = await redis.evalsha(  # type: ignore
         TOUCH_SEND_DESTINATION_FAILED_LUA_SCRIPT_HASH,
         4,
-        pending_zset,
-        callbacks_key,
-        remaining_key,
-        jobs_key,
-        uid,
-        attempt_uid,
-        now,
+        pending_zset,  # type: ignore
+        callbacks_key,  # type: ignore
+        remaining_key,  # type: ignore
+        jobs_key,  # type: ignore
+        uid,  # type: ignore
+        attempt_uid,  # type: ignore
+        now,  # type: ignore
     )
     if res is redis:
         return None

@@ -70,7 +70,7 @@ async def lmove_using_purgatory(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(LMOVE_USING_PURGATORY_LUA_SCRIPT_HASH, 2, src, dst)
+    res = await redis.evalsha(LMOVE_USING_PURGATORY_LUA_SCRIPT_HASH, 2, src, dst)  # type: ignore
     if res is redis:
         return None
     return res
@@ -80,7 +80,7 @@ async def lmove_using_purgatory_safe(
     itgs: Itgs,
     src: Union[str, bytes],
     dst: Union[str, bytes],
-) -> List[dict]:
+) -> Union[str, bytes, None]:
     """Loads the lmove_using_purgatory script if necessary and executes lmove_using_purgatory
     within the standard redis instance on the integrations.
 
@@ -101,4 +101,5 @@ async def lmove_using_purgatory_safe(
     async def func():
         return await lmove_using_purgatory(redis, src, dst)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    return res

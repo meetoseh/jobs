@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Optional, Union, cast
 from error_middleware import handle_contextless_error, handle_warning
 from itgs import Itgs
 from pydantic import BaseModel, Field
@@ -113,7 +113,10 @@ async def execute(
                 f"{time_per(i, time_taken):.2f} associations/s"
             )
 
-        next_raw_entry = await redis.lpop(b"visitors:user_associations")
+        next_raw_entry = cast(
+            Union[str, bytes, None],
+            await redis.lpop(b"visitors:user_associations"),  # type: ignore
+        )
         if next_raw_entry is None:
             time_taken = time.perf_counter() - started_at
             logging.debug(
@@ -122,14 +125,12 @@ async def execute(
             )
             break
 
-        next_entry = QueuedVisitorUser.parse_raw(
-            next_raw_entry, content_type="application/json"
-        )
+        next_entry = QueuedVisitorUser.model_validate_json(next_raw_entry)
 
         if next_entry.seen_at < cutoff_unix_time:
             await handle_warning(
                 f"{__name__}:cutoff",
-                f"Skipping visitor user association {next_entry.json()}: too old (are we getting behind?)",
+                f"Skipping visitor user association {next_entry.model_dump_json()}: too old (are we getting behind?)",
             )
             continue
 
@@ -198,9 +199,9 @@ async def execute(
 
         if success == "failed":
             await handle_contextless_error(
-                extra_info=f"process_visitor_users: failed to insert visitor user (raced?): {next_entry.json()} (requeuing)"
+                extra_info=f"process_visitor_users: failed to insert visitor user (raced?): {next_entry.model_dump_json()} (requeuing)"
             )
-            await redis.rpush(b"visitors:user_associations", next_raw_entry)
+            await redis.rpush(b"visitors:user_associations", next_raw_entry)  # type: ignore
             continue
 
         if success == "updated":
@@ -223,7 +224,7 @@ async def execute(
             await set_if_lower(
                 pipe,
                 b"stats:visitors:daily:earliest",
-                str(seen_at_unix_date).encode("ascii"),
+                str(seen_at_unix_date).encode("ascii"),  # type: ignore
             )
 
             for last_click_removed in changes.last_clicks_changed_to_any_click:
@@ -234,8 +235,8 @@ async def execute(
                     < seen_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(last_click_removed.utm),
-                    b"holdover_last_click_signups"
+                    get_counts_key(last_click_removed.utm),  # type: ignore
+                    b"holdover_last_click_signups"  # type: ignore
                     if is_holdover
                     else b"last_click_signups",
                     -1,
@@ -249,8 +250,8 @@ async def execute(
                     < seen_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(last_click_added.utm),
-                    b"holdover_last_click_signups"
+                    get_counts_key(last_click_added.utm),  # type: ignore
+                    b"holdover_last_click_signups"  # type: ignore
                     if is_holdover
                     else b"last_click_signups",
                     1,
@@ -264,8 +265,8 @@ async def execute(
                     < seen_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(any_click_added.utm),
-                    b"holdover_any_click_signups"
+                    get_counts_key(any_click_added.utm),  # type: ignore
+                    b"holdover_any_click_signups"  # type: ignore
                     if is_holdover
                     else b"any_click_signups",
                     1,
@@ -279,8 +280,8 @@ async def execute(
                     < seen_at_unix_date
                 )
                 await pipe.hincrby(
-                    get_counts_key(preexisting_added.utm),
-                    b"holdover_preexisting" if is_holdover else b"preexisting",
+                    get_counts_key(preexisting_added.utm),  # type: ignore
+                    b"holdover_preexisting" if is_holdover else b"preexisting",  # type: ignore
                     1,
                 )
 

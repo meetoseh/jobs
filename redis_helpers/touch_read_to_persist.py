@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, Optional, List, Tuple, Union
+from typing import Any, Optional, List, Protocol, Union, cast
 import hashlib
 import time
 import redis.asyncio.client
@@ -84,6 +84,12 @@ class TouchReadToPersistResult:
     clicks: List[TouchLinkBufferedClick]
 
 
+class TouchReadToPersistResultWithData(Protocol):
+    code: str
+    data: TouchLink
+    clicks: List[TouchLinkBufferedClick]
+
+
 async def touch_read_to_persist(
     redis: redis.asyncio.client.Redis,
     persistable_key: Union[str, bytes],
@@ -121,14 +127,14 @@ async def touch_read_to_persist(
     res = await redis.evalsha(
         TOUCH_READ_TO_PERSIST_LUA_SCRIPT_HASH,
         2,
-        persistable_key,
-        buffer_key,
-        start_idx_incl,
-        end_idx_incl,
+        persistable_key,  # type: ignore
+        buffer_key,  # type: ignore
+        start_idx_incl,  # type: ignore
+        end_idx_incl,  # type: ignore
     )
     if res is redis:
         return None
-    return touch_read_to_persist_parse_result(res)
+    return touch_read_to_persist_parse_result(cast(List[Any], res))
 
 
 def touch_read_to_persist_parse_result(
@@ -151,8 +157,7 @@ def touch_read_to_persist_parse_result(
         )
         try:
             clicks = [
-                TouchLinkBufferedClick.parse_raw(args, content_type="application/json")
-                for args in res[i + 2]
+                TouchLinkBufferedClick.model_validate_json(args) for args in res[i + 2]
             ]
         except:
             clicks = []
@@ -164,7 +169,7 @@ def touch_read_to_persist_parse_result(
                     parsed["visitor_uid"] = None
                 if parsed.get("user_sub") is False:
                     parsed["user_sub"] = None
-                clicks.append(TouchLinkBufferedClick.parse_obj(parsed))
+                clicks.append(TouchLinkBufferedClick.model_validate(parsed))
             logging.warning(
                 f"Corrected corrupted clicks; original: {res[i+2]}, fixed: {clicks}"
             )

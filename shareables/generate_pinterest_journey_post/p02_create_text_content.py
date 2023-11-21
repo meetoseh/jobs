@@ -25,8 +25,8 @@ class PinterestTextContentForPost:
     """The pin description"""
 
     @classmethod
-    def from_dict(kls, raw: dict):
-        return kls(**raw)
+    def from_dict(cls, raw: dict):
+        return cls(**raw)
 
 
 def create_prompt(journey: PinterestJourneyForPost) -> List[ChatCompletionMessage]:
@@ -138,6 +138,7 @@ async def create_text_content(
     )
 
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
     for attempt in range(max_attempts):
         if gd.received_term_signal:
             raise Exception("received term signal")
@@ -148,14 +149,15 @@ async def create_text_content(
                 key="external_apis:api_limiter:chatgpt",
                 time_between_requests=3,
             )
-            completion = openai.ChatCompletion.create(
+            completion = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=prompt,
                 temperature=_temperature_for_attempt(attempt),
-                api_key=openai_api_key,
             )
             logging.info(f"Got completion: {completion}")
-            return parse_completion(completion.choices[0].message.content)
+            content = completion.choices[0].message.content
+            assert content is not None
+            return parse_completion(content)
         except Exception:
             if attempt == max_attempts - 1:
                 raise
@@ -163,3 +165,4 @@ async def create_text_content(
             logging.exception(
                 f"Failed to create text content for pin of {journey.title} by {journey.instructor} (attempt {attempt+1}/{max_attempts})"
             )
+    raise Exception("unreachable")

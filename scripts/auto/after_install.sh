@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 install_python_packages() {
     yum -y install gcc gcc-c++ make python3-devel
-
+    
     if [ ! -d venv ]
     then
         python3 -m venv venv
     fi
     . venv/bin/activate
     python -m pip install -U pip
-    pip install -r requirements.txt
+    pip install --no-deps -r requirements.txt
     deactivate
 }
 
@@ -17,9 +17,9 @@ install_ffmpeg_if_necessary() {
     then
         return
     fi
-
+    
     local OLD_PWD=$(pwd)
-
+    
     rm -rf /usr/local/src/ffmpeg
     mkdir -p /usr/local/src/ffmpeg
     cd /usr/local/src/ffmpeg
@@ -35,7 +35,7 @@ install_cairo_if_necessary() {
     then
         return
     fi
-
+    
     yum -y install cairo
 }
 

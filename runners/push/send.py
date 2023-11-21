@@ -13,6 +13,7 @@ from h2client.simple_connection import ResponseData
 from lib.basic_redis_lock import basic_redis_lock
 from lib.push.message_attempt_info import (
     MessageAttemptFailureInfo,
+    MessageAttemptFailureInfoIdentifier,
     MessageAttemptToSend,
     MessageAttemptToCheck,
     PushTicket,
@@ -55,13 +56,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     started_at = time.time()
     async with basic_redis_lock(itgs, b"push:send_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:push_tickets:send_job",
-            b"last_started_at",
-            str(started_at).encode("ascii"),
+        await redis.hset(  # type: ignore
+            b"stats:push_tickets:send_job",  # type: ignore
+            b"last_started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
-        num_in_purgatory = await redis.llen(b"push:message_attempts:purgatory")
+        num_in_purgatory = await redis.llen(b"push:message_attempts:purgatory")  # type: ignore
         if num_in_purgatory > 0:
             num_to_handle = num_in_purgatory
             slack = await itgs.slack()
@@ -90,8 +91,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         if num_to_handle == 0:
             logging.info("Push Send Job - no message attempts to handle")
             finished_at = time.time()
-            await redis.hset(
-                b"stats:push_tickets:send_job",
+            await redis.hset(  # type: ignore
+                b"stats:push_tickets:send_job",  # type: ignore
                 mapping={
                     b"last_finished_at": finished_at,
                     b"last_running_time": finished_at - started_at,
@@ -183,8 +184,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     redis_batch_size = min(
                         remaining_for_this_network_batch, REDIS_FETCH_BATCH_SIZE
                     )
-                    redis_batch = await redis.lrange(
-                        b"push:message_attempts:purgatory",
+                    redis_batch = await redis.lrange(  # type: ignore
+                        b"push:message_attempts:purgatory",  # type: ignore
                         redis_idx,
                         redis_idx + redis_batch_size - 1,
                     )
@@ -194,9 +195,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     redis_idx += redis_batch_size
                     network_batch.extend(
                         [
-                            MessageAttemptToSend.parse_raw(
-                                attempt, content_type="application/json"
-                            )
+                            MessageAttemptToSend.model_validate_json(attempt)
                             for attempt in redis_batch
                         ]
                     )
@@ -243,7 +242,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         await redis.delete(b"push:message_attempts:purgatory")
         finished_at = time.time()
         await redis.hset(
-            b"stats:push_tickets:send_job",
+            b"stats:push_tickets:send_job",  # type: ignore
             mapping={
                 b"last_finished_at": finished_at,
                 b"last_running_time": finished_at - started_at,
@@ -305,7 +304,7 @@ async def handle_send_job_result(
             action="send",
             ticket=None,
             receipt=None,
-            identifier="ClientError",
+            identifier="ClientErrorOther",
             retryable=False,
             extra=str(response.status_code),
         )
@@ -589,7 +588,9 @@ async def handle_send_job_result(
     )
 
 
-EVENTS_FOR_FAILURE_IDENTIFIER = {
+EVENTS_FOR_FAILURE_IDENTIFIER: Dict[
+    MessageAttemptFailureInfoIdentifier, lib.push.ticket_stats.PushTicketStatsEvent
+] = {
     "DeviceNotRegistered": "failed_due_to_device_not_registered",
     "ClientError429": "failed_due_to_client_error_429",
     "ClientErrorOther": "failed_due_to_client_error_other",
@@ -658,7 +659,7 @@ async def handle_ticket_created_successfully(
                         failure_job=attempt.failure_job,
                         success_job=attempt.success_job,
                     )
-                    .json()
+                    .model_dump_json()
                     .encode("utf-8"),
                     now,
                 ),

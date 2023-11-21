@@ -3,7 +3,6 @@ from typing import List
 from error_middleware import handle_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
-import logging
 from jobs import JobCategory
 from lib.touch.links import abandon_link
 

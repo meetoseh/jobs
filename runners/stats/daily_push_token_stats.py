@@ -43,8 +43,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         logging.debug(
             f"Rotating push token stats for {unix_dates.unix_date_to_date(unix_date).isoformat()}"
         )
-        raw_values = await redis.hgetall(
-            f"stats:push_tokens:daily:{unix_date}".encode("ascii")
+        raw_values = await redis.hgetall(  # type: ignore
+            f"stats:push_tokens:daily:{unix_date}".encode("ascii")  # type: ignore
         )
         if raw_values is None:
             raw_values = dict()
@@ -95,6 +95,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             """,
             (unix_dates.unix_date_to_timestamp(unix_date + 1, tz=tz),),
         )
+        assert response.results, response
         total: int = response.results[0][0]
 
         logging.debug(

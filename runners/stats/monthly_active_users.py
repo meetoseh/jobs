@@ -41,7 +41,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         retrieved_at = time.time()
         retrieved_for = unix_dates.unix_month_to_date_of_first(unix_month)
         fmted_retrieved_for = f"{retrieved_for.year}-{retrieved_for.month:02}"
-        total = await redis.scard(key)
+        total = await redis.scard(key)  # type: ignore
 
         response = await cursor.execute(
             """

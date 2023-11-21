@@ -3,7 +3,7 @@ the relevant portion of the audio file. Note that this is labeled
 as step 6, since the first 5 steps are the same as in journey_audio.
 """
 import logging
-from typing import Optional
+from typing import Optional, cast
 from itgs import Itgs
 from lib.transcripts.db import (
     store_transcript_for_content_file,
@@ -12,7 +12,6 @@ from lib.transcripts.db import (
 from lib.transcripts.gen import create_transcript as _create_transcript
 from lib.transcripts.model import Transcript, parse_vtt_transcript
 from shareables.shareable_pipeline_exception import ShareablePipelineException
-from temp_files import temp_file
 from content import hash_content_sync
 
 
@@ -71,10 +70,10 @@ async def create_transcript(
         )
         cache = await itgs.local_cache()
         cache_key = f"transcripts:{source_audio_hash}".encode("ascii")
-        raw_transcript = cache.get(cache_key)
+        raw_transcript = cast(Optional[bytes], cache.get(cache_key))
         if raw_transcript is not None:
             try:
-                return parse_vtt_transcript(raw_transcript.decode("utf-8"))
+                return parse_vtt_transcript(str(raw_transcript, "utf-8"))
             except Exception:
                 logging.warning(
                     f"Failed to parse cached transcript:\n\n{raw_transcript}",

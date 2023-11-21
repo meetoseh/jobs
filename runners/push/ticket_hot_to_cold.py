@@ -31,7 +31,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     ):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:push_receipts:cold_to_hot_job", b"last_started_at", started_at
+            b"stats:push_receipts:cold_to_hot_job", b"last_started_at", started_at  # type: ignore
         )
 
         num_moved = 0
@@ -43,7 +43,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 itgs,
                 b"push:push_tickets:cold",
                 b"push:push_tickets:hot",
-                started_at - 60 * 15,
+                int(started_at - 60 * 15),
                 MOVE_BATCH_SIZE,
             )
             num_moved += move_result.num_moved
@@ -52,7 +52,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         finished_at = time.time()
         await redis.hset(
-            b"stats:push_receipts:cold_to_hot_job",
+            b"stats:push_receipts:cold_to_hot_job",  # type: ignore
             mapping={
                 b"last_finished_at": finished_at,
                 b"last_running_time": finished_at - started_at,

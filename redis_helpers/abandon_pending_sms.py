@@ -73,7 +73,7 @@ async def abandon_pending_sms(
     src: Union[str, bytes],
     sid: Union[str, bytes],
     num_changes: int,
-) -> bool:
+) -> Optional[bool]:
     """Removes the given sid from the receipt pending set, but only if it has the
     given number of changes. Returns if the sid was removed.
 
@@ -109,8 +109,8 @@ async def abandon_pending_sms(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(
-        ABANDON_PENDING_SMS_LUA_SCRIPT_HASH, 1, src, sid, num_changes
+    res = await redis.evalsha(  # type: ignore
+        ABANDON_PENDING_SMS_LUA_SCRIPT_HASH, 1, src, sid, num_changes  # type: ignore
     )
     if res is redis:
         return None
@@ -147,4 +147,6 @@ async def abandon_pending_sms_safe(
     async def func():
         return await abandon_pending_sms(redis, src, sid, num_changes)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

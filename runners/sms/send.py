@@ -11,6 +11,8 @@ from lib.sms.sms_info import (
     MessageResource,
     PendingSMS,
     SMSFailureInfo,
+    SMSFailureInfoIdentifier,
+    SMSSuccess,
     SMSSuccessResult,
     SMSToSend,
     encode_data_for_failure_job,
@@ -57,12 +59,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     async with basic_redis_lock(itgs, b"sms:send_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:sms_send:send_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+            b"stats:sms_send:send_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
-        num_in_purgatory = await redis.llen(b"sms:send_purgatory")
+        num_in_purgatory = await redis.llen(b"sms:send_purgatory")  # type: ignore
         if num_in_purgatory > 0:
             slack = await itgs.slack()
             await slack.send_web_error_message(
@@ -70,14 +72,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 "SMS Send Job - recovering from purgatory",
             )
 
-            next_to_send_raw = await redis.lindex(b"sms:send_purgatory", 0)
+            next_to_send_raw = await redis.lindex(b"sms:send_purgatory", 0)  # type: ignore
             if next_to_send_raw is None:
                 raise Exception(
                     f"SMS Send Job - {num_in_purgatory=} but LINDEX 0 is None"
                 )
         else:
             next_to_send_raw = await redis.lmove(
-                b"sms:to_send", b"sms:send_purgatory", "LEFT", "RIGHT"
+                b"sms:to_send", b"sms:send_purgatory", "LEFT", "RIGHT"  # type: ignore
             )
             num_in_purgatory = 1
 
@@ -85,7 +87,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             logging.info("SMS Send Job - no messages to send")
             finished_at = time.time()
             await redis.hset(
-                b"stats:sms_send:send_job",
+                b"stats:sms_send:send_job",  # type: ignore
                 mapping={
                     b"finished_at": finished_at,
                     b"running_time": finished_at - started_at,
@@ -125,15 +127,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             async with redis.pipeline() as pipe:
                 pipe.multi()
-                await pipe.lpop(b"sms:send_purgatory")
+                await pipe.lpop(b"sms:send_purgatory")  # type: ignore
                 num_in_purgatory -= 1
 
                 if num_in_purgatory == 0:
                     await pipe.lmove(
-                        b"sms:to_send", b"sms:send_purgatory", "LEFT", "RIGHT"
+                        b"sms:to_send", b"sms:send_purgatory", "LEFT", "RIGHT"  # type: ignore
                     )
                 else:
-                    await pipe.lindex(b"sms:send_purgatory", 0)
+                    await pipe.lindex(b"sms:send_purgatory", 0)  # type: ignore
                 result = await pipe.execute()
 
             next_to_send_raw = result[1]
@@ -183,9 +185,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     want_failure_sleep = False
                     await asyncio.sleep(sleep_time)
 
-                next_to_send = SMSToSend.parse_raw(
-                    next_to_send_raw, content_type="application/json"
-                )
+                next_to_send = SMSToSend.model_validate_json(next_to_send_raw)
                 logging.info(f"SMS Send Job - sending {next_to_send=}")
 
                 request_data = {
@@ -482,7 +482,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     logging.warning(
                         "SMS Send Job - unsuccessful status code but successfully parsed MessageResource, "
                         "and it has no error code. Ignoring the http status code, but it is a little odd. "
-                        f"{response.status}: {message_resource.json()}"
+                        f"{response.status}: {message_resource.model_dump_json()}"
                     )
 
                 if message_resource.status in SUCCEEDED_MESSAGE_STATUSES:
@@ -539,7 +539,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Failed Transiently: {run_stats.failed_transiently}"
         )
         await redis.hset(
-            b"stats:sms_send:send_job",
+            b"stats:sms_send:send_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,
@@ -570,7 +570,7 @@ async def fail_job(
     itgs: Itgs,
     *,
     sms: SMSToSend,
-    identifier: str,
+    identifier: SMSFailureInfoIdentifier,
     subidentifier: Optional[str] = None,
     retryable: bool,
     extra: Optional[str] = None,
@@ -604,7 +604,13 @@ async def succeed_job(
         sms.success_job.name,
         **sms.success_job.kwargs,
         data_raw=encode_data_for_success_job(
-            sms=sms,
+            sms=SMSSuccess(
+                aud="success",
+                uid=sms.uid,
+                initially_queued_at=sms.initially_queued_at,
+                phone_number=sms.phone_number,
+                body=sms.body,
+            ),
             result=SMSSuccessResult(
                 message_resource_created_at=now,
                 message_resource_succeeded_at=now,
@@ -643,8 +649,8 @@ async def add_to_pending(
                 message_resource.sid.encode("utf-8"): now + WEBHOOK_WAIT_TIME_SECONDS,
             },
         )
-        await pipe.hset(
-            f"sms:pending:{message_resource.sid}".encode("utf-8"), mapping=entry
+        await pipe.hset(  # type: ignore
+            f"sms:pending:{message_resource.sid}".encode("utf-8"), mapping=entry  # type: ignore
         )
         await pipe.execute()
 

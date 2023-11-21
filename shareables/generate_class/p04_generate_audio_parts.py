@@ -6,8 +6,6 @@ from typing import List
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from dataclasses import dataclass
-from lib.transcripts.model import Transcript
-from shareables.generate_class.p01_select_classes import InputJourneyPrompt
 from shareables.generate_class.p03_create_class_meta import GeneratedClassMeta
 import requests
 
@@ -44,6 +42,7 @@ async def generate_audio_parts(
 
         logging.info(f"Queueing audio job for phrase {phrase}...")
 
+        response = None
         for start_attempt in range(3):
             response = requests.post(
                 "https://play.ht/api/v2/tts",
@@ -75,6 +74,7 @@ async def generate_audio_parts(
             response.raise_for_status()
             break
 
+        assert response is not None
         data: dict = response.json()
         job_id: str = data["id"]
         attempt: int = 0

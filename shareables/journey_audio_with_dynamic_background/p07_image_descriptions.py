@@ -13,7 +13,6 @@ from lib.chatgpt.model import ChatCompletionMessage
 from lib.redis_api_limiter import ratelimit_using_redis
 from lib.transcripts.model import TimeRange, Transcript
 from shareables.shareable_pipeline_exception import ShareablePipelineException
-import time
 import logging
 import os
 import io
@@ -301,6 +300,7 @@ def parse_image_descriptions(completion: str) -> List[str]:
                 state = "in_list"
                 current_item = item_match.group(2)
         elif state == "in_list":
+            assert current_item is not None
             if item_match:
                 image_descriptions.append(current_item.strip())
                 if int(item_match.group(1)) != len(image_descriptions) + 1:
@@ -358,6 +358,7 @@ async def create_image_descriptions(
         model = "dall-e"
 
     openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+    openai_client = openai.Client(api_key=openai_api_key)
     result: List[Tuple[TimeRange, List[str]]] = []
     for timerange, _ in transcript.phrases:
         messages = create_image_description_prompt(transcript, timerange, model=model)
@@ -383,16 +384,15 @@ async def create_image_descriptions(
                         key="external_apis:api_limiter:chatgpt",
                         time_between_requests=3,
                     )
-                    completion = openai.ChatCompletion.create(
+                    completion = openai_client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=messages,
                         temperature=_temperature_for_attempt(attempt),
-                        api_key=openai_api_key,
                     )
                     logging.info(f"Got completion:\n\n{completion}")
-                    new_descriptions = parse_image_descriptions(
-                        completion.choices[0].message.content
-                    )
+                    content = completion.choices[0].message.content
+                    assert content is not None, completion
+                    new_descriptions = parse_image_descriptions(content)
                     if model in ("pexels", "pexels-video"):
                         new_descriptions = [
                             d.replace(",", "") for d in new_descriptions

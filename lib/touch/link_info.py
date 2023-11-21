@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 from pydantic import BaseModel, Field, validator
 
 from lib.shared.redis_hash import RedisHash
@@ -38,16 +38,16 @@ class TouchLink(BaseModel):
         defined in this class
         """
         return cls(
-            uid=args[0] if isinstance(args[0], str) else args[0].decode("utf-8"),
-            code=args[1] if isinstance(args[1], str) else args[1].decode("utf-8"),
-            touch_uid=args[2] if isinstance(args[2], str) else args[2].decode("utf-8"),
+            uid=args[0] if isinstance(args[0], str) else str(args[0], "utf-8"),
+            code=args[1] if isinstance(args[1], str) else str(args[1], "utf-8"),
+            touch_uid=args[2] if isinstance(args[2], str) else str(args[2], "utf-8"),
             page_identifier=args[3]
             if isinstance(args[3], str)
-            else args[3].decode("utf-8"),
+            else str(args[3], "utf-8"),
             page_extra=json.loads(args[4]),
             preview_identifier=args[5]
             if isinstance(args[5], str)
-            else args[5].decode("utf-8"),
+            else str(args[5], "utf-8"),
             preview_extra=json.loads(args[6]),
             created_at=float(args[7]),
         )
@@ -228,7 +228,9 @@ class TouchLinkDelayedClick(BaseModel):
         return cls(
             uid=data.get_str(b"uid"),
             link_code=data.get_str(b"link_code"),
-            track_type=data.get_str(b"track_type"),
+            track_type=cast(
+                Literal["on_click", "post_login"], data.get_str(b"track_type")
+            ),
             parent_uid=data.get_str(b"parent_uid", default=None),
             user_sub=data.get_str(b"user_sub", default=None),
             visitor_uid=data.get_str(b"visitor_uid", default=None),

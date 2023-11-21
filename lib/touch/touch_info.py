@@ -69,14 +69,10 @@ class TouchPending(BaseModel):
         success_callback_raw = data.get_bytes(b"success_callback", default=None)
         failure_callback_raw = data.get_bytes(b"failure_callback", default=None)
         return cls(
-            success_callback=JobCallback.parse_raw(
-                success_callback_raw, content_type="application/json"
-            )
+            success_callback=JobCallback.model_validate_json(success_callback_raw)
             if success_callback_raw is not None
             else None,
-            failure_callback=JobCallback.parse_raw(
-                failure_callback_raw, content_type="application/json"
-            )
+            failure_callback=JobCallback.model_validate_json(failure_callback_raw)
             if failure_callback_raw is not None
             else None,
         )
@@ -87,9 +83,13 @@ class TouchPending(BaseModel):
         """
         result = dict()
         if self.success_callback is not None:
-            result[b"success_callback"] = self.success_callback.json().encode("utf-8")
+            result[
+                b"success_callback"
+            ] = self.success_callback.model_dump_json().encode("utf-8")
         if self.failure_callback is not None:
-            result[b"failure_callback"] = self.failure_callback.json().encode("utf-8")
+            result[
+                b"failure_callback"
+            ] = self.failure_callback.model_dump_json().encode("utf-8")
         return result
 
 
@@ -399,10 +399,10 @@ def touch_log_parse_raw(raw: Union[str, bytes, bytearray]):
 
     if obj["table"] == "user_touch_point_states":
         if obj["action"] == "update":
-            return TouchLogUserTouchPointStateUpdate.parse_obj(obj)
-        return TouchLogUserTouchPointStateInsert.parse_obj(obj)
+            return TouchLogUserTouchPointStateUpdate.model_validate(obj)
+        return TouchLogUserTouchPointStateInsert.model_validate(obj)
     if obj["table"] == "user_touches":
-        return TouchLogUserTouchInsert.parse_obj(obj)
+        return TouchLogUserTouchInsert.model_validate(obj)
     if obj["table"] == "user_push_tokens":
-        return TouchLogUserPushTokenUpdate.parse_obj(obj)
-    return TouchLogUserTouchDebugLogInsert.parse_obj(obj)
+        return TouchLogUserPushTokenUpdate.model_validate(obj)
+    return TouchLogUserTouchDebugLogInsert.model_validate(obj)

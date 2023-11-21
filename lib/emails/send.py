@@ -101,7 +101,7 @@ async def send_email(
             failure_job=failure_job,
             success_job=success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -119,8 +119,8 @@ async def send_email(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_send:daily:earliest", today)
-            await pipe.hincrby(key, b"queued", 1)
-            await pipe.rpush(b"email:to_send", entry)
+            await pipe.hincrby(key, b"queued", 1)  # type: ignore
+            await pipe.rpush(b"email:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)
@@ -163,7 +163,7 @@ async def retry_send(
             failure_job=email.failure_job,
             success_job=email.success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
@@ -176,8 +176,8 @@ async def retry_send(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_send:daily:earliest", today)
-            await pipe.hincrby(key, b"retried", 1)
-            await pipe.rpush(b"email:to_send", entry)
+            await pipe.hincrby(key, b"retried", 1)  # type: ignore
+            await pipe.rpush(b"email:to_send", entry)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)
@@ -214,7 +214,7 @@ async def abandon_send(
         async with redis.pipeline() as pipe:
             pipe.multi()
             await set_if_lower(pipe, b"stats:email_send:daily:earliest", today)
-            await pipe.hincrby(key, b"abandoned", 1)
+            await pipe.hincrby(key, b"abandoned", 1)  # type: ignore
             await pipe.execute()
 
     await redis_helpers.run_with_prep.run_with_prep(prep, func)

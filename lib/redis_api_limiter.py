@@ -65,8 +65,8 @@ async def ratelimit_using_redis(
     redis = await itgs.redis()
     now = time.time()
     try:
-        result = await redis.evalsha(
-            RATELIMIT_USING_REDIS_SCRIPT_HASH, 1, key, time_between_requests, now
+        result = await redis.evalsha(  # type: ignore
+            RATELIMIT_USING_REDIS_SCRIPT_HASH, 1, key, time_between_requests, now  # type: ignore
         )
     except NoScriptError:
         correct_hash = await redis.script_load(RATELIMIT_USING_REDIS_SCRIPT)
@@ -75,8 +75,8 @@ async def ratelimit_using_redis(
                 f"Redis script hash mismatch: expected {RATELIMIT_USING_REDIS_SCRIPT_HASH}, got {correct_hash}"
             )
         now = time.time()
-        result = await redis.evalsha(
-            RATELIMIT_USING_REDIS_SCRIPT_HASH, 1, key, time_between_requests, now
+        result = await redis.evalsha(  # type: ignore
+            RATELIMIT_USING_REDIS_SCRIPT_HASH, 1, key, time_between_requests, now  # type: ignore
         )
 
     next_api_call_at = float(result)

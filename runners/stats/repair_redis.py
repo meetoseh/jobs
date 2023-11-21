@@ -35,6 +35,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             )
         """
     )
+    assert response.results
     await redis.set(
         b"stats:interactive_prompt_sessions:count",
         str(response.results[0][0]).encode("utf-8"),
@@ -63,6 +64,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         """,
         (start_of_current_month_datetime.timestamp(),),
     )
+    assert response.results, response
     await redis.set(
         f"stats:interactive_prompts:monthly:{current_month}:count".encode("ascii"),
         str(response.results[0][0]).encode("utf-8"),
@@ -74,12 +76,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
 
     response = await cursor.execute("SELECT COUNT(*) FROM users")
+    assert response.results, response
     await redis.set(b"stats:users:count", str(response.results[0][0]).encode("utf-8"))
 
     response = await cursor.execute(
         "SELECT COUNT(*) FROM users WHERE created_at >= ?",
         (start_of_current_month_datetime.timestamp(),),
     )
+    assert response.results, response
     await redis.set(
         f"stats:users:monthly:{current_month}:count".encode("ascii"),
         str(response.results[0][0]).encode("utf-8"),
@@ -89,6 +93,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
 
     response = await cursor.execute("SELECT COUNT(*) FROM instructors")
+    assert response.results, response
     await redis.set(
         b"stats:instructors:count", str(response.results[0][0]).encode("utf-8")
     )
@@ -97,6 +102,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         "SELECT COUNT(*) FROM instructors WHERE created_at >= ?",
         (start_of_current_month_datetime.timestamp(),),
     )
+    assert response.results, response
     await redis.set(
         f"stats:instructors:monthly:{current_month}:count".encode("ascii"),
         str(response.results[0][0]).encode("utf-8"),
@@ -108,6 +114,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
 
     response = await cursor.execute("SELECT COUNT(*) FROM journeys")
+    assert response.results, response
     await redis.set(
         b"stats:journeys:count", str(response.results[0][0]).encode("utf-8")
     )
@@ -116,6 +123,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         "SELECT COUNT(*) FROM journeys WHERE created_at >= ?",
         (start_of_current_month_datetime.timestamp(),),
     )
+    assert response.results, response
     await redis.set(
         f"stats:journeys:monthly:{current_month}:count".encode("ascii"),
         str(response.results[0][0]).encode("utf-8"),
@@ -144,7 +152,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
     while response.results:
         await redis.sadd(
-            f"stats:monthly_active_users:{current_month}".encode("ascii"),
+            f"stats:monthly_active_users:{current_month}".encode("ascii"),  # type: ignore
             *[row[0].encode("ascii") for row in response.results],
         )
 

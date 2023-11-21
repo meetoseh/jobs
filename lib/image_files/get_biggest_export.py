@@ -1,12 +1,11 @@
-from typing import Optional, Union
-from file_service import AsyncWritableBytesIO
+from typing import Optional, Union, cast
+from file_service import AsyncWritableBytesIO, SyncWritableBytesIO
 from itgs import Itgs
 import aiohttp
 import os
 import lib.image_files.auth
 from urllib.parse import urlencode
 from dataclasses import dataclass
-import io
 
 
 @dataclass
@@ -116,7 +115,7 @@ async def get_biggest_export_url(
 async def download_export_ref(
     itgs: Itgs,
     ref: ImageFileExportRef,
-    f: Union[io.BytesIO, AsyncWritableBytesIO],
+    f: Union[SyncWritableBytesIO, AsyncWritableBytesIO],
     *,
     sync: bool,
 ) -> None:
@@ -142,8 +141,10 @@ async def download_export_ref(
             response.raise_for_status()
 
             if sync:
+                sync_f = cast(SyncWritableBytesIO, f)
                 async for chunk in response.content.iter_any():
-                    f.write(chunk)
+                    sync_f.write(chunk)
             else:
+                async_f = cast(AsyncWritableBytesIO, f)
                 async for chunk in response.content.iter_any():
-                    await f.write(chunk)
+                    await async_f.write(chunk)

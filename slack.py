@@ -1,7 +1,6 @@
 from typing import Optional
 import aiohttp
 import os
-import logging
 
 
 class Slack:
@@ -13,39 +12,38 @@ class Slack:
         """our connection to slack"""
 
     async def __aenter__(self) -> "Slack":
+        assert self.session is None, "enter before exit"
         self.session = aiohttp.ClientSession()
         await self.session.__aenter__()
         return self
 
     async def __aexit__(self, ex_type, ex_val, ex_tb) -> None:
+        assert self.session is not None, "exiting before enter"
         session = self.session
         self.session = None
         await session.__aexit__(ex_type, ex_val, ex_tb)
 
-    async def send_blocks(self, url: str, blocks: list, preview: str) -> None:
-        """sends the given slack formatted block to the given slack url
+    async def send_blocks(self, url: Optional[str], blocks: list, preview: str) -> None:
+        """sends the given slack formatted block to the given slack url. If the url
+        is None, this is a no-op.
 
         Args:
             url (str): the incoming webhook url
             blocks (list): see https://api.slack.com/messaging/webhooks#advanced_message_formatting
             preview (str): the text for notifications
         """
-        async with self.session.post(
+        assert self.session is not None
+        if url is None:
+            return
+        await self.session.post(
             url=url,
             json={"text": preview, "blocks": blocks},
             headers={"content-type": "application/json; charset=UTF-8"},
-        ) as response:
-            logging.debug(f"response from slack: {response.status}")
-
-            if response.status > 299:
-                text = await response.text()
-                logging.error(
-                    f"error sending to slack: {response.status} - {text}\n\n{preview=}, {blocks=}"
-                )
+        )
 
     async def send_message(
         self,
-        url: str,
+        url: Optional[str],
         message: str,
         preview: Optional[str] = None,
         markdown: bool = True,
@@ -53,7 +51,7 @@ class Slack:
         """sends the given markdown text to the given slack url
 
         Args:
-            url (str): the incoming webhook url
+            url (str, None): the incoming webhook url, or None to do nothing
             message (str): the markdown formatted message to send
             preview (str, None): the text for notifications or None to use the message
             markdown (bool): True for markdown format, False for raw text

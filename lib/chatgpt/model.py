@@ -1,6 +1,4 @@
-from typing import Literal, TypedDict
+from openai.types.chat import ChatCompletionMessageParam as ChatCompletionMessage
 
 
-class ChatCompletionMessage(TypedDict):
-    role: Literal["user", "system", "assistant"]
-    content: str
+__all__ = ["ChatCompletionMessage"]

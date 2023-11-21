@@ -2,7 +2,7 @@
 how that relates to what content we have, then posts that information to slack
 """
 import os
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, cast
 from error_middleware import handle_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -64,7 +64,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
 
     emotion_word_to_content_count: List[Tuple[str, int]] = [
-        tuple(row) for row in (response.results or [])
+        cast(Tuple[str, int], tuple(row)) for row in (response.results or [])
     ]
     emotion_word_to_content_count_dict = dict(emotion_word_to_content_count)
     if not emotion_word_to_content_count:
@@ -89,6 +89,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             )
         """
     )
+    assert response.results, response
     total_num_eligible_content = response.results[0][0]
 
     emotion_word_to_content_count.sort(key=lambda x: x[1], reverse=True)
@@ -112,8 +113,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         """
     )
 
-    all_time_emotion_word_to_user_count_dict: Dict[str, int] = dict(
-        response.results or []
+    all_time_emotion_word_to_user_count_dict = cast(
+        Dict[str, int], dict(response.results or [])
     )
     for word in all_emotion_words:
         if word not in all_time_emotion_word_to_user_count_dict:
@@ -159,8 +160,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         (unix_time_midnight_am_week_ago,),
     )
 
-    recent_emotion_word_to_user_count_dict: Dict[str, int] = dict(
-        response.results or []
+    recent_emotion_word_to_user_count_dict = cast(
+        Dict[str, int], dict(response.results or [])
     )
     for word in all_emotion_words:
         if word not in recent_emotion_word_to_user_count_dict:
@@ -235,12 +236,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
     try:
         openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
+        openai_client = openai.Client(api_key=openai_api_key)
         await ratelimit_using_redis(
             itgs,
             key="external_apis:api_limiter:chatgpt",
             time_between_requests=3,
         )
-        summary_response = openai.ChatCompletion.create(
+        summary_response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
@@ -282,7 +284,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     ),
                 },
             ],
-            api_key=openai_api_key,
         )
         summary = summary_response.choices[0].message.content
     except Exception as e:

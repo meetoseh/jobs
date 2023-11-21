@@ -39,9 +39,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     ):
         redis = await itgs.redis()
         await redis.hset(
-            b"stats:sms:receipt_stale_job",
-            b"started_at",
-            str(started_at).encode("ascii"),
+            b"stats:sms:receipt_stale_job",  # type: ignore
+            b"started_at",  # type: ignore
+            str(started_at).encode("ascii"),  # type: ignore
         )
 
         callbacks_queued: int = 0
@@ -106,7 +106,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Callbacks Queued: {callbacks_queued}"
         )
         await redis.hset(
-            b"stats:sms:receipt_stale_job",
+            b"stats:sms:receipt_stale_job",  # type: ignore
             mapping={
                 b"finished_at": finished_at,
                 b"running_time": finished_at - started_at,

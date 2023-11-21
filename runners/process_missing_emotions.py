@@ -54,6 +54,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 return
 
             uid: str = row[0]
+            last_uid = uid
 
             logging.debug(f"Queueing refresh_journey_emotions for journey {uid=}")
             await jobs.enqueue("runners.refresh_journey_emotions", journey_uid=uid)
@@ -61,8 +62,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         if len(response.results) < batch_size:
             break
-
-        last_uid = uid
 
     logging.debug(f"Finished process_missing_emotions (handled {num_found=} journeys)")
 

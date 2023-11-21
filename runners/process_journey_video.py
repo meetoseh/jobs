@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from error_middleware import handle_warning
@@ -74,14 +74,16 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         )
         return
 
-    journey_title: str = response.results[0][0]
-    instructor_name: str = response.results[0][1]
-    audio_uid: str = response.results[0][2]
+    journey_title = cast(str, response.results[0][0])
+    instructor_name = cast(str, response.results[0][1])
+    audio_uid = cast(str, response.results[0][2])
     # may null sha512 later
-    audio_sha512: Optional[str] = response.results[0][3]
-    audio_key: Optional[str] = response.results[0][4]
-    background_uid: str = response.results[0][5]
-    background_key: Optional[str] = response.results[0][6]
+    audio_sha512 = cast(str, response.results[0][3])
+    audio_key = cast(Optional[str], response.results[0][4])
+    background_uid = cast(str, response.results[0][5])
+    background_key = cast(Optional[str], response.results[0][6])
+
+    assert background_key is not None, f"no background image for {journey_uid=}"
 
     if audio_key is None:
         # the original has been lost, we will find the highest quality mp4 export
@@ -117,12 +119,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             )
             return
 
-        audio_format: str = response.results[0][0]
-        audio_bandwidth: int = response.results[0][1]
-        audio_codecs: str = response.results[0][2]
-        audio_quality_parameters: str = response.results[0][3]
-        audio_export_uid: str = response.results[0][4]
-        audio_key: str = response.results[0][5]
+        audio_format = cast(str, response.results[0][0])
+        audio_bandwidth = cast(int, response.results[0][1])
+        audio_codecs = cast(str, response.results[0][2])
+        audio_quality_parameters = cast(str, response.results[0][3])
+        audio_export_uid = cast(str, response.results[0][4])
+        audio_key = cast(str, response.results[0][5])
 
         await handle_warning(
             f"{__name__}:no_original_audio",

@@ -118,8 +118,8 @@ async def attempt_increment_event(
 
     unix_date = unix_dates.unix_timestamp_to_unix_date(now, tz=timezone)
     await set_if_lower(client, b"stats:push_tickets:daily:earliest", unix_date)
-    await client.hincrby(
-        f"stats:push_tickets:daily:{unix_date}".encode("ascii"),
-        event.encode("utf-8"),
+    await client.hincrby(  # type: ignore
+        f"stats:push_tickets:daily:{unix_date}".encode("ascii"),  # type: ignore
+        event.encode("utf-8"),  # type: ignore
         amount,
     )

@@ -1,6 +1,6 @@
 import base64
 import gzip
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from pydantic import BaseModel, Field
 from lib.shared.job_callback import JobCallback
 from lib.shared.redis_hash import RedisHash
@@ -28,22 +28,25 @@ class SMSToSend(BaseModel):
     success_job: JobCallback = Field(description="The job callback in case of success")
 
 
+MessageResourceStatus = Literal[
+    "queued",
+    "accepted",
+    "scheduled",
+    "canceled",
+    "sending",
+    "sent",
+    "delivered",
+    "undelivered",
+    "failed",
+    "lost",
+]
+
+
 class MessageResource(BaseModel):
     """Our model for describing a twilio message resource"""
 
     sid: str = Field(description="Twilio's unique identifier for this message resource")
-    status: Literal[
-        "queued",
-        "accepted",
-        "scheduled",
-        "canceled",
-        "sending",
-        "sent",
-        "delivered",
-        "undelivered",
-        "failed",
-        "lost",
-    ] = Field(
+    status: MessageResourceStatus = Field(
         description=(
             "The status of the message. This is any of the Twilio status values "
             "(https://www.twilio.com/docs/sms/api/message-resource#message-status-values) "
@@ -132,8 +135,8 @@ class PendingSMS(BaseModel):
             b"num_changes": self.num_changes,
             b"phone_number": self.phone_number.encode("utf-8"),
             b"body": self.body.encode("utf-8"),
-            b"failure_job": self.failure_job.json().encode("utf-8"),
-            b"success_job": self.success_job.json().encode("utf-8"),
+            b"failure_job": self.failure_job.model_dump_json().encode("utf-8"),
+            b"success_job": self.success_job.model_dump_json().encode("utf-8"),
         }
 
     @classmethod
@@ -146,7 +149,7 @@ class PendingSMS(BaseModel):
     ) -> "PendingSMS":
         data = RedisHash(mapping_raw)
         return cls(
-            aud=data.get_str(b"aud"),
+            aud=cast(Literal["pending"], data.get_str(b"aud")),
             uid=data.get_str(b"uid"),
             send_initially_queued_at=data.get_float(b"send_initially_queued_at"),
             message_resource_created_at=data.get_float(b"message_resource_created_at"),
@@ -155,7 +158,9 @@ class PendingSMS(BaseModel):
             ),
             message_resource=MessageResource(
                 sid=data.get_str(b"message_resource_sid"),
-                status=data.get_str(b"message_resource_status"),
+                status=cast(
+                    MessageResourceStatus, data.get_str(b"message_resource_status")
+                ),
                 error_code=data.get_str(b"message_resource_error_code", default=None),
                 date_updated=data.get_float(
                     b"message_resource_date_updated", default=None
@@ -168,13 +173,22 @@ class PendingSMS(BaseModel):
             num_changes=data.get_int(b"num_changes"),
             phone_number=data.get_str(b"phone_number"),
             body=data.get_str(b"body"),
-            failure_job=JobCallback.parse_raw(
-                data.get_bytes(b"failure_job"), content_type="application/json"
-            ),
-            success_job=JobCallback.parse_raw(
-                data.get_bytes(b"success_job"), content_type="application/json"
-            ),
+            failure_job=JobCallback.model_validate_json(data.get_bytes(b"failure_job")),
+            success_job=JobCallback.model_validate_json(data.get_bytes(b"success_job")),
         )
+
+
+SMSFailureInfoIdentifier = Literal[
+    "ApplicationErrorRatelimit",
+    "ApplicationErrorOther",
+    "ClientError404",
+    "ClientError429",
+    "ClientErrorOther",
+    "ServerError",
+    "InternalError",
+    "NetworkError",
+    "StuckPending",
+]
 
 
 class SMSFailureInfo(BaseModel):
@@ -188,17 +202,7 @@ class SMSFailureInfo(BaseModel):
             "the job neither retries nor abandons."
         )
     )
-    identifier: Literal[
-        "ApplicationErrorRatelimit",
-        "ApplicationErrorOther",
-        "ClientError404",
-        "ClientError429",
-        "ClientErrorOther",
-        "ServerError",
-        "InternalError",
-        "NetworkError",
-        "StuckPending",
-    ] = Field(
+    identifier: SMSFailureInfoIdentifier = Field(
         description=(
             "The cause of the most recent failure:\n"
             "- ApplicationErrorRatelimit: We received an ErrorCode from Twilio which we"
@@ -332,7 +336,9 @@ def encode_data_for_failure_job(
     """
     return base64.urlsafe_b64encode(
         gzip.compress(
-            SMSFailureData(sms=sms, failure_info=failure_info).json().encode("utf-8"),
+            SMSFailureData(sms=sms, failure_info=failure_info)
+            .model_dump_json()
+            .encode("utf-8"),
             compresslevel=6,
             mtime=0,
         )
@@ -343,9 +349,8 @@ def decode_data_for_failure_job(
     data_raw: str,
 ) -> Tuple[Union[SMSToSend, PendingSMS], SMSFailureInfo]:
     """Undoes the encoding done by encode_data_for_failure_job"""
-    result = SMSFailureData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = SMSFailureData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.sms, result.failure_info)
 
@@ -368,7 +373,7 @@ def encode_data_for_success_job(sms: SMSSuccess, result: SMSSuccessResult) -> st
     """
     return base64.urlsafe_b64encode(
         gzip.compress(
-            SMSSuccessData(sms=sms, result=result).json().encode("utf-8"),
+            SMSSuccessData(sms=sms, result=result).model_dump_json().encode("utf-8"),
             compresslevel=6,
             mtime=0,
         )
@@ -379,8 +384,7 @@ def decode_data_for_success_job(
     data_raw: str,
 ) -> Tuple[SMSSuccess, SMSSuccessResult]:
     """Undoes the encoding done by encode_data_for_success_job"""
-    result = SMSSuccessData.parse_raw(
-        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii"))),
-        content_type="application/json",
+    result = SMSSuccessData.model_validate_json(
+        gzip.decompress(base64.urlsafe_b64decode(data_raw.encode("ascii")))
     )
     return (result.sms, result.result)

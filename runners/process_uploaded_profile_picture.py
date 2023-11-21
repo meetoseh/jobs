@@ -1,5 +1,4 @@
 """Processes a raw image intended to be used as a users profile picture"""
-import asyncio
 import json
 import logging
 import secrets

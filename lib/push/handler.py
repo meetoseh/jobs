@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union
+from typing import Optional, Union, cast
 from error_middleware import handle_warning
 from lib.contact_methods.contact_method_stats import ContactMethodStatsPreparer
 from lib.daily_reminders.registration_stats import (
@@ -53,7 +53,7 @@ async def retry_or_abandon_standard(
         now = time.time()
 
     if failure_info.action == "send":
-        send_attempt: MessageAttemptToSend = attempt
+        send_attempt = cast(MessageAttemptToSend, attempt)
 
         if (
             send_attempt.retry >= 3
@@ -71,7 +71,7 @@ async def retry_or_abandon_standard(
             await retry_send_push(itgs, attempt=send_attempt)
             return True
     else:
-        check_attempt: MessageAttemptToCheck = attempt
+        check_attempt = cast(MessageAttemptToCheck, attempt)
 
         if (
             check_attempt.retry >= 3
@@ -91,7 +91,12 @@ async def retry_or_abandon_standard(
 
 
 async def delete_push_token(
-    itgs: Itgs, *, token: str, now: float, cml_reason: str, token_stats_event: str
+    itgs: Itgs,
+    *,
+    token: str,
+    now: float,
+    cml_reason: str,
+    token_stats_event: lib.push.token_stats.PushTokenStatsEvent,
 ) -> None:
     """Removes the given stored expo push token, updating user daily reminders
     and stats as appropriate. This should be called when DeviceNotRegistered is
@@ -231,7 +236,7 @@ async def maybe_delete_push_token_due_to_failure(
             otherwise
     """
     if failure_info.identifier != "DeviceNotRegistered":
-        return
+        return False
 
     cml_reason = json.dumps(
         {

@@ -43,7 +43,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"Rotating touch stale stats for {unix_dates.unix_date_to_date(unix_date).isoformat()}"
         )
 
-        result = await redis.hgetall(key_for_date(unix_date))
+        result = await redis.hgetall(key_for_date(unix_date))  # type: ignore
         overall = process_redis_hgetall_ints(result)
 
         logging.debug(

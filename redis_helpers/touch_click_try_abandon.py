@@ -93,7 +93,7 @@ async def touch_click_try_abandon(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(TOUCH_CLICK_TRY_ABANDON_LUA_SCRIPT_HASH, 0, code)
+    res = await redis.evalsha(TOUCH_CLICK_TRY_ABANDON_LUA_SCRIPT_HASH, 0, code)  # type: ignore
     if res is redis:
         return None
     return touch_click_try_abandon_parse_result(res)

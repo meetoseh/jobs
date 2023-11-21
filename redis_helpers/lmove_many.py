@@ -56,7 +56,7 @@ async def lmove_many(
     src: Union[str, bytes],
     dst: Union[str, bytes],
     max_count: int,
-) -> int:
+) -> Optional[int]:
     """Repeats lmove src dst left right until max_count is reached or src is empty.
 
     Args:
@@ -71,13 +71,15 @@ async def lmove_many(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(LMOVE_MANY_LUA_SCRIPT_HASH, 2, src, dst, max_count)
+    res = await redis.evalsha(LMOVE_MANY_LUA_SCRIPT_HASH, 2, src, dst, max_count)  # type: ignore
     if res is redis:
         return None
     return int(res)
 
 
-async def lmove_many_safe(itgs: Itgs, src: str, dst: str, max_count: int) -> int:
+async def lmove_many_safe(
+    itgs: Itgs, src: Union[str, bytes], dst: Union[str, bytes], max_count: int
+) -> int:
     """Loads the lmove many script if necessary and executes lmove_many
     within the standard redis instance on the integrations.
 
@@ -98,4 +100,6 @@ async def lmove_many_safe(itgs: Itgs, src: str, dst: str, max_count: int) -> int
     async def func():
         return await lmove_many(redis, src, dst, max_count)
 
-    return await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    res = await redis_helpers.run_with_prep.run_with_prep(prep, func)
+    assert res is not None
+    return res

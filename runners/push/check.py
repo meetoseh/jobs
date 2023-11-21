@@ -2,7 +2,7 @@
 import gzip
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from lib.basic_redis_lock import basic_redis_lock
 from lib.push.message_attempt_info import (
     MessageAttemptFailureInfo,
+    MessageAttemptFailureInfoIdentifier,
     MessageAttemptSuccess,
     MessageAttemptSuccessResult,
     MessageAttemptToCheck,
@@ -57,18 +58,18 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     started_at = time.time()
     async with basic_redis_lock(itgs, b"push:check_job:lock", gd=gd, spin=False):
         redis = await itgs.redis()
-        await redis.hset(
-            b"stats:push_receipts:check_job",
-            b"last_started_at",
-            started_at,
+        await redis.hset(  # type: ignore
+            b"stats:push_receipts:check_job",  # type: ignore
+            b"last_started_at",  # type: ignore
+            started_at,  # type: ignore
         )
 
         num_to_check = await prepare_purgatory(itgs)
         if num_to_check == 0:
             logging.info("Push Receipt Check Job found nothing to do, exiting...")
             finished_at = time.time()
-            await redis.hset(
-                b"stats:push_receipts:check_job",
+            await redis.hset(  # type: ignore
+                b"stats:push_receipts:check_job",  # type: ignore
                 mapping={
                     b"last_finished_at": finished_at,
                     b"last_running_time": finished_at - started_at,
@@ -144,8 +145,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     redis_batch_size = min(
                         remaining_for_this_network_batch, REDIS_FETCH_BATCH_SIZE
                     )
-                    redis_batch = await redis.lrange(
-                        b"push:push_tickets:purgatory",
+                    redis_batch = await redis.lrange(  # type: ignore
+                        b"push:push_tickets:purgatory",  # type: ignore
                         redis_idx,
                         redis_idx + redis_batch_size - 1,
                     )
@@ -155,9 +156,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     redis_idx += redis_batch_size
                     network_batch.extend(
                         [
-                            MessageAttemptToCheck.parse_raw(
-                                attempt, content_type="application/json"
-                            )
+                            MessageAttemptToCheck.model_validate_json(attempt)
                             for attempt in redis_batch
                         ]
                     )
@@ -201,8 +200,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         await redis.delete(b"push:push_tickets:purgatory")
         finished_at = time.time()
-        await redis.hset(
-            b"stats:push_receipts:check_job",
+        await redis.hset(  # type: ignore
+            b"stats:push_receipts:check_job",  # type: ignore
             mapping={
                 b"last_finished_at": finished_at,
                 b"last_running_time": finished_at - started_at,
@@ -226,7 +225,7 @@ async def prepare_purgatory(itgs: Itgs):
     purgatory_key = b"push:push_tickets:purgatory"
     redis = await itgs.redis()
 
-    purgatory_len = await redis.llen(purgatory_key)
+    purgatory_len = await redis.llen(purgatory_key)  # type: ignore
     if purgatory_len > 0:
         msg = (
             f"Push Receipt Check Job found {purgatory_len} items in purgatory, "
@@ -243,7 +242,7 @@ async def prepare_purgatory(itgs: Itgs):
     remaining_to_move = JOB_BATCH_SIZE
     while remaining_to_move > 0:
         num_to_move = min(remaining_to_move, REDIS_MOVE_BATCH_SIZE)
-        num_moved = await lmove_many_safe(itgs, hot_key, purgatory_key, num_to_move)
+        num_moved = await lmove_many_safe(itgs, hot_key, purgatory_key, num_to_move)  # type: ignore
 
         purgatory_len += num_moved
         remaining_to_move -= num_moved
@@ -272,7 +271,7 @@ async def handle_send_job_result(
     itgs: Itgs,
     attempts: List[MessageAttemptToCheck],
     response: ResponseData,
-) -> None:
+) -> SendJobResult:
     request_finished_at = time.time()
     logging.info(
         f"Received response {response.status_code} {response.status_text} to "
@@ -407,8 +406,9 @@ async def handle_send_job_result(
             failed_transiently=0,
         )
 
+    assert all(attempt.push_ticket.id is not None for attempt in attempts), attempts
     remaining_attempts_by_ticket_id: Dict[str, MessageAttemptToCheck] = dict(
-        (attempt.push_ticket.id, attempt) for attempt in attempts
+        (cast(str, attempt.push_ticket.id), attempt) for attempt in attempts
     )
 
     result = SendJobResult(
@@ -524,8 +524,18 @@ async def handle_attempt_result(
                     message=f"{message}",
                     details=details,
                 ),
-                identifier=error_identifier,
+                identifier=cast(
+                    Literal[
+                        "DeviceNotRegistered",
+                        "MessageTooBig",
+                        "MessageRateExceeded",
+                        "MismatchSenderId",
+                        "InvalidCredentials",
+                    ],
+                    error_identifier,
+                ),
                 retryable=False,
+                extra=None,
             ),
         )
         return SendJobResult(
@@ -570,11 +580,14 @@ async def handle_missing_send_job_result(
             receipt=None,
             identifier="NotReadyYet",
             retryable=True,
+            extra=None,
         ),
     )
 
 
-FAILURE_IDENTIFIER_TO_EVENT = {
+FAILURE_IDENTIFIER_TO_EVENT: Dict[
+    MessageAttemptFailureInfoIdentifier, lib.push.receipt_stats.PushReceiptStatsEvent
+] = {
     "DeviceNotRegistered": "failed_due_to_device_not_registered",
     "MessageTooBig": "failed_due_to_message_too_big",
     "MessageRateExceeded": "failed_due_to_message_rate_exceeded",
@@ -592,7 +605,7 @@ FAILURE_IDENTIFIER_TO_EVENT = {
 async def fail_entire_batch(
     itgs: Itgs,
     attempts: List[MessageAttemptToCheck],
-    identifier: str,
+    identifier: MessageAttemptFailureInfoIdentifier,
     retryable: bool,
     extra: Optional[str],
 ) -> None:

@@ -46,7 +46,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         return
 
     subcategories_raw = await redis.smembers(
-        b"stats:interactive_prompt_sessions:bysubcat:subcategories"
+        b"stats:interactive_prompt_sessions:bysubcat:subcategories"  # type: ignore
     )
     subcategories: List[str] = []
     for subcategory_raw in subcategories_raw:
@@ -93,7 +93,7 @@ async def move_views_in_redis(itgs: Itgs, unix_date: int) -> None:
 
     base_key = "stats:interactive_prompt_sessions:bysubcat:total_views"
     daily_key = f"{base_key}:{unix_date}"
-    daily = await redis.hgetall(daily_key.encode("utf-8"))
+    daily = await redis.hgetall(daily_key.encode("utf-8"))  # type: ignore
     if not daily:
         return
 
@@ -102,7 +102,7 @@ async def move_views_in_redis(itgs: Itgs, unix_date: int) -> None:
 
         for key, value in daily.items():
             logging.debug(f"redis hincrby {base_key=} {key=} {value=}")
-            await pipe.hincrby(base_key.encode("utf-8"), key, value)
+            await pipe.hincrby(base_key.encode("utf-8"), key, value)  # type: ignore
 
         await pipe.execute()
 
@@ -122,10 +122,10 @@ async def move_subcategory_unique_views_in_redis(
     base_key = "stats:interactive_prompt_sessions:bysubcat:total_users"
     subs_key = f"stats:interactive_prompt_sessions:{subcategory}:{unix_date}:subs"
 
-    unique_views = await redis.scard(subs_key.encode("utf-8"))
+    unique_views = await redis.scard(subs_key.encode("utf-8"))  # type: ignore
     if unique_views > 0:
         await redis.hincrby(
-            base_key.encode("utf-8"), subcategory.encode("utf-8"), unique_views
+            base_key.encode("utf-8"), subcategory.encode("utf-8"), unique_views  # type: ignore
         )
 
 
@@ -157,10 +157,10 @@ async def move_subcategory_views_and_unique_views_to_db(
     redis = await itgs.redis()
 
     subs_key = f"stats:interactive_prompt_sessions:{subcategory}:{unix_date}:subs"
-    unique_views = await redis.scard(subs_key.encode("utf-8"))
+    unique_views = await redis.scard(subs_key.encode("utf-8"))  # type: ignore
 
     views_key = f"stats:interactive_prompt_sessions:bysubcat:total_views:{unix_date}"
-    views_raw = await redis.hget(views_key.encode("utf-8"), subcategory.encode("utf-8"))
+    views_raw = await redis.hget(views_key.encode("utf-8"), subcategory.encode("utf-8"))  # type: ignore
     views = int(views_raw) if views_raw is not None else 0
 
     if unique_views == 0 and views == 0:
@@ -202,3 +202,4 @@ async def move_subcategory_views_and_unique_views_to_db(
     logging.debug(
         f"stored {subcategory=} {unix_date=} with {views=}, {unique_views=} in the database"
     )
+    return True

@@ -1,6 +1,6 @@
 """Touch Stale Detection Job"""
 import time
-from typing import Dict, Optional
+from typing import Optional
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -52,7 +52,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     )
     redis = await itgs.redis()
     await redis.hset(
-        b"stats:touch_stale:detection_job",
+        b"stats:touch_stale:detection_job",  # type: ignore
         mapping={
             b"started_at": str(started_at).encode("ascii"),
         },
@@ -83,8 +83,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             pipe.multi()
             await set_if_lower(redis, earliest_key, started_at_unix_date)
             await pipe.hincrby(
-                f"stats:touch_stale:daily:{started_at_unix_date}".encode("utf-8"),
-                b"stale",
+                f"stats:touch_stale:daily:{started_at_unix_date}".encode("utf-8"),  # type: ignore
+                b"stale",  # type: ignore
                 num_stale,
             )
             await pipe.execute()
@@ -103,6 +103,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             break
 
         num_stale = await run_with_prep(prep_cleanup, do_cleanup)
+        assert num_stale is not None
         if num_stale == 0:
             stop_reason = "list_exhausted"
             break
@@ -125,7 +126,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         f"- Stale: {stale}"
     )
     await redis.hset(
-        b"stats:touch_stale:detection_job",
+        b"stats:touch_stale:detection_job",  # type: ignore
         mapping={
             b"finished_at": finished_at,
             b"running_time": finished_at - started_at,

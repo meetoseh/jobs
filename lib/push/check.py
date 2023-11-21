@@ -43,7 +43,7 @@ async def retry_check_push(
             failure_job=attempt.failure_job,
             success_job=attempt.success_job,
         )
-        .json()
+        .model_dump_json()
         .encode("utf-8")
     )
 
