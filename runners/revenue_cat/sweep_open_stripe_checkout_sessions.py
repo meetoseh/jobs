@@ -2,9 +2,6 @@
 are complete
 """
 import json
-import secrets
-from typing import Optional
-from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -38,21 +35,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     oscs.uid,
                     oscs.stripe_checkout_session_id,
                     users.sub,
-                    user_revenue_cat_ids.revenue_cat_id,
+                    users.revenue_cat_id,
                     oscs.created_at,
                     oscs.expires_at
                 FROM open_stripe_checkout_sessions AS oscs
                 JOIN users ON users.id = oscs.user_id
-                LEFT OUTER JOIN user_revenue_cat_ids ON (
-                    user_revenue_cat_ids.user_id = users.id
-                    AND NOT EXISTS (
-                        SELECT 1 FROM user_revenue_cat_ids AS urcids
-                        WHERE
-                            urcids.user_id = users.id
-                            AND urcids.created_at > user_revenue_cat_ids.created_at
-                            OR (urcids.created_at = user_revenue_cat_ids.created_at AND urcids.uid < user_revenue_cat_ids.uid)
-                    )
-                )
                 WHERE
                     (
                         oscs.last_checked_at - oscs.created_at < 300
@@ -81,7 +68,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 oscs_uid: str = row[0]
                 stripe_checkout_session_id: str = row[1]
                 user_sub: str = row[2]
-                revenue_cat_id: Optional[str] = row[3]
+                revenue_cat_id: str = row[3]
                 created_at: float = row[4]
                 expires_at: float = row[5]
 
@@ -117,45 +104,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 logging.debug(
                     f"{stripe_checkout_session_id=} is complete, sending to revenue cat"
                 )
-
-                if revenue_cat_id is None:
-                    logging.debug(f"{user_sub=} has no revenue cat id, creating one")
-                    new_revenue_cat_uid = f"oseh_iurc_{secrets.token_urlsafe(16)}"
-                    new_revenue_cat_id = f"oseh_u_rc_{secrets.token_urlsafe(16)}"
-                    rc = await itgs.revenue_cat()
-                    await rc.get_customer_info(revenue_cat_id=new_revenue_cat_id)
-                    response = await cursor.execute(
-                        """
-                        INSERT INTO user_revenue_cat_ids (
-                            uid, user_id, revenue_cat_id, revenue_cat_attributes, created_at, checked_at
-                        )
-                        SELECT
-                            ?, users.id, ?, '{}', ?, ?
-                        FROM users
-                        WHERE
-                            users.sub = ?
-                            AND NOT EXISTS (
-                                SELECT 1 FROM user_revenue_cat_ids AS urci
-                                WHERE urci.user_id = users.id
-                            )
-                        """,
-                        (
-                            new_revenue_cat_uid,
-                            new_revenue_cat_id,
-                            now,
-                            now,
-                            user_sub,
-                        ),
-                    )
-                    if response.rows_affected != 1:
-                        await handle_warning(
-                            f"{__name__}:revenue_cat_raced",
-                            f"Failed to get or initialize latest revenue cat id for {user_sub=}, will handle on next sweep",
-                        )
-                        return
-
-                    revenue_cat_id = new_revenue_cat_id
-
                 rc = await itgs.revenue_cat()
                 await rc.create_stripe_purchase(
                     revenue_cat_id=revenue_cat_id,
@@ -201,16 +149,3 @@ async def get_session_in_executor(
 
     conc_future.add_done_callback(callback)
     return await async_future
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        async with Itgs() as itgs:
-            jobs = await itgs.jobs()
-            await jobs.enqueue(
-                "runners.revenue_cat.sweep_open_stripe_checkout_sessions"
-            )
-
-    asyncio.run(main())
