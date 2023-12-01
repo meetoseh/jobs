@@ -3,6 +3,8 @@ from typing import Dict, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 import aiohttp
+import logging as logger
+import asyncio
 
 from error_middleware import handle_error
 
@@ -40,7 +42,7 @@ class NonSubscription(BaseModel):
     id: str = Field()
     purchase_date: datetime = Field()
     store: Literal[
-        "app_store", "mac_app_store", "play_store", "amazon", "stripe"
+        "app_store", "mac_app_store", "play_store", "amazon", "stripe", "promotional"
     ] = Field()
     is_sandbox: bool = Field()
 
@@ -108,18 +110,46 @@ class RevenueCat:
 
         await sess.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def get_customer_info(self, *, revenue_cat_id: str) -> CustomerInfo:
+    async def get_customer_info(
+        self, *, revenue_cat_id: str, handle_ratelimits: bool = False
+    ) -> CustomerInfo:
         """Gets the customer information for the given RevenueCat ID."""
         assert self.session is not None
-        async with self.session.get(
-            f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}",
-            headers={
-                "Authorization": f"Bearer {self.sk}",
-                "Accept": "application/json",
-            },
-        ) as resp:
-            resp.raise_for_status()
-            text = await resp.text()
+
+        ratelimit_counter = 0
+        text = None
+        while True:
+            async with self.session.get(
+                f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}",
+                headers={
+                    "Authorization": f"Bearer {self.sk}",
+                    "Accept": "application/json",
+                },
+            ) as resp:
+                if handle_ratelimits and resp.status == 429:
+                    ratelimit_counter += 1
+                    if ratelimit_counter > 10:
+                        resp.raise_for_status()
+
+                    retry_after_suggestion_raw = resp.headers.get("Retry-After")
+                    retry_after_suggestion_ms: Optional[int] = None
+                    if retry_after_suggestion_raw is not None:
+                        try:
+                            retry_after_suggestion_ms = int(retry_after_suggestion_raw)
+                        except Exception:
+                            pass
+
+                    retry_after_ms = 1000 * (2 ** (ratelimit_counter - 1))
+                    if retry_after_suggestion_ms is not None:
+                        retry_after_ms = max(retry_after_ms, retry_after_suggestion_ms)
+
+                    retry_after_ms = min(retry_after_ms, 1000 * 60)
+                    await asyncio.sleep(retry_after_ms / 1000)
+                    continue
+
+                resp.raise_for_status()
+                text = await resp.text()
+                break
 
         try:
             return CustomerInfo.model_validate_json(text)
@@ -134,8 +164,8 @@ class RevenueCat:
     ) -> None:
         """Updates the customer attributes (also referred to as subscriber
         attributes) for the given RevenueCat ID."""
-
         assert self.session is not None
+
         formatted_attrs = dict((key, {"value": val}) for key, val in attributes.items())
 
         async with self.session.post(
@@ -153,8 +183,8 @@ class RevenueCat:
 
     async def delete_subscriber(self, *, revenue_cat_id: str) -> None:
         """Deletes the subscriber from RevenueCat."""
-
         assert self.session is not None
+
         async with self.session.delete(
             f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}",
             headers={
@@ -217,9 +247,18 @@ class RevenueCat:
         ) as resp:
             if not resp.ok:
                 text = await resp.text()
+                logger.warning(
+                    f"create_stripe_purchase failed; {revenue_cat_id=}, stripe_checkout_session_id={stripe_checkout_session_id}, {resp.status=}, {text=}"
+                )
             resp.raise_for_status()
             data = await resp.text("utf-8")
-            return CustomerInfo.model_validate_json(data)
+            try:
+                return CustomerInfo.model_validate_json(data)
+            except Exception as e:
+                logger.warning(
+                    f"create_stripe_purchase failed; {revenue_cat_id=}, stripe_checkout_session_id={stripe_checkout_session_id}, {resp.status=}, {data=}"
+                )
+                raise e
 
     async def grant_promotional_entitlement(
         self,

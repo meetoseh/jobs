@@ -1,21 +1,21 @@
 """Ensures a users revenue cat customer actually exists"""
 import json
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, cast
 from error_middleware import handle_warning
-from pypika import Table, Query, Parameter
+from pypika import Table, Query, Parameter, Not
+from pypika.terms import ExistsCriterion
+from lib.db.utils import ShieldFields
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 import os
 from jobs import JobCategory
 import time
-import datetime
 from lib.contact_methods.user_primary_email import primary_email_join_clause
-from lib.shared.describe_user import enqueue_send_described_user_slack_message
+from lib.users.revenue_cat import get_or_create_latest_revenue_cat_id
+import aiohttp.client_exceptions
 
 category = JobCategory.LOW_RESOURCE_COST
-
-GIVING_BETA_ACCESS = os.environ.get("ENVIRONMENT") != "dev"
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
@@ -29,21 +29,57 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         gd (GracefulDeath): the signal tracker; provided automatically
         user_sub (str): the sub of the user to ensure is synced with revenue cat
     """
+    executed_at = time.time()
     conn = await itgs.conn()
     cursor = conn.cursor("weak")
 
     users = Table("users")
     user_email_addresses = Table("user_email_addresses")
+    user_revenue_cat_ids = Table("user_revenue_cat_ids")
+    user_revenue_cat_ids_inner = user_revenue_cat_ids.as_("urci")
     response = await cursor.execute(
         Query.from_(users)
         .select(
             user_email_addresses.email,
             users.given_name,
             users.family_name,
-            users.revenue_cat_id,
+            user_revenue_cat_ids.revenue_cat_id,
+            user_revenue_cat_ids.revenue_cat_attributes,
         )
         .left_outer_join(user_email_addresses)
         .on(primary_email_join_clause())
+        .left_outer_join(user_revenue_cat_ids)
+        .on(
+            (user_revenue_cat_ids.user_id == users.id)
+            & (
+                ShieldFields(
+                    Not(
+                        ExistsCriterion(
+                            Query.from_(user_revenue_cat_ids_inner)
+                            .select(1)
+                            .where(
+                                (
+                                    user_revenue_cat_ids_inner.user_id
+                                    == users.id
+                                    & (
+                                        (
+                                            user_revenue_cat_ids_inner.created_at
+                                            > user_revenue_cat_ids.created_at
+                                        )
+                                        | (
+                                            user_revenue_cat_ids_inner.created_at
+                                            == user_revenue_cat_ids.created_at
+                                            & user_revenue_cat_ids_inner.uid
+                                            < user_revenue_cat_ids.uid
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
         .where(users.sub == Parameter("?"))
         .get_sql(),
         (user_sub,),
@@ -55,10 +91,22 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
         )
         return
 
-    email: Optional[str] = response.results[0][0]
-    given_name: str = response.results[0][1]
-    family_name: str = response.results[0][2]
-    revenue_cat_id: str = response.results[0][3]
+    email = cast(Optional[str], response.results[0][0])
+    given_name = cast(str, response.results[0][1])
+    family_name = cast(str, response.results[0][2])
+    revenue_cat_id = cast(Optional[str], response.results[0][3])
+    revenue_cat_id_attributes_raw = cast(Optional[str], response.results[0][4])
+
+    if revenue_cat_id is None:
+        revenue_cat_id = await get_or_create_latest_revenue_cat_id(
+            itgs, user_sub=user_sub, now=executed_at
+        )
+        assert revenue_cat_id is not None, response
+        revenue_cat_id_attributes_raw = "{}"
+    else:
+        assert revenue_cat_id_attributes_raw is not None, response
+
+    revenue_cat_id_attributes = json.loads(revenue_cat_id_attributes_raw)
 
     name = f"{given_name} {family_name}".strip()
 
@@ -76,54 +124,38 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
 
     rcat = await itgs.revenue_cat()
 
-    # this ensures the user exists in revenue cat
-    customer_info = await rcat.get_customer_info(revenue_cat_id=revenue_cat_id)
-
-    curr_attrs = customer_info.subscriber.subscriber_attributes
     to_update: Dict[str, str] = dict()
+    new_attributes: Dict[str, Dict[str, Any]] = dict(revenue_cat_id_attributes)
     for key, exp_val in expected_attributes.items():
-        if key not in curr_attrs or curr_attrs[key].value != exp_val:
+        if (
+            key not in revenue_cat_id_attributes_raw
+            or revenue_cat_id_attributes[key]["value"] != exp_val
+        ):
             to_update[key] = exp_val
+            new_attributes[key] = {
+                "value": exp_val,
+                "updated_at_ms": executed_at * 1000,
+            }
 
     if to_update:
-        await rcat.set_customer_attributes(
-            revenue_cat_id=revenue_cat_id, attributes=to_update
-        )
+        try:
+            await rcat.set_customer_attributes(
+                revenue_cat_id=revenue_cat_id, attributes=to_update
+            )
+        except aiohttp.client_exceptions.ClientResponseError as exc:
+            if exc.status == 404:
+                logging.info("Revenue cat user appears uninitialized, initializing")
+                await rcat.get_customer_info(revenue_cat_id=revenue_cat_id)
+                await rcat.set_customer_attributes(
+                    revenue_cat_id=revenue_cat_id, attributes=to_update
+                )
 
-        logging.debug(f"Updated {revenue_cat_id=} with {to_update=}")
-
-    dnow = datetime.datetime.fromtimestamp(time.time(), tz=datetime.timezone.utc)
-    pro = customer_info.subscriber.entitlements.get("pro")
-    if (
-        pro is None or (pro.expires_date is not None and pro.expires_date < dnow)
-    ) and GIVING_BETA_ACCESS:
-        # 1 month no-credit-card trial for now
         logging.debug(
-            f"Granting 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=}; previous had? {pro is not None and pro.expires_date is not None})"
+            f"Updated {revenue_cat_id=} with {to_update=}, now {new_attributes=}"
         )
-        await rcat.grant_promotional_entitlement(
-            revenue_cat_id=revenue_cat_id,
-            entitlement_identifier="pro",
-            duration="monthly",
-        )
-
-        now = time.time()
-        redis = await itgs.redis()
-        await redis.delete(f"entitlements:{user_sub}".encode("utf-8"))
-        await redis.publish(
-            b"ps:entitlements:purge",
-            json.dumps({"user_sub": user_sub, "min_checked_at": now}).encode("utf-8"),
-        )
-
-        logging.info(
-            f"Granted 1 month of Oseh+ to {name} ({email=}, {revenue_cat_id=})"
-        )
-
-        await enqueue_send_described_user_slack_message(
-            itgs,
-            message=f"{{name}} was granted 1 month of Oseh+",
-            sub=user_sub,
-            channel="oseh_bot",
+        await cursor.execute(
+            "UPDATE user_revenue_cat_ids SET revenue_cat_attributes = ? WHERE revenue_cat_id = ?",
+            (json.dumps(new_attributes), revenue_cat_id),
         )
 
 
