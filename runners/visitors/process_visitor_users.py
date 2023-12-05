@@ -150,13 +150,8 @@ async def execute(
             await asyncio.sleep(1)
 
         if state is None:
-            await handle_contextless_error(
-                extra_info=f"process_visitor_users: failed to get state for visitor {next_entry.visitor_uid} and user {next_entry.user_sub}"
-            )
-            # We can change this to continue if we see this happening and we know it's
-            # harmless; it is possible for this to be harmless if the visitor was actually
-            # deleted or the user was actually deleted
-            break
+            # The user was deleted
+            continue
 
         success = await lib.visitors.deltas.try_upsert_visitor_user(
             itgs,
