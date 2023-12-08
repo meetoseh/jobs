@@ -288,9 +288,11 @@ async def _get_or_lock_described_user_from_cache(
         return DescribedUser.model_validate_json(result[1])
 
 
-async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[DescribedUser]:
+async def _describe_user_from_source(
+    itgs: Itgs, sub: str, *, consistency: Literal["strong", "weak", "none"] = "none"
+) -> Optional[DescribedUser]:
     conn = await itgs.conn()
-    cursor = conn.cursor("none")
+    cursor = conn.cursor(consistency)
 
     response = await cursor.execute(
         """
@@ -380,6 +382,8 @@ async def _describe_user_from_source(itgs: Itgs, sub: str) -> Optional[Described
         (sub,),
     )
     if not response.results:
+        if consistency == "none":
+            return await _describe_user_from_source(itgs, sub, consistency="weak")
         return None
 
     given_name = typing_cast(Optional[str], response.results[0][0])
