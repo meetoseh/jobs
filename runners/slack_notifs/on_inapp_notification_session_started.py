@@ -10,6 +10,8 @@ import asyncio
 from jobs import JobCategory
 from lib.shared.clean_for_slack import clean_for_slack
 from lib.shared.describe_user import enqueue_send_described_user_slack_message
+import logging
+import os
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -63,9 +65,14 @@ async def execute(
     ), f"{channel=}, {inapp_notification_uid=}"
     message: str = slack_message["message"]
     assert isinstance(message, str)
-    await enqueue_send_described_user_slack_message(
-        itgs, message=message, channel=channel, sub=user_sub
-    )
+    if os.environ["ENVIRONMENT"] != "dev":
+        await enqueue_send_described_user_slack_message(
+            itgs, message=message, channel=channel, sub=user_sub
+        )
+    else:
+        logging.info(
+            f"eating slack {message=} for {user_sub=} on {channel=} because ENVIRONMENT=dev"
+        )
 
 
 if __name__ == "__main__":
