@@ -105,7 +105,12 @@ async def create_transcript(
         logging.info(
             f"Produced transcript for {target_filepath} using OpenAI whisper-1:\n\n{transcript_vtt}\n\n"
         )
-        result = parse_vtt_transcript(transcript_vtt.text)
+        transcript_vtt_text = (
+            str(transcript_vtt)
+            if isinstance(transcript_vtt, str)
+            else transcript_vtt.text
+        )
+        result = parse_vtt_transcript(transcript_vtt_text)
         logging.debug(f"Parsed transcript: {result=}")
         return TranscriptWithSource(
             transcript=result,
