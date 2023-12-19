@@ -27,16 +27,19 @@ async def execute(
         path (str): the path to request
     """
     url = os.environ["ROOT_FRONTEND_URL"] + path
-    async with aiohttp.ClientSession() as session:
+    try:
+        async with aiohttp.ClientSession() as session:
 
-        async def request() -> Union[int, str]:
-            try:
-                async with session.get(url) as response:
-                    return response.status
-            except Exception as e:
-                return str(e)
+            async def request() -> Union[int, str]:
+                try:
+                    async with session.get(url) as response:
+                        return response.status
+                except Exception as e:
+                    return str(e)
 
-        statuses = await asyncio.gather(*[request() for _ in range(num_requests)])
+            statuses = await asyncio.gather(*[request() for _ in range(num_requests)])
+    except Exception as e:
+        statuses = [str(e) for _ in range(num_requests)]
 
     num_succeeded = sum(status == 200 for status in statuses)
     if num_succeeded != num_requests:

@@ -1,6 +1,8 @@
 from typing import Optional
 import aiohttp
 import os
+import logging
+import traceback
 
 
 class Slack:
@@ -35,6 +37,9 @@ class Slack:
         assert self.session is not None
         if url is None:
             return
+        logging.debug(
+            f"slack.send_blocks({url=}, {blocks=}, {preview=})\n{traceback.format_stack()}"
+        )
         await self.session.post(
             url=url,
             json={"text": preview, "blocks": blocks},
