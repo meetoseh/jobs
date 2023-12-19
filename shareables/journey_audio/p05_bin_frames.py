@@ -28,8 +28,8 @@ def bin_frames(fft_audio: np.ndarray, frequency_partition: List[int]) -> np.ndar
     )
 
     first_relevant_frame = np.argmax(np.any(fft_audio > 0, axis=1))
-    last_relevant_frame = fft_audio.shape[0] - np.argmax(
-        np.any(fft_audio[::-1] > 0, axis=1)
+    last_relevant_frame = np.subtract(
+        fft_audio.shape[0], np.argmax(np.any(fft_audio[::-1] > 0, axis=1))
     )
 
     for i in range(len(frequency_partition) - 1):

@@ -45,9 +45,9 @@ def partition_frequency(
     )
 
     num_bins = (min_bins + max_bins) // 2
-    if num_relevant_frequencies % num_bins != 0:
+    if int(num_relevant_frequencies) % num_bins != 0:
         avg_bins = num_bins
-        best_remainder = num_relevant_frequencies % num_bins
+        best_remainder = int(num_relevant_frequencies) % num_bins
         best_num_bins = num_bins
 
         offset = 1
@@ -59,13 +59,13 @@ def partition_frequency(
                 break
 
             if below_option >= min_bins:
-                below_remainder = num_relevant_frequencies % below_option
+                below_remainder = int(num_relevant_frequencies) % below_option
                 if below_remainder < best_remainder:
                     best_remainder = below_remainder
                     best_num_bins = below_option
 
             if above_option <= max_bins:
-                above_remainder = num_relevant_frequencies % above_option
+                above_remainder = int(num_relevant_frequencies) % above_option
                 if above_remainder < best_remainder:
                     best_remainder = above_remainder
                     best_num_bins = above_option
@@ -77,7 +77,7 @@ def partition_frequency(
     return list(
         range(
             1,
-            num_relevant_frequencies + 2,
+            int(num_relevant_frequencies) + 2,
             num_relevant_frequencies // num_bins,
         )
     )
