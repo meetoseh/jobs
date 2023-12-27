@@ -816,11 +816,11 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
     ),
-    Job(
-        name="runners.alerting.check_frontend_ssr",
-        kwargs=tuple(),
-        interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
-    ),
+    # Job(
+    #     name="runners.alerting.check_frontend_ssr",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
+    # ),
     Job(
         name="runners.stats.daily_siwo_authorize_stats",
         kwargs=tuple(),
@@ -856,6 +856,13 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(5,), seconds=(0,)),
     ),
+    # Job(
+    #     name="runners.cleanup_sitemap_entries",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(
+    #         pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
+    #     ),
+    # ),
 )
 """The jobs that should be run."""
 
