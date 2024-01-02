@@ -57,7 +57,7 @@ async def execute(
         if os.environ["ENVIRONMENT"] == "dev":
             logging.warning(warning)
         else:
-            await handle_warning(f"{__name__}:failed", warning, is_urgent=True)
+            await handle_warning(f"{__name__}:failed", warning, is_urgent=False)
     else:
         logging.debug("frontend-ssr-web health check succeeded")
 
