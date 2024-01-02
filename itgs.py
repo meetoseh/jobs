@@ -104,6 +104,16 @@ class Itgs:
 
         return self._conn
 
+    async def redis_sentinel(self) -> redis.asyncio.Sentinel:
+        """gets or creates and gets the redis sentinel connection, primarily for
+        alerting
+        """
+        if self._sentinel is not None:
+            return self._sentinel
+        await self.redis()
+        assert self._sentinel is not None
+        return self._sentinel
+
     async def redis(self) -> redis.asyncio.Redis:
         """returns or cerates and returns the main redis connection"""
         if self._redis_main is not None:
