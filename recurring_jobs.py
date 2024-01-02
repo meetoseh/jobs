@@ -861,13 +861,13 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(5,), seconds=(0,)),
     ),
-    # Job(
-    #     name="runners.cleanup_sitemap_entries",
-    #     kwargs=tuple(),
-    #     interval=JobInterval(
-    #         pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
-    #     ),
-    # ),
+    Job(
+        name="runners.cleanup_sitemap_entries",
+        kwargs=tuple(),
+        interval=JobInterval(
+            pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 
