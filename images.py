@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from dataclasses import dataclass
 import math
 from typing import (
@@ -31,6 +32,7 @@ import os
 import re
 
 from temp_files import temp_file
+from lib.thumbhash import image_to_thumb_hash
 
 
 @dataclass
@@ -58,6 +60,7 @@ class LocalImageFileExport:
     crop: Tuple[int, int, int, int]  # top, right, bottom, left
     format: str
     quality_settings: Dict[str, Any]
+    thumbhash: str
     file_size: int
 
 
@@ -317,12 +320,12 @@ async def _add_missing_targets(
                     INSERT INTO image_file_exports (
                         uid, image_file_id, s3_file_id, width, height,
                         top_cut_px, right_cut_px, bottom_cut_px, left_cut_px,
-                        format, quality_settings, created_at
+                        format, quality_settings, thumbhash, created_at
                     )
                     SELECT
                         ?, image_files.id, s3_files.id, ?, ?,
                         ?, ?, ?, ?,
-                        ?, ?, ?
+                        ?, ?, ?, ?
                     FROM image_files
                     JOIN s3_files ON s3_files.uid = ?
                     WHERE
@@ -338,6 +341,7 @@ async def _add_missing_targets(
                             export.local_image_file_export.quality_settings,
                             sort_keys=True,
                         ),
+                        export.local_image_file_export.thumbhash,
                         now,
                         export.s3_file.uid,
                         uid,
@@ -556,12 +560,12 @@ async def _make_new_image(
                         INSERT INTO image_file_exports (
                             uid, image_file_id, s3_file_id, width, height,
                             top_cut_px, right_cut_px, bottom_cut_px, left_cut_px,
-                            format, quality_settings, created_at
+                            format, quality_settings, thumbhash, created_at
                         )
                         SELECT
                             ?, image_files.id, s3_files.id, ?, ?,
                             ?, ?, ?, ?,
-                            ?, ?, ?
+                            ?, ?, ?, ?
                         FROM image_files
                         JOIN s3_files ON s3_files.uid = ?
                         WHERE
@@ -577,6 +581,7 @@ async def _make_new_image(
                                 export.local_image_file_export.quality_settings,
                                 sort_keys=True,
                             ),
+                            export.local_image_file_export.thumbhash,
                             now,
                             export.s3_file.uid,
                             image_file_uid,
@@ -876,7 +881,7 @@ async def _make_targets(
 
             first_exc = next(
                 (task.exception() for task in done if task.exception() is not None),
-                None
+                None,
             )
             if first_exc is not None:
                 for task in running:
@@ -985,6 +990,9 @@ def _make_target(
 
         img.save(target_filepath, format=target.format, **target.quality_settings)
         file_size = os.path.getsize(target_filepath)
+        thumbhash_bytes_as_list = image_to_thumb_hash(target_filepath)
+        thumbhash_bytes = bytes(thumbhash_bytes_as_list)
+        thumbhash_b64url = base64.urlsafe_b64encode(thumbhash_bytes).decode("ascii")
         return LocalImageFileExport(
             uid=f"oseh_ife_{secrets.token_urlsafe(16)}",
             width=img.width,
@@ -992,6 +1000,7 @@ def _make_target(
             filepath=target_filepath,
             crop=crops,
             format=target.format,
+            thumbhash=thumbhash_b64url,
             quality_settings=target.quality_settings,
             file_size=file_size,
         )
