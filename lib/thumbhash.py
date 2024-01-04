@@ -130,7 +130,7 @@ def rgba_to_thumb_hash(w: int, h: int, rgba: List[int]) -> List[int]:
     return thumb_hash
 
 
-def image_to_thumb_hash(fp: str | bytes | Path) -> List[int]:
+def image_to_thumb_hash(fp: Union[str, bytes, Path]) -> List[int]:
     """
     Opens given image file and encodes to a ThumbHash
     """
