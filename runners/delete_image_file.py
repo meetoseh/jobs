@@ -120,3 +120,15 @@ async def execute(
         await cursor.execute("DELETE FROM s3_files WHERE uid=?", (s3_file.uid,))
 
     await report_done()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        uid = input("uid:")
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue("runners.delete_image_file", uid=uid)
+
+    asyncio.run(main())
