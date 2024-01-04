@@ -10,6 +10,7 @@ import logging
 from jobs import JobCategory
 from temp_files import temp_dir
 from lib.thumbhash import image_to_thumb_hash
+import asyncio
 
 category = JobCategory.HIGH_RESOURCE_COST
 
@@ -91,7 +92,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
 
 if __name__ == "__main__":
-    import asyncio
 
     async def main():
         async with Itgs() as itgs:
