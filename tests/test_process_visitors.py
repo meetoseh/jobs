@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Optional,cast
+from typing import Optional, cast
 import unittest
 
 import yaml

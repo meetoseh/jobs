@@ -173,7 +173,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             found = (
                 cast(List[RequiredAugmentedBatchItem], augmented_batch)
                 if not lost
-                else [cast(RequiredAugmentedBatchItem, itm) for itm in augmented_batch if itm.info is not None]
+                else [
+                    cast(RequiredAugmentedBatchItem, itm)
+                    for itm in augmented_batch
+                    if itm.info is not None
+                ]
             )
 
             if lost:

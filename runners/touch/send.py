@@ -485,10 +485,7 @@ class PurgatoryReader:
         )
 
         self.index = end_index_inclusive + 1
-        return [
-            TouchToSend.model_validate_json(item)
-            for item in result
-        ]
+        return [TouchToSend.model_validate_json(item) for item in result]
 
     async def reset(self, purgatory_size: int) -> None:
         """Resets the reader to the beginning of the purgatory queue"""
@@ -599,9 +596,7 @@ class TouchPointsSet:
         encoded_compressed_messages = row[2]
         compressed_messages = base64.b85decode(encoded_compressed_messages)
         raw_messages = gzip.decompress(compressed_messages)
-        messages = TouchPointMessages.model_validate_json(
-            raw_messages
-        )
+        messages = TouchPointMessages.model_validate_json(raw_messages)
         result = TouchPoint(
             uid=row[0],
             event_slug=event_slug,
@@ -1926,7 +1921,9 @@ def select_message(
 
     selected = random.choice(choices)
     seen_set.add(selected.uid)
-    return selected, UserTouchPointState(state.version + 1 if state is not None else 1, list(seen_set))
+    return selected, UserTouchPointState(
+        state.version + 1 if state is not None else 1, list(seen_set)
+    )
 
 
 def select_push_message(

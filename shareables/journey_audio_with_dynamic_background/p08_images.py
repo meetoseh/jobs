@@ -948,6 +948,7 @@ class CropImageGenerator(TransformationImageGenerator):
 
 ImageModel = Literal["dall-e", "pexels", "pexels-video", "stability-ai"]
 
+
 def create_image_generator(
     width: int,
     height: int,
@@ -1145,7 +1146,7 @@ async def create_images(
                     logging.info(
                         f"Failing to generate image (attempt {attempt+1}/{max_retries})"
                     )
-        
+
         assert prompt is not None
         assert frame is not None
         prompts.append(prompt)
@@ -1153,7 +1154,7 @@ async def create_images(
 
         if frame.style == "video":
             assert frame.video_info is not None
-            
+
             # 1. show at least 20 seconds
             image_duration = max(image_duration, 20.0)
 
