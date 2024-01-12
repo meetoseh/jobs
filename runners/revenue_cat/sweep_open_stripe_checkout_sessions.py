@@ -49,8 +49,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         SELECT 1 FROM user_revenue_cat_ids AS urcids
                         WHERE
                             urcids.user_id = users.id
-                            AND urcids.created_at > user_revenue_cat_ids.created_at
-                            OR (urcids.created_at = user_revenue_cat_ids.created_at AND urcids.uid < user_revenue_cat_ids.uid)
+                            AND (
+                                urcids.created_at > user_revenue_cat_ids.created_at
+                                OR (urcids.created_at = user_revenue_cat_ids.created_at AND urcids.uid < user_revenue_cat_ids.uid)
+                            )
                     )
                 )
                 WHERE
