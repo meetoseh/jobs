@@ -137,6 +137,7 @@ async def delete_push_token(
                         SELECT 1 FROM user_push_tokens AS upt
                         WHERE upt.token = ?
                         AND upt.user_id = user_daily_reminders.user_id
+                        AND user_daily_reminders.channel = 'push'
                         AND NOT EXISTS (
                             SELECT 1 FROM user_push_tokens AS upt2
                             WHERE upt.id <> upt2.id
