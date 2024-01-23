@@ -98,6 +98,16 @@ RESOLUTIONS = list(
             (45, 90),  # icon 1x
             (90, 180),  # icon 2x
             (135, 270),  # icon 3x
+            # FEEDBACK/SHARE SCREEN
+            (342, 237),  # smallest 1x
+            (342, 314),  # most common 1x
+            (342, 390),  # largest 1x
+            (684, 474),  # smallest 2x
+            (684, 628),  # most common 2x
+            (684, 780),  # largest 2x
+            (1026, 711),  # smallest 3x
+            (1026, 942),  # most common 3x
+            (1026, 1170),  # largest 3x
         ]
     )
 )
