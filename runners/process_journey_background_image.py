@@ -15,6 +15,7 @@ from jobs import JobCategory
 
 category = JobCategory.HIGH_RESOURCE_COST
 
+# When changing this, trigger runners.process_new_journey_background_image_targets
 RESOLUTIONS = list(
     dict.fromkeys(
         [
