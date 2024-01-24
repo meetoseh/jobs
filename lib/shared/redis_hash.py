@@ -136,3 +136,6 @@ class RedisHash:
             if isinstance(v, str):
                 v = v.encode("utf-8")
             yield k, v
+
+    def __len__(self):
+        return len(self._map)

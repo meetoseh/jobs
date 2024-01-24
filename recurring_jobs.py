@@ -584,6 +584,16 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
+        name="runners.stats.daily_journey_share_link_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.stats.daily_journey_share_link_unique_view_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.visitors.process_visitor_users",
         kwargs=tuple(),
         interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(0,)),
@@ -867,6 +877,21 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(
             pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
         ),
+    ),
+    Job(
+        name="runners.journey_share_links.log",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
+    Job(
+        name="runners.journey_share_links.sweep_unconfirmed",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(30,))
+    ),
+    Job(
+        name="runners.journey_share_links.raced_confirmations",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(30,))
     ),
 )
 """The jobs that should be run."""

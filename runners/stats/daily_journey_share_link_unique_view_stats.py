@@ -1,97 +1,49 @@
-"""Helper module for rotating a standard stats table, which looks like
-
-CREATE TABLE example (
-    id INTEGER PRIMARY KEY,
-    retrieved_for TEXT UNIQUE NOT NULL,
-    retrieved_at REAL NOT NULL,
-    basic_field INTEGER NOT NULL,
-    fancy_field INTEGER NOT NULL,
-    fancy_field_breakdown TEXT NOT NULL
-);
-
-where the basic field is a single integer, and a fancy field is the 
-combination of an integer and a json object whose values are integers
-which sum up to the fancy field and keys act as a further breakdown
-of the fancy field.
-"""
-
+"""Rotates journey share link stats to the database"""
 import json
 import time
-from typing import Callable, Dict, List, Sequence
+from typing import Dict, List
 from error_middleware import handle_contextless_error
 from itgs import Itgs
 from graceful_death import GracefulDeath
-import logging
+from jobs import JobCategory
+import pytz
 from lib.process_redis_hgetall import process_redis_hgetall_ints
 import unix_dates
-import pytz
+import logging
+
+category = JobCategory.LOW_RESOURCE_COST
+
+REGULAR_EVENTS = tuple()
+"""Which events aren't broken down by an additional dimension"""
+
+BREAKDOWN_EVENTS = ("by_code", "by_journey_subcategory", "by_sharer_sub")
+"""Which events are broken down by an additional dimension."""
 
 
-async def rotate(
-    itgs: Itgs,
-    gd: GracefulDeath,
-    *,
-    job_name: str,
-    regular_events: Sequence[str],
-    breakdown_events: Sequence[str],
-    table_name: str,
-    earliest_key: bytes,
-    tz: pytz.BaseTzInfo,
-    key_for_date: Callable[[int], bytes],
-    key_for_date_and_event: Callable[[int, str], bytes],
-    num_days_held: int,
-):
-    """Rotates statistics from redis to a database table. This assumes
-    statistics are handled in the same way that the backend module
-    `admin.lib.read_daily_stats` expects:
+async def execute(itgs: Itgs, gd: GracefulDeath):
+    """Rotates any overdue journey share link unique statistics from redis to the database. Specifically,
+    this rotates data from 2 days ago in the America/Los_Angeles timezone.
 
-    - There is a table with the following schema
+    Note that these are slightly irregular in the sense that it also rotates the
+    set at `journey_share_links:visitors:{unix_date}` for each date, keeping the
+    cardinality of it in the database before deleting under the `unique_views`
+    column.
 
-     ```sql
-    CREATE TABLE my_daily_stats (
-        id INTEGER PRIMARY KEY,
-        retrieved_for TEXT UNIQUE NOT NULL,
-        retrieved_at REAL NOT NULL,
-        my_basic_stat INTEGER NOT NULL,
-        my_fancy_stat INTEGER NOT NULL,
-        my_fancy_stat_breakdown TEXT NOT NULL
-    );
-    ```
-
-    where the basic stats are a single integer column and fancy stats
-    are both an integer column and a text column, where the text column
-    is named with the _breakdown suffix and corresponds to a json object
-    whose keys are strings and whose values are integers which sum up
-    to the fancy stat.
-
-    - The following redis keys exist:
-      - A key per unix date that goes to a hash whose keys are the basic
-        stat names and whose values are integers (`key_for_date`)
-      - A key per unix date and fancy field which goes to a hash whose keys
-        are strings and values are integers (`key_for_date_and_event`)
-      - A key which contains the earliest unix date that has not been
-        rotated yet (`earliest_key`)
+    This follows the same pattern of implementation of the standard helper
+    (`lib.stats.rotate.rotate`) with the necessary modifications made, rather
+    than complicating the helper with the required callbacks
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically
-        job_name (str): used as the prefix for logging messages, just
-            `__name__` is fine if not feeling creative
-        regular_events (List[str]): the list of basic stat names
-        breakdown_events (List[str]): the list of fancy stat names
-        table_name (str): the name of the table to insert into
-        earliest_key (bytes): the redis key for the earliest date that
-            has not been rotated yet
-        tz (pytz.BaseTzInfo): the timezone to use for determining the
-            current date so we know how far to rotate
-        key_for_date (Callable[[int], bytes]): a function that takes a
-            unix date and returns the redis key for that date
-        key_for_date_and_event (Callable[[int, str], bytes]): a function
-            that takes a unix date and an event name and returns the redis
-            key for that date and event
-        num_days_held (int): the number of days of stats to hold onto
-            before rotating them, typically 2 (today & yesterday)
     """
+    job_name = __name__
+    regular_events = REGULAR_EVENTS
+    breakdown_events = BREAKDOWN_EVENTS
+    table_name = "journey_share_link_unique_views"
+    earliest_key = "stats:journey_share_links:unique_views:daily:earliest"
+    tz = pytz.timezone("America/Los_Angeles")
+    num_days_held = 2
 
     curr_unix_date = unix_dates.unix_date_today(tz=tz)
     redis = await itgs.redis()
@@ -119,13 +71,15 @@ async def rotate(
             await pipe.hgetall(key_for_date(unix_date))  # type: ignore
             for event in breakdown_events:
                 await pipe.hgetall(key_for_date_and_event(unix_date, event))  # type: ignore
+            await pipe.scard(visitors_key_for_date(unix_date))  # type: ignore
             result = await pipe.execute()
 
         assert isinstance(result, (list, tuple)), f"{type(result)=}"
-        assert len(result) == 1 + len(breakdown_events), f"{len(result)=}"
+        assert len(result) == 2 + len(breakdown_events), f"{len(result)=}"
+        assert isinstance(result[-1], int), f"{type(result[-1])=}"
 
         processed_result: List[Dict[str, int]] = []
-        for idx, raw in enumerate(result):
+        for idx, raw in enumerate(result[:-1]):
             try:
                 processed_result.append(process_redis_hgetall_ints(raw))
             except ValueError:
@@ -133,6 +87,7 @@ async def rotate(
 
         overall = processed_result[0]
         breakdowns_by_event = dict(zip(breakdown_events, processed_result[1:]))
+        unique_views = result[-1]
 
         for key in breakdown_events:
             if overall.get(key, 0) != sum(breakdowns_by_event[key].values()):
@@ -152,13 +107,14 @@ async def rotate(
             breakdown_columns = ", " + breakdown_columns
 
         qmarks = ", ".join(
-            "?" for _ in range(2 + len(regular_events) + 2 * len(breakdown_events))
+            "?" for _ in range(3 + len(regular_events) + 2 * len(breakdown_events))
         )
         response = await cursor.execute(
             f"""
             INSERT INTO {table_name} (
                 retrieved_for, 
-                retrieved_at
+                retrieved_at,
+                unique_views
                 {regular_columns}
                 {breakdown_columns}
             )
@@ -172,6 +128,7 @@ async def rotate(
             (
                 unix_dates.unix_date_to_date(unix_date).isoformat(),
                 time.time(),
+                unique_views,
                 *[overall.get(ev, 0) for ev in regular_events],
                 *[
                     item
@@ -205,8 +162,8 @@ async def rotate(
             msg = (
                 f"{job_name} failed to rotate stats for {unix_dates.unix_date_to_date(unix_date).isoformat()}; "
                 f"wanted to insert:\n\n"
-                f"- {overall=}\n- {breakdowns_by_event=}\n\n"
-                f"but found existing data ({existing_row.results[0]})"
+                f"- `{unique_views=}`\n- `{overall=}`\n- `{breakdowns_by_event=}`\n\n"
+                f"but found existing data (`{existing_row.results[0]}`)"
                 "\n\ngoing to destroy the data in redis and keep the existing data in the database"
             )
             logging.warning(msg)
@@ -221,5 +178,33 @@ async def rotate(
             await pipe.delete(key_for_date(unix_date))
             for event in breakdown_events:
                 await pipe.delete(key_for_date_and_event(unix_date, event))
+            await pipe.delete(visitors_key_for_date(unix_date))
             await pipe.set(earliest_key, unix_date + 1)
             await pipe.execute()
+
+
+def key_for_date(unix_date: int) -> bytes:
+    return f"stats:journey_share_links:unique_views:daily:{unix_date}".encode("ascii")
+
+
+def key_for_date_and_event(unix_date: int, event: str) -> bytes:
+    return f"stats:journey_share_links:unique_views:daily:{unix_date}:extra:{event}".encode(
+        "ascii"
+    )
+
+
+def visitors_key_for_date(unix_date: int) -> bytes:
+    return f"journey_share_links:visitors:{unix_date}".encode("ascii")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.stats.daily_journey_share_link_unique_view_stats"
+            )
+
+    asyncio.run(main())
