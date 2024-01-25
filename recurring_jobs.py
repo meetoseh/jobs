@@ -647,6 +647,11 @@ JOBS: Tuple[Job, ...] = (
         ),
     ),
     Job(
+        name="runners.process_missing_journey_share_images",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
+    ),
+    Job(
         name="runners.slack_stats.emotion_selections",
         kwargs=tuple(),
         interval=JobInterval(
@@ -886,12 +891,12 @@ JOBS: Tuple[Job, ...] = (
     Job(
         name="runners.journey_share_links.sweep_unconfirmed",
         kwargs=tuple(),
-        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(30,))
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(30,)),
     ),
     Job(
         name="runners.journey_share_links.raced_confirmations",
         kwargs=tuple(),
-        interval=JobInterval(pst, seconds=(30,))
+        interval=JobInterval(pst, seconds=(30,)),
     ),
 )
 """The jobs that should be run."""

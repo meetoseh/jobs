@@ -64,6 +64,10 @@ async def execute(
                     WHERE journeys.darkened_background_image_file_id = image_files.id
                 )
                 AND NOT EXISTS (
+                    SELECT 1 FROM journeys
+                    WHERE journeys.share_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
                     SELECT 1 FROM instructors
                     WHERE instructors.picture_image_file_id = image_files.id
                 )
@@ -110,10 +114,10 @@ async def execute(
         return
 
     files = await itgs.files()
-    s3_files_to_delete = [
-        image_file.original_s3_file,
-        *(export.s3_file for export in image_file.exports),
-    ]
+    s3_files_to_delete = [export.s3_file for export in image_file.exports]
+
+    if image_file.original_s3_file is not None:
+        s3_files_to_delete.append(image_file.original_s3_file)
 
     for s3_file in s3_files_to_delete:
         await files.delete(bucket=s3_file.bucket, key=s3_file.key)

@@ -80,7 +80,7 @@ class ImageFile:
 
     uid: str
     name: str
-    original_s3_file: S3File
+    original_s3_file: Optional[S3File]
     original_sha512: str
     original_width: int
     original_height: int
@@ -308,7 +308,9 @@ async def _add_missing_targets(
         if gd.received_term_signal:
             raise ProcessImageAbortedException("Received term signal")
 
-        uploaded = await _upload_many(local_image_file_exports, itgs=itgs, gd=gd)
+        uploaded = await upload_many_image_targets(
+            local_image_file_exports, itgs=itgs, gd=gd
+        )
         if gd.received_term_signal:
             await _delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
             raise ProcessImageAbortedException("Received term signal")
@@ -380,6 +382,7 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
     """Loads the image file with the given uid, if it exists."""
     conn = await itgs.conn()
     cursor = conn.cursor()
+
     response = await cursor.execute(
         """
         SELECT
@@ -394,7 +397,7 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
             image_files.original_height,
             image_files.created_at
         FROM image_files
-        JOIN s3_files ON s3_files.id = image_files.original_s3_file_id
+        LEFT OUTER JOIN s3_files ON s3_files.id = image_files.original_s3_file_id
         WHERE
             image_files.uid = ?
         """,
@@ -404,13 +407,17 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
         return None
 
     files = await itgs.files()
-    original = S3File(
-        uid=response.results[0][0],
-        bucket=files.default_bucket,
-        key=response.results[0][1],
-        file_size=response.results[0][2],
-        content_type=response.results[0][3],
-        created_at=response.results[0][4],
+    original = (
+        None
+        if response.results[0][0] is None
+        else S3File(
+            uid=response.results[0][0],
+            bucket=files.default_bucket,
+            key=response.results[0][1],
+            file_size=response.results[0][2],
+            content_type=response.results[0][3],
+            created_at=response.results[0][4],
+        )
     )
 
     image_file = ImageFile(
@@ -517,7 +524,9 @@ async def _make_new_image(
             await _delete_s3_files([original], itgs=itgs)
             raise ProcessImageAbortedException("Received term signal")
 
-        uploaded = await _upload_many(local_image_file_exports, itgs=itgs, gd=gd)
+        uploaded = await upload_many_image_targets(
+            local_image_file_exports, itgs=itgs, gd=gd
+        )
         if gd.received_term_signal:
             await _delete_s3_files(
                 [original, *[export.s3_file for export in uploaded]], itgs=itgs
@@ -717,7 +726,7 @@ async def _upload_original(
     return original
 
 
-async def _upload_many(
+async def upload_many_image_targets(
     local_image_file_exports: List[LocalImageFileExport],
     itgs: Itgs,
     gd: GracefulDeath,
