@@ -1,6 +1,7 @@
 """Ensures that the share image for the given journey is up-to-date"""
 import base64
 import json
+import math
 import multiprocessing
 import multiprocessing.pool
 import os
@@ -9,7 +10,13 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 from content import hash_content
 from error_middleware import handle_warning
-from images import ImageTarget, LocalImageFileExport, upload_many_image_targets
+from images import (
+    ImageTarget,
+    LocalImageFileExport,
+    _crops_to_pil_box,
+    clamp,
+    upload_many_image_targets,
+)
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -418,9 +425,9 @@ class _PartialLocalImageFileExport:
 
 def _estimate_share_image_settings(target: ImageTarget) -> _ShareImageSettings:
     return _ShareImageSettings(
-        title_fontsize=round((96 / 630) * target.height),
-        instructor_fontsize=round((72 / 630) * target.height),
-        include_instructor_image=target.height >= 200,
+        title_fontsize=round((36 / 630) * target.height),
+        instructor_fontsize=round((22 / 630) * target.height),
+        include_instructor_image=False,
     )
 
 
@@ -438,19 +445,50 @@ def make_share_image(
 
     Returns the result parameter; useful when working with pools
     """
-    im = Image.open(background_filepath)
-    im = im.convert("RGB")
-    im = im.resize((target.width, target.height), resample=Image.LANCZOS)
-    im = im.convert("RGBA")
+    img = Image.open(background_filepath)
 
-    with open("assets/OpenSans-Medium.ttf", "rb") as f:
+    cropped_width: int = img.width
+    cropped_height: int = img.height
+
+    too_widedness = target.width * img.height - img.width * target.height
+    if too_widedness > 0:
+        # equivalent to target.width / target.height > img.width / img.height
+        # but without floating point math
+        # implies the target is too wide, so we need to crop some from the top and
+        # and bottom
+        cropped_height = (img.width * target.height) // target.width
+
+    elif too_widedness < 0:
+        cropped_width = (img.height * target.width) // target.height
+
+    required_x_crop = img.width - cropped_width
+    required_y_crop = img.height - cropped_height
+
+    top_crop = clamp(0, required_y_crop, math.floor(required_y_crop * 0.5))
+    left_crop = clamp(0, required_x_crop, math.floor(required_x_crop * 0.5))
+
+    crops: Tuple[int, int, int, int] = (  # top/right/bottom/left
+        top_crop,
+        required_x_crop - left_crop,
+        required_y_crop - top_crop,
+        left_crop,
+    )
+
+    if any(crop > 0 for crop in crops):
+        img = img.crop(_crops_to_pil_box(*crops, img.width, img.height))
+
+    if img.width != target.width or img.height != target.height:
+        img = img.resize((target.width, target.height), Image.LANCZOS)
+
+    img = img.convert("RGBA")
+
+    with open("assets/OpenSans-Regular.ttf", "rb") as f:
         open_sans_medium_raw = f.read()
 
     pic = Image.open(picture_filepath)
     pic.load()
 
     settings = _estimate_share_image_settings(target)
-    print("estimated settings for target", target, "are", settings)
     success = False
     while not success:
         title_font = ImageFont.truetype(
@@ -477,7 +515,7 @@ def make_share_image(
         )
         settings, success = _try_make_share_image_with_fonts(
             journey,
-            im,
+            img,
             pic_resized,
             title_font,
             instructor_font,
@@ -602,7 +640,7 @@ def _try_make_share_image_with_fonts(
         )
 
     title_height = title_bbox[3] - title_bbox[1]
-    spacer = round(settings.title_fontsize * 0.5)
+    spacer = round(settings.title_fontsize * (24 / 36))
 
     total_height = (
         title_height
@@ -629,11 +667,11 @@ def _try_make_share_image_with_fonts(
             False,
         )
 
-    title_real_y = (bknd.height - total_height) // 2
+    title_real_y = round((bknd.height - total_height) - (20 / 315) * bknd.height)
     instructor_row_y = title_real_y + title_height + spacer
 
-    title_real_x = (bknd.width - (title_bbox[2] - title_bbox[0])) // 2
-    instructor_real_x = (bknd.width - instructor_line_width) // 2
+    title_real_x = round((25 / 600) * bknd.width)
+    instructor_real_x = round((25 / 600) * bknd.width)
 
     img.paste(bknd, (0, 0))
     draw.text(
