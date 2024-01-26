@@ -195,7 +195,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         )
                     except Exception as e:
                         await handle_warning(
-                            f"{__name__}:invalid_view", f"```\n{res[idx]=}\n````", exc=e
+                            f"{__name__}:invalid_view",
+                            f"```\n{res[idx - start_idx]=}\n````",
+                            exc=e,
                         )
                         views_to_drop.append(view_uids[idx])
                         continue
