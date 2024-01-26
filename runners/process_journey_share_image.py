@@ -7,6 +7,7 @@ import multiprocessing.pool
 import os
 import secrets
 import time
+import cairosvg
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 from content import hash_content
 from error_middleware import handle_warning
@@ -15,6 +16,7 @@ from images import (
     LocalImageFileExport,
     _crops_to_pil_box,
     clamp,
+    get_svg_natural_aspect_ratio,
     upload_many_image_targets,
 )
 from itgs import Itgs
@@ -22,7 +24,7 @@ from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
 from lib.thumbhash import image_to_thumb_hash
-from temp_files import temp_dir
+from temp_files import temp_dir, temp_file
 from dataclasses import dataclass
 import aiofiles
 from PIL import Image, ImageFont, ImageDraw
@@ -44,6 +46,8 @@ RESOLUTIONS = list(
             (400, 300),
             # linkedin and other thumbnails
             (80, 150),
+            # imessage
+            (600, 600),
         ]
     )
 )
@@ -119,23 +123,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             darkened_image_files.original_sha512,
             darkened_s3_files.key,
             journeys.title,
-            instructors.name,
-            instructor_picture_image_files.original_sha512,
-            instructor_picture_s3_files.key
+            instructors.name
         FROM 
             journeys, 
             image_files AS darkened_image_files,
             s3_files AS darkened_s3_files,
-            instructors,
-            image_files AS instructor_picture_image_files,
-            s3_files AS instructor_picture_s3_files
+            instructors
         WHERE
             journeys.uid = ?
             AND journeys.darkened_background_image_file_id = darkened_image_files.id
             AND darkened_image_files.original_s3_file_id = darkened_s3_files.id
             AND journeys.instructor_id = instructors.id
-            AND instructors.picture_image_file_id = instructor_picture_image_files.id
-            AND instructor_picture_image_files.original_s3_file_id = instructor_picture_s3_files.id
         """,
         (journey_uid,),
     )
@@ -152,10 +150,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
     darkened_image_file_key = cast(str, response.results[0][1])
     journey_title = cast(str, response.results[0][2])
     instructor_name = cast(str, response.results[0][3])
-    instructor_picture_image_file_original_sha512 = cast(str, response.results[0][4])
-    instructor_picture_image_file_key = cast(str, response.results[0][5])
 
     journey = _Journey(title=journey_title, instructor_name=instructor_name)
+    brandmark_natural_aspect_ratio = await get_svg_natural_aspect_ratio(
+        "assets/Oseh_Brandmark_White.svg"
+    )
+    if brandmark_natural_aspect_ratio is None:
+        brandmark_natural_aspect_ratio = 1
 
     with temp_dir() as dirpath:
         files = await itgs.files()
@@ -177,21 +178,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             return True
 
         background_filename = "darkened_image"
-        instructor_picture_filename = "instructor_picture"
 
-        integrity_matched = await asyncio.gather(
-            download_file(
-                background_filename,
-                darkened_image_file_key,
-                darkened_image_file_original_sha512,
-            ),
-            download_file(
-                instructor_picture_filename,
-                instructor_picture_image_file_key,
-                instructor_picture_image_file_original_sha512,
-            ),
+        integrity_matched = await download_file(
+            background_filename,
+            darkened_image_file_key,
+            darkened_image_file_original_sha512,
         )
-        if not integrity_matched[0] or not integrity_matched[1]:
+        if not integrity_matched:
             return
 
         remaining: List[ImageTarget] = list(TARGETS)
@@ -236,10 +229,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                             pool,
                             journey,
                             os.path.join(dirpath, background_filename),
-                            os.path.join(dirpath, instructor_picture_filename),
                             running_targets[result].filepath,
                             target,
                             result,
+                            brandmark_natural_aspect_ratio,
                         )
                     )
                 done, running = await asyncio.wait(
@@ -401,7 +394,7 @@ class _Journey:
 class _ShareImageSettings:
     title_fontsize: int
     instructor_fontsize: int
-    include_instructor_image: bool
+    brandmark_size: Optional[int]
 
 
 @dataclass
@@ -424,20 +417,55 @@ class _PartialLocalImageFileExport:
 
 
 def _estimate_share_image_settings(target: ImageTarget) -> _ShareImageSettings:
+    if target.width == 1200 and target.height == 630:
+        return _ShareImageSettings(
+            title_fontsize=60,
+            instructor_fontsize=32,
+            brandmark_size=60,
+        )
+
+    if target.width == 600 and target.height == 315:
+        return _ShareImageSettings(
+            title_fontsize=36,
+            instructor_fontsize=22,
+            brandmark_size=32,
+        )
+
+    if target.width == 600 and target.height == 600:
+        return _ShareImageSettings(
+            title_fontsize=36,
+            instructor_fontsize=22,
+            brandmark_size=32,
+        )
+
+    if target.width == 400 and target.height == 300:
+        return _ShareImageSettings(
+            title_fontsize=24,
+            instructor_fontsize=12,
+            brandmark_size=32,
+        )
+
+    if target.width == 80 and target.height == 315:
+        return _ShareImageSettings(
+            title_fontsize=9, instructor_fontsize=5, brandmark_size=None
+        )
+
     return _ShareImageSettings(
-        title_fontsize=round((36 / 630) * target.height),
-        instructor_fontsize=round((22 / 630) * target.height),
-        include_instructor_image=False,
+        title_fontsize=round((60 / 630) * target.height),
+        instructor_fontsize=round((32 / 630) * target.height),
+        brandmark_size=round((60 / 630) * target.height)
+        if target.width > 300
+        else None,
     )
 
 
 def make_share_image(
     journey: _Journey,
     background_filepath: str,
-    picture_filepath: str,
     output_filepath: str,
     target: ImageTarget,
     iden: int,
+    brandmark_natural_aspect_ratio: float,
 ) -> _MakeShareImageResult:
     """Unlike with most images where we simply rescale to size, it looks
     better if we scale the font size and then allow for subpixel rendering,
@@ -485,9 +513,6 @@ def make_share_image(
     with open("assets/OpenSans-Regular.ttf", "rb") as f:
         open_sans_medium_raw = f.read()
 
-    pic = Image.open(picture_filepath)
-    pic.load()
-
     settings = _estimate_share_image_settings(target)
     success = False
     while not success:
@@ -505,21 +530,35 @@ def make_share_image(
             encoding="unic",
             layout_engine=ImageFont.Layout.BASIC,
         )
-        pic_resized = (
-            None
-            if not settings.include_instructor_image
-            else pic.resize(
-                (settings.instructor_fontsize, settings.instructor_fontsize),
-                resample=Image.LANCZOS,
-            )
-        )
+        brandmark: Optional[Image.Image] = None
+        if settings.brandmark_size is not None:
+            with temp_file(".png") as brandmark_filepath:
+                # 8x oversampling to get a higher quality result
+                cairosvg.svg2png(
+                    url="assets/Oseh_Brandmark_White.svg",
+                    write_to=brandmark_filepath,
+                    output_width=settings.brandmark_size,
+                    output_height=round(
+                        (settings.brandmark_size / brandmark_natural_aspect_ratio)
+                    ),
+                    background_color="transparent",
+                )
+                brandmark = Image.open(brandmark_filepath, formats=["png"])
+                # brandmark = brandmark.resize(
+                #     (
+                #         settings.brandmark_size,
+                #         round(settings.brandmark_size / brandmark_natural_aspect_ratio),
+                #     ),
+                #     Image.LANCZOS,
+                # )
+                brandmark.load()
+
         settings, success = _try_make_share_image_with_fonts(
             journey,
             img,
-            pic_resized,
             title_font,
             instructor_font,
-            round(settings.instructor_fontsize * 0.25),
+            brandmark,
             output_filepath,
             target,
             settings,
@@ -541,10 +580,10 @@ def make_share_image_from_pool(
     pool: multiprocessing.pool.Pool,
     journey: _Journey,
     background_filepath: str,
-    picture_filepath: str,
     output_filepath: str,
     target: ImageTarget,
     iden: int,
+    brandmark_natural_aspect_ratio: float,
 ) -> asyncio.Future:
     """Same as `make_share_image`, except executes in the given pool rather than
     synchronously.
@@ -567,10 +606,10 @@ def make_share_image_from_pool(
         args=(
             journey,
             background_filepath,
-            picture_filepath,
             output_filepath,
             target,
             iden,
+            brandmark_natural_aspect_ratio,
         ),
         callback=_on_done,
         error_callback=_on_error,
@@ -581,27 +620,38 @@ def make_share_image_from_pool(
 def _try_make_share_image_with_fonts(
     journey: _Journey,
     bknd: Image.Image,
-    pic: Optional[Image.Image],
     title_font: ImageFont.FreeTypeFont,
     instructor_font: ImageFont.FreeTypeFont,
-    pic_name_margin: int,
+    brandmark: Optional[Image.Image],
     output_filepath: str,
     target: ImageTarget,
     settings: _ShareImageSettings,
 ) -> Tuple[_ShareImageSettings, bool]:
     img = Image.new("RGBA", bknd.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    brandmark_width = brandmark.width if brandmark is not None else 0
 
     title_bbox = draw.textbbox((0, 0), journey.title, font=title_font)
-    if title_bbox[2] - title_bbox[0] > bknd.width * 0.9:
-        actual_width = title_bbox[2] - title_bbox[0]
+    title_required_width = (title_bbox[2] - title_bbox[0]) + brandmark_width
+
+    if title_required_width > bknd.width * 0.9:
+        if brandmark is not None:
+            return (
+                _ShareImageSettings(
+                    title_fontsize=settings.title_fontsize,
+                    instructor_fontsize=settings.instructor_fontsize,
+                    brandmark_size=None,
+                ),
+                False,
+            )
+
         desired_width = bknd.width * 0.9
-        scale_factor = desired_width / actual_width
+        scale_factor = desired_width / title_required_width
         return (
             _ShareImageSettings(
                 title_fontsize=int(settings.title_fontsize * scale_factor),
                 instructor_fontsize=settings.instructor_fontsize,
-                include_instructor_image=settings.include_instructor_image,
+                brandmark_size=None,
             ),
             False,
         )
@@ -611,44 +661,38 @@ def _try_make_share_image_with_fonts(
     )
 
     instructor_line_width = instructor_name_bbox[2] - instructor_name_bbox[0]
-    if pic is not None:
-        instructor_line_width += pic.width + pic_name_margin
+    instructor_line_required_width = instructor_line_width + brandmark_width
 
-    if instructor_line_width > bknd.width * 0.9:
+    if instructor_line_required_width > bknd.width * 0.9:
+        if brandmark is not None:
+            return (
+                _ShareImageSettings(
+                    title_fontsize=settings.title_fontsize,
+                    instructor_fontsize=settings.instructor_fontsize,
+                    brandmark_size=None,
+                ),
+                False,
+            )
+
         actual_width = instructor_line_width
         desired_width = bknd.width * 0.9
         scale_factor = desired_width / actual_width
         new_instructor_fontsize = int(settings.instructor_fontsize * scale_factor)
 
-        if pic is not None and new_instructor_fontsize < 24:
-            return (
-                _ShareImageSettings(
-                    title_fontsize=settings.title_fontsize,
-                    instructor_fontsize=settings.instructor_fontsize,
-                    include_instructor_image=False,
-                ),
-                False,
-            )
-
         return (
             _ShareImageSettings(
                 title_fontsize=settings.title_fontsize,
                 instructor_fontsize=new_instructor_fontsize,
-                include_instructor_image=settings.include_instructor_image,
+                brandmark_size=None,
             ),
             False,
         )
 
     title_height = title_bbox[3] - title_bbox[1]
-    spacer = round(settings.title_fontsize * (24 / 36))
+    spacer = round(settings.title_fontsize * (24 / 60))
 
     total_height = (
-        title_height
-        + spacer
-        + max(
-            pic.height if pic is not None else 0,
-            instructor_name_bbox[3] - instructor_name_bbox[1],
-        )
+        title_height + spacer + (instructor_name_bbox[3] - instructor_name_bbox[1])
     )
 
     if total_height >= bknd.height * 0.9:
@@ -659,10 +703,9 @@ def _try_make_share_image_with_fonts(
             _ShareImageSettings(
                 title_fontsize=int(settings.title_fontsize * scale_factor),
                 instructor_fontsize=int(settings.instructor_fontsize * scale_factor),
-                include_instructor_image=(
-                    settings.include_instructor_image
-                    and (settings.instructor_fontsize * scale_factor) >= 24
-                ),
+                brandmark_size=int(settings.brandmark_size * scale_factor)
+                if settings.brandmark_size is not None
+                else None,
             ),
             False,
         )
@@ -680,41 +723,25 @@ def _try_make_share_image_with_fonts(
         font=title_font,
         fill=(255, 255, 255, 255),
     )
-    if pic is not None:
-        centering_bbox = draw.textbbox(
-            (0, 0), journey.instructor_name[0], font=instructor_font
-        )
+    draw.text(
+        (
+            instructor_real_x - instructor_name_bbox[0],
+            instructor_row_y - instructor_name_bbox[1],
+        ),
+        journey.instructor_name,
+        font=instructor_font,
+        fill=(255, 255, 255, 255),
+    )
 
-        mask = Image.new("L", (pic.size[0] * 8, pic.size[1] * 8), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        draw_mask.ellipse((8, 8, pic.size[0] * 8 - 8, pic.size[1] * 8 - 8), fill=255)
-        mask = mask.resize(pic.size, resample=Image.BICUBIC)
+    if brandmark is not None:
+        # Keep the bottom at the same spot as the bottom of the instructor text
+        instructor_name_bottom_y = instructor_row_y + (
+            instructor_name_bbox[3] - instructor_name_bbox[1]
+        )
+        brandmark_real_y = instructor_name_bottom_y - brandmark.height
+        brandmark_real_x = bknd.width - brandmark.width - round((25 / 600) * bknd.width)
+        img.paste(brandmark, (brandmark_real_x, brandmark_real_y), brandmark)
 
-        img.paste(pic, (instructor_real_x, instructor_row_y), mask=mask)
-        draw.text(
-            (
-                instructor_real_x
-                + pic.width
-                + pic_name_margin
-                - instructor_name_bbox[0],
-                instructor_row_y
-                + (pic.height - (centering_bbox[3] - centering_bbox[1])) // 2
-                - instructor_name_bbox[1],
-            ),
-            journey.instructor_name,
-            font=instructor_font,
-            fill=(255, 255, 255, 255),
-        )
-    else:
-        draw.text(
-            (
-                instructor_real_x - instructor_name_bbox[0],
-                instructor_row_y - instructor_name_bbox[1],
-            ),
-            journey.instructor_name,
-            font=instructor_font,
-            fill=(255, 255, 255, 255),
-        )
     img = img.convert("RGB")
     img.save(output_filepath, format=target.format, **target.quality_settings)
     return settings, True

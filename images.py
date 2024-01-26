@@ -1026,7 +1026,7 @@ def split_unit(value: str) -> Tuple[float, str]:
     return float(numeric), match.group("unit")
 
 
-async def _get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
+async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
     """Attempts to load the given filepath as an svg and get its natural aspect
     ratio (width / height). Returns None if the file could not be interpreted as
     an svg with this relatively simple method.
@@ -1193,7 +1193,7 @@ async def _rasterize(
         yield local_filepath
         return
 
-    svg_natural_aspect_ratio = await _get_svg_natural_aspect_ratio(local_filepath)
+    svg_natural_aspect_ratio = await get_svg_natural_aspect_ratio(local_filepath)
     if svg_natural_aspect_ratio is None:
         yield local_filepath
         return
