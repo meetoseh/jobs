@@ -161,7 +161,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 assert len(res) == end_idx_excl - start_idx, res
 
                 for idx in range(start_idx, end_idx_excl):
-                    view_info = RedisHash(res[idx])
+                    view_info = RedisHash(res[idx - start_idx])
                     if len(view_info) == 0:
                         logging.info(
                             f"Dropping view uid {view_uids[idx]}, not in view pseudoset"
