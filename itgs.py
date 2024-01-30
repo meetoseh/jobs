@@ -1,12 +1,15 @@
 """This module allows for easily accessing common integrations -
 the integration is only loaded upon request.
 """
+import json
 from typing import Callable, Coroutine, List, Optional
 import rqdb
 import rqdb.async_connection
+import rqdb.logging
 import redis.asyncio
 import diskcache
 import os
+from error_middleware import handle_warning
 import slack
 import jobs
 import file_service
@@ -97,8 +100,38 @@ class Itgs:
                     await me._conn.__aexit__(None, None, None)
                     me._conn = None
 
+            bknd_tasks = set()
+
+            def on_slow_query(
+                info: rqdb.logging.QueryInfo,
+                /,
+                *,
+                duration_seconds: float,
+                host: str,
+                response_size_bytes: int,
+                started_at: float,
+                ended_at: float,
+            ):
+                task = asyncio.create_task(
+                    handle_warning(
+                        "jobs:slow_query",
+                        f"query to {host} took {duration_seconds:.3f}s to return {response_size_bytes} bytes:\n\n```\n{json.dumps(info.operations, indent=1)}",
+                    )
+                )
+                bknd_tasks.add(task)
+                task.add_done_callback(lambda _: bknd_tasks.remove(task))
+
             self._closures.append(cleanup)
-            c = rqdb.connect_async(hosts=rqlite_ips)
+            c = rqdb.connect_async(
+                hosts=rqlite_ips,
+                log=rqdb.LogConfig(
+                    slow_query={
+                        "enabled": True,
+                        "threshold_seconds": 1,
+                        "method": on_slow_query,
+                    },
+                ),
+            )
             await c.__aenter__()
             self._conn = c
 
