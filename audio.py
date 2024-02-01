@@ -610,6 +610,7 @@ async def _upsert_prepared(
                             SELECT 1 FROM content_file_exports AS cfe
                             WHERE cfe.content_file_id = content_files.id
                             AND cfe.format = ?
+                            AND cfe.format_parameters = ?
                             AND cfe.quality_parameters = ?
                         )
                     """,
@@ -624,6 +625,7 @@ async def _upsert_prepared(
                         mp4.export.created_at,
                         content_file_uid,
                         mp4.export.format,
+                        json.dumps(mp4.export.format_parameters, sort_keys=True),
                         json.dumps(mp4.export.quality_parameters, sort_keys=True),
                     ),
                 ),
@@ -721,6 +723,7 @@ async def _upsert_prepared(
                             SELECT 1 FROM content_file_exports AS cfe
                             WHERE cfe.content_file_id = content_files.id
                                 AND cfe.format = ?
+                                AND cfe.format_parameters = ?
                                 AND cfe.quality_parameters = ?
                         )
                     """,
@@ -735,6 +738,7 @@ async def _upsert_prepared(
                         vod.created_at,
                         content_file_uid,
                         vod.format,
+                        json.dumps(vod.format_parameters, sort_keys=True),
                         json.dumps(vod.quality_parameters, sort_keys=True),
                     ),
                 ),
