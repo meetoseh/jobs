@@ -1,5 +1,6 @@
 """Checks the health of the database, pinging slack if it's not fully available"""
 import logging
+import os
 from typing import Dict, List, Tuple
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -189,13 +190,18 @@ async def verify_nodes_agree_on_cluster(itgs: Itgs) -> None:
 
     expected_cluster = tuple(sorted(conn.hosts))
     if expected_cluster not in clusters:
-        raise Exception(
-            f"stale configuration; this job node has cluster {expected_cluster} but the real cluster is {list(clusters)[0]}"
+        if os.environ["ENVIRONMENT"] != "dev":
+            raise Exception(
+                f"stale configuration; this job node has cluster {expected_cluster} but the real cluster is {list(clusters)[0]}"
+            )
+        else:
+            logging.info(
+                f"All nodes agree on the cluster, though the cluster {list(clusters)[0]} does not match our configuration of {expected_cluster}"
+            )
+    else:
+        logging.info(
+            "All nodes agree on the cluster, and the cluster matches our configuration"
         )
-
-    logging.info(
-        "All nodes agree on the cluster, and the cluster matches our configuration"
-    )
 
 
 async def _get_cluster_using_node(

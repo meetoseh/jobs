@@ -41,6 +41,7 @@ class ContentFileExport:
 
     uid: str
     format: str
+    format_parameters: Dict[str, Any]
     bandwidth: int
     codecs: List[str]
     target_duration: int
@@ -132,6 +133,7 @@ async def get_content_file(
         SELECT
             content_file_exports.uid,
             content_file_exports.format,
+            content_file_exports.format_parameters,
             content_file_exports.bandwidth,
             content_file_exports.codecs,
             content_file_exports.target_duration,
@@ -152,11 +154,12 @@ async def get_content_file(
             ContentFileExport(
                 uid=row[0],
                 format=row[1],
-                bandwidth=row[2],
-                codecs=row[3],
-                target_duration=row[4],
-                quality_parameters=row[5],
-                created_at=row[6],
+                format_parameters=json.loads(row[2]),
+                bandwidth=row[3],
+                codecs=row[4],
+                target_duration=row[5],
+                quality_parameters=row[6],
+                created_at=row[7],
                 parts=[],
             )
         )

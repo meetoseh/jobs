@@ -52,6 +52,12 @@ class M3UVodReference:
     bandwidth: int
     """The maximum bandwidth of this vod file, in bits per second"""
 
+    average_bandwidth: Optional[int]
+    """The average bandwidth of this vod file, in bits per second"""
+
+    resolution: Optional[Tuple[int, int]]
+    """The resolution of this vod file, if known. This is a tuple of (width, height)"""
+
     codecs: List[str]
     """The codecs used in this vod file"""
 
@@ -124,6 +130,9 @@ async def parse_m3u_vod(local_filepath: str) -> M3UVod:
                 content_header_claims = [
                     segment.strip() for segment in value.split(",")
                 ]
+                content_header_claims = [
+                    claim for claim in content_header_claims if claim != ""
+                ]
                 state = "content-path"
                 if len(content_header_claims) < 1:
                     raise ValueError(f"Expected at least one claim in {line}")
@@ -177,6 +186,8 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
     """Parses the m3u playlist file at the given location, returning the parsed
     contents. As vod files are discovered they are parsed in parallel, with a
     limit of `parallel` files being parsed at once.
+
+    https://developer.apple.com/documentation/http-live-streaming/creating-a-multivariant-playlist
     """
     state: Literal["start", "x-tags", "vod-header", "vod-path"] = "start"
     claims: Dict[str, str] = dict()
@@ -198,6 +209,12 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
 
     last_vod_codecs: Optional[List[str]] = None
     # the parsed codecs from last_vod_claims
+
+    last_vod_resolution: Optional[Tuple[int, int]] = None
+    # the parsed resolution from last_vod_claims
+
+    last_vod_average_bandwidth: Optional[int] = None
+    # the parsed average bandwidth from last_vod_claims
 
     async with aiofiles.open(local_filepath, "r") as f:
         async for line in f:
@@ -291,11 +308,17 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
 
                 bandwidth_claim: Optional[str] = None
                 codecs_claim: Optional[str] = None
+                resolution_claim: Optional[str] = None
+                average_bandwidth_claim: Optional[str] = None
                 for claim_key, claim in last_vod_claims:
                     if claim_key == "BANDWIDTH":
                         bandwidth_claim = claim
                     elif claim_key == "CODECS":
                         codecs_claim = claim
+                    elif claim_key == "RESOLUTION":
+                        resolution_claim = claim
+                    elif claim_key == "AVERAGE-BANDWIDTH":
+                        average_bandwidth_claim = claim
 
                 if bandwidth_claim is None:
                     raise ValueError(f"Expected BANDWIDTH claim in {line=}")
@@ -309,6 +332,28 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
                     raise ValueError(f"Expected integer bandwidth in {line=}")
 
                 last_vod_codecs = codecs_claim.split(",")
+
+                if resolution_claim is not None:
+                    try:
+                        width, height = resolution_claim.split("x")
+                        last_vod_resolution = (int(width), int(height))
+                    except ValueError:
+                        raise ValueError(
+                            f"Expected resolution to be in the form WxH, got {resolution_claim=}"
+                        )
+                else:
+                    last_vod_resolution = None
+
+                if average_bandwidth_claim is not None:
+                    try:
+                        last_vod_average_bandwidth = int(average_bandwidth_claim)
+                    except ValueError:
+                        raise ValueError(
+                            f"Expected integer average bandwidth in {line=}"
+                        )
+                else:
+                    last_vod_average_bandwidth = None
+
                 state = "vod-path"
                 continue
 
@@ -324,6 +369,8 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
 
             new_ref = M3UVodReference(
                 bandwidth=last_vod_bandwidth,
+                average_bandwidth=last_vod_average_bandwidth,
+                resolution=last_vod_resolution,
                 codecs=last_vod_codecs,
                 claims=last_vod_claims,
                 path=line,
@@ -354,6 +401,8 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
             last_vod_claims = None
             last_vod_bandwidth = None
             last_vod_codecs = None
+            last_vod_resolution = None
+            last_vod_average_bandwidth = None
             state = "vod-header"
 
     while tasks_to_vod_refs or pending_vod_refs:
@@ -391,5 +440,7 @@ def get_m3u_local_filepath(
 ) -> str:
     """Gets the path to the content file from a path specified within a vod"""
     return os.path.join(
-        os.path.dirname(os.path.join(os.path.dirname(master), vod.path)), part.path
+        os.path.dirname(master),
+        os.path.dirname(vod.path),
+        part.path,
     )

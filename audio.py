@@ -28,6 +28,7 @@ import multiprocessing.pool
 import asyncio
 import json
 import time
+from lib.codecs import determine_codecs_from_probe
 
 from m3u8 import (
     M3UContent,
@@ -49,7 +50,7 @@ AUDIO_BITRATES = (32, 64, 90, 128, 256, 512, 1028, 1411)
 
 
 @dataclass
-class _PreparedMP4:
+class PreparedMP4:
     """An mp4 file that we've finished processing locally and we've decided
     keys/uids/timestamps for, but have not necessarily finished uploading/storing
     in the database
@@ -63,7 +64,7 @@ class _PreparedMP4:
 
 
 @dataclass
-class _PreparedM3UVodExportPart:
+class PreparedM3UVodExportPart:
     """Acts like a ContentFileExportPart but for a prepared m3u vod, which includes a
     local filepath
     """
@@ -83,18 +84,19 @@ class _PreparedM3UVodExportPart:
 @dataclass
 class PreparedM3UVodExport:
     """Acts like a ContentFileExport, but for a prepared m3u vod, which means it's
-    for a specific
+    for specific quality settings
     """
 
     uid: str
     format: str
+    format_parameters: Dict[str, Any]
     bandwidth: int
     codecs: List[str]
     target_duration: int
     quality_parameters: Dict[str, Any]
     created_at: float
 
-    parts: List[_PreparedM3UVodExportPart]
+    parts: List[PreparedM3UVodExportPart]
     """in order, position ascending"""
 
     vod_ref: M3UVodReference
@@ -104,7 +106,7 @@ class PreparedM3UVodExport:
 
 
 @dataclass
-class _PreparedM3UPlaylist:
+class PreparedM3UPlaylist:
     """An m3u playlist that we've finished processing locally and we've decided
     keys/uids/timestamps for, but have not necessarily finished uploading/storing
     in the database. The playlist itself is not actually stored to the database,
@@ -154,20 +156,23 @@ class _PreparedAudioContent:
     created_at: float
     """The time we created the content file"""
 
-    mp4s: List[_PreparedMP4]
+    mp4s: List[PreparedMP4]
     """The mp4s we've decided to export"""
 
-    hls: Optional[_PreparedM3UPlaylist]
+    hls: Optional[PreparedM3UPlaylist]
     """The hls playlist we've decided to export"""
 
 
 @dataclass
-class _Mp4Info:
+class BasicContentFilePartInfo:
     duration: float
-    """The duration of the mp4 in seconds"""
+    """The duration of the part in seconds"""
 
     bit_rate: int
-    """The true, post-encoding bit rate of the mp4 in bits per second"""
+    """The true, post-encoding bit rate of the part in bits per second"""
+
+    codecs: List[str]
+    """The codecs used by the part, specified via RFC 6381"""
 
 
 async def process_audio(
@@ -253,7 +258,7 @@ async def process_audio_into(
     mp4_folder = os.path.join(temp_folder, "mp4")
     os.makedirs(mp4_folder, exist_ok=True)
     mp4_bitrates_to_local_files: Dict[int, str] = dict()
-    mp4_bitrates_to_info: Dict[int, _Mp4Info] = dict()
+    mp4_bitrates_to_info: Dict[int, BasicContentFilePartInfo] = dict()
     with multiprocessing.Pool(processes=2) as pool:
         original_sha512_task = asyncio.create_task(
             hash_content_using_pool(local_filepath, pool=pool)
@@ -272,7 +277,7 @@ async def process_audio_into(
                 pool=pool,
             )
             with open(f"{target_filepath}.json", "r") as f:
-                mp4_bitrates_to_info[bitrate] = _Mp4Info(**json.load(f))
+                mp4_bitrates_to_info[bitrate] = BasicContentFilePartInfo(**json.load(f))
 
         if gd.received_term_signal:
             raise ProcessAudioAbortedException()
@@ -306,13 +311,14 @@ async def process_audio_into(
         duration_seconds=mp4_bitrates_to_info[AUDIO_BITRATES[0]].duration,
         created_at=now,
         mp4s=[
-            _PreparedMP4(
+            PreparedMP4(
                 local_filepath=local_filepath,
                 export=ContentFileExport(
                     uid=f"oseh_cfe_{secrets.token_urlsafe(16)}",
                     format="mp4",
+                    format_parameters=dict(),
                     bandwidth=mp4_bitrates_to_info[bitrate].bit_rate,
-                    codecs=["aac"],
+                    codecs=mp4_bitrates_to_info[bitrate].codecs,
                     target_duration=int(mp4_bitrates_to_info[bitrate].duration),
                     quality_parameters={"bitrate_kbps": bitrate, "faststart": True},
                     created_at=now,
@@ -336,20 +342,21 @@ async def process_audio_into(
             )
             for bitrate, local_filepath in mp4_bitrates_to_local_files.items()
         ],
-        hls=_PreparedM3UPlaylist(
+        hls=PreparedM3UPlaylist(
             master_file_path=hls_master_file_path,
             playlist=master_m3u,
             vods=[
                 PreparedM3UVodExport(
                     uid=f"oseh_cfe_{secrets.token_urlsafe(16)}",
                     format="m3u8",
+                    format_parameters=dict(),
                     bandwidth=vod.bandwidth,
                     codecs=vod.codecs,
                     target_duration=vod.vod.target_duration,
                     quality_parameters={"audio_bitrate_kbps": AUDIO_BITRATES[vod_idx]},
                     created_at=now,
                     parts=[
-                        _PreparedM3UVodExportPart(
+                        PreparedM3UVodExportPart(
                             uid=f"oseh_cfep_{secrets.token_urlsafe(16)}",
                             s3_file=S3File(
                                 uid=f"oseh_s3f_{secrets.token_urlsafe(16)}",
@@ -587,12 +594,12 @@ async def _upsert_prepared(
                 (
                     """
                     INSERT INTO content_file_exports (
-                        uid, content_file_id, format, bandwidth,
+                        uid, content_file_id, format, format_parameters, bandwidth,
                         codecs, target_duration, quality_parameters,
                         created_at
                     )
                     SELECT
-                        ?, content_files.id, ?, ?,
+                        ?, content_files.id, ?, ?, ?,
                         ?, ?, ?,
                         ?
                     FROM content_files
@@ -608,6 +615,7 @@ async def _upsert_prepared(
                     (
                         mp4.export.uid,
                         mp4.export.format,
+                        json.dumps(mp4.export.format_parameters, sort_keys=True),
                         mp4.export.bandwidth,
                         ",".join(sorted(mp4.export.codecs)),
                         mp4.export.target_duration,
@@ -697,12 +705,12 @@ async def _upsert_prepared(
                 (
                     """
                     INSERT INTO content_file_exports (
-                        uid, content_file_id, format, bandwidth,
+                        uid, content_file_id, format, format_parameters, bandwidth,
                         codecs, target_duration, quality_parameters,
                         created_at
                     )
                     SELECT
-                        ?, content_files.id, ?, ?,
+                        ?, content_files.id, ?, ?, ?,
                         ?, ?, ?,
                         ?
                     FROM content_files
@@ -718,6 +726,7 @@ async def _upsert_prepared(
                     (
                         vod.uid,
                         vod.format,
+                        json.dumps(vod.format_parameters, sort_keys=True),
                         vod.bandwidth,
                         ",".join(sorted(vod.codecs)),
                         vod.target_duration,
@@ -782,6 +791,7 @@ async def _upsert_prepared(
             ContentFileExport(
                 uid=vod.uid,
                 format=vod.format,
+                format_parameters=vod.format_parameters,
                 bandwidth=vod.bandwidth,
                 codecs=vod.codecs,
                 target_duration=vod.target_duration,
@@ -873,8 +883,10 @@ def produce_mp4(
         "ffprobe",
         "-v",
         "warning",
-        "-show_entries",
-        "stream=bit_rate,duration",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
         target_filepath,
     ]
     logging.info(f"Running command: {json.dumps(cmd)}")
@@ -887,29 +899,16 @@ def produce_mp4(
             + result.stderr.decode("utf-8")
             + "\n```"
         )
-
-    duration: Optional[float] = None
-    bit_rate: Optional[int] = None
-    decoded_out = result.stdout.decode("utf-8")
-    for line in decoded_out.splitlines(keepends=False):
-        if line.startswith("duration="):
-            duration = float(line[len("duration=") :])
-        elif line.startswith("bit_rate="):
-            bit_rate = int(line[len("bit_rate=") :])
-
-    if duration is None:
-        raise Exception(f"ffprobe did not report duration: {decoded_out}")
-
-    if bit_rate is None:
-        raise Exception(f"ffprobe did not report bitrate: {decoded_out}")
-
-    logging.info(f"Produced mp4 file: {target_filepath=} with {duration=}, {bit_rate=}")
-
+    info = json.loads(result.stdout)
+    duration = float(info["format"]["duration"])
+    bit_rate = int(info["format"]["bit_rate"])
+    codecs = determine_codecs_from_probe(info)
     with open(f"{target_filepath}.json", "w") as f:
         json.dump(
             {
                 "duration": duration,
                 "bit_rate": bit_rate,
+                "codecs": codecs,
             },
             f,
             sort_keys=True,

@@ -1,7 +1,6 @@
 """Ensures that the share image for the given journey is up-to-date"""
 import base64
 import json
-import math
 import multiprocessing
 import multiprocessing.pool
 import os
@@ -15,7 +14,7 @@ from images import (
     ImageTarget,
     LocalImageFileExport,
     _crops_to_pil_box,
-    clamp,
+    determine_crop,
     get_svg_natural_aspect_ratio,
     upload_many_image_targets,
 )
@@ -475,31 +474,8 @@ def make_share_image(
     """
     img = Image.open(background_filepath)
 
-    cropped_width: int = img.width
-    cropped_height: int = img.height
-
-    too_widedness = target.width * img.height - img.width * target.height
-    if too_widedness > 0:
-        # equivalent to target.width / target.height > img.width / img.height
-        # but without floating point math
-        # implies the target is too wide, so we need to crop some from the top and
-        # and bottom
-        cropped_height = (img.width * target.height) // target.width
-
-    elif too_widedness < 0:
-        cropped_width = (img.height * target.width) // target.height
-
-    required_x_crop = img.width - cropped_width
-    required_y_crop = img.height - cropped_height
-
-    top_crop = clamp(0, required_y_crop, math.floor(required_y_crop * 0.5))
-    left_crop = clamp(0, required_x_crop, math.floor(required_x_crop * 0.5))
-
-    crops: Tuple[int, int, int, int] = (  # top/right/bottom/left
-        top_crop,
-        required_x_crop - left_crop,
-        required_y_crop - top_crop,
-        left_crop,
+    crops = determine_crop(
+        (img.width, img.height), (target.width, target.height), (0.5, 0.5)
     )
 
     if any(crop > 0 for crop in crops):

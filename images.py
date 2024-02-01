@@ -950,6 +950,57 @@ def clamp(min_: int, max_: int, value: int) -> int:
     return max(min_, min(max_, value))
 
 
+def determine_crop(
+    input: Tuple[int, int], target: Tuple[int, int], focal_point: Tuple[float, float]
+) -> Tuple[int, int, int, int]:
+    """Given an image of size input (w, h) and a target of size target (w, h),
+    with a focal point expressed as a fraction of the input image size where
+    (0, 0) is the top left, (0.5, 0.5) is the center, and (1, 1) is the bottom
+    right, determines the crop to apply to the input image to get the target
+    image.
+
+    The returned crop is expressed as (top, right, bottom, left) where each
+    value is 0 if no crop from that edge is desired, and a positive number
+    if a crop from that edge is desired.
+
+    This computes the minimal crop such that the image will have the same aspect
+    ratio as the target. However, after the crop, the input still may be larger
+    than the target.
+
+    Raises:
+        ValueError: if the target is larger than the input
+    """
+    if target[0] > input[0] or target[1] > input[1]:
+        raise ValueError("Target is larger than input")
+
+    cropped_width: int = input[0]
+    cropped_height: int = input[1]
+
+    too_widedness = target[0] * input[1] - input[0] * target[1]
+    if too_widedness > 0:
+        # equivalent to target.width / target.height > img.width / img.height
+        # but without floating point math
+        # implies the target is too wide, so we need to crop some from the top and
+        # and bottom
+        cropped_height = (input[0] * target[1]) // target[0]
+
+    elif too_widedness < 0:
+        cropped_width = (input[1] * target[0]) // target[1]
+
+    required_x_crop = input[0] - cropped_width
+    required_y_crop = input[1] - cropped_height
+
+    top_crop = clamp(0, required_y_crop, math.floor(required_y_crop * focal_point[1]))
+    left_crop = clamp(0, required_x_crop, math.floor(required_x_crop * focal_point[0]))
+
+    return (
+        top_crop,
+        required_x_crop - left_crop,
+        required_y_crop - top_crop,
+        left_crop,
+    )
+
+
 def _make_target(
     local_filepath: str,
     target: ImageTarget,
@@ -960,35 +1011,8 @@ def _make_target(
         if img.width < target.width or img.height < target.height:
             return None
 
-        cropped_width: int = img.width
-        cropped_height: int = img.height
-
-        too_widedness = target.width * img.height - img.width * target.height
-        if too_widedness > 0:
-            # equivalent to target.width / target.height > img.width / img.height
-            # but without floating point math
-            # implies the target is too wide, so we need to crop some from the top and
-            # and bottom
-            cropped_height = (img.width * target.height) // target.width
-
-        elif too_widedness < 0:
-            cropped_width = (img.height * target.width) // target.height
-
-        required_x_crop = img.width - cropped_width
-        required_y_crop = img.height - cropped_height
-
-        top_crop = clamp(
-            0, required_y_crop, math.floor(required_y_crop * focal_point[1])
-        )
-        left_crop = clamp(
-            0, required_x_crop, math.floor(required_x_crop * focal_point[0])
-        )
-
-        crops: Tuple[int, int, int, int] = (  # top/right/bottom/left
-            top_crop,
-            required_x_crop - left_crop,
-            required_y_crop - top_crop,
-            left_crop,
+        crops = determine_crop(
+            (img.width, img.height), (target.width, target.height), focal_point
         )
 
         if any(crop > 0 for crop in crops):
