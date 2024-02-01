@@ -1,6 +1,7 @@
 import asyncio
 from fractions import Fraction
 import json
+import math
 import subprocess
 import time
 from typing import List, Optional, Sequence, Tuple, cast
@@ -225,7 +226,7 @@ async def process_video_into(
                     },
                     bandwidth=mp4.bit_rate,
                     codecs=mp4.codecs,
-                    target_duration=int(mp4.duration),
+                    target_duration=math.ceil(mp4.duration),
                     quality_parameters={
                         "bitrate_bps": mp4.bit_rate,
                         "faststart": True,

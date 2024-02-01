@@ -3,6 +3,7 @@
 
 import logging
 import logging.config
+import math
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
@@ -319,7 +320,7 @@ async def process_audio_into(
                     format_parameters=dict(),
                     bandwidth=mp4_bitrates_to_info[bitrate].bit_rate,
                     codecs=mp4_bitrates_to_info[bitrate].codecs,
-                    target_duration=int(mp4_bitrates_to_info[bitrate].duration),
+                    target_duration=math.ceil(mp4_bitrates_to_info[bitrate].duration),
                     quality_parameters={"bitrate_kbps": bitrate, "faststart": True},
                     created_at=now,
                     parts=[
