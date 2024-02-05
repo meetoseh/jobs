@@ -842,6 +842,11 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
     ),
     Job(
+        name="runners.alerting.check_leaked_upload_parts",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(7,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.stats.daily_siwo_authorize_stats",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
