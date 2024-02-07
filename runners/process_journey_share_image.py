@@ -1,4 +1,5 @@
 """Ensures that the share image for the given journey is up-to-date"""
+
 import base64
 import json
 import multiprocessing
@@ -154,8 +155,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
     brandmark_natural_aspect_ratio = await get_svg_natural_aspect_ratio(
         "assets/Oseh_Brandmark_White.svg"
     )
-    if brandmark_natural_aspect_ratio is None:
-        brandmark_natural_aspect_ratio = 1
+    assert brandmark_natural_aspect_ratio is not None
 
     with temp_dir() as dirpath:
         files = await itgs.files()
@@ -231,7 +231,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                             running_targets[result].filepath,
                             target,
                             result,
-                            brandmark_natural_aspect_ratio,
+                            brandmark_natural_aspect_ratio.ratio,
                         )
                     )
                 done, running = await asyncio.wait(
@@ -452,9 +452,9 @@ def _estimate_share_image_settings(target: ImageTarget) -> _ShareImageSettings:
     return _ShareImageSettings(
         title_fontsize=round((60 / 630) * target.height),
         instructor_fontsize=round((32 / 630) * target.height),
-        brandmark_size=round((60 / 630) * target.height)
-        if target.width > 300
-        else None,
+        brandmark_size=(
+            round((60 / 630) * target.height) if target.width > 300 else None
+        ),
     )
 
 
@@ -509,7 +509,6 @@ def make_share_image(
         brandmark: Optional[Image.Image] = None
         if settings.brandmark_size is not None:
             with temp_file(".png") as brandmark_filepath:
-                # 8x oversampling to get a higher quality result
                 cairosvg.svg2png(
                     url="assets/Oseh_Brandmark_White.svg",
                     write_to=brandmark_filepath,
@@ -520,13 +519,6 @@ def make_share_image(
                     background_color="transparent",
                 )
                 brandmark = Image.open(brandmark_filepath, formats=["png"])
-                # brandmark = brandmark.resize(
-                #     (
-                #         settings.brandmark_size,
-                #         round(settings.brandmark_size / brandmark_natural_aspect_ratio),
-                #     ),
-                #     Image.LANCZOS,
-                # )
                 brandmark.load()
 
         settings, success = _try_make_share_image_with_fonts(
@@ -679,9 +671,11 @@ def _try_make_share_image_with_fonts(
             _ShareImageSettings(
                 title_fontsize=int(settings.title_fontsize * scale_factor),
                 instructor_fontsize=int(settings.instructor_fontsize * scale_factor),
-                brandmark_size=int(settings.brandmark_size * scale_factor)
-                if settings.brandmark_size is not None
-                else None,
+                brandmark_size=(
+                    int(settings.brandmark_size * scale_factor)
+                    if settings.brandmark_size is not None
+                    else None
+                ),
             ),
             False,
         )

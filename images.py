@@ -31,7 +31,7 @@ import json
 import os
 import re
 
-from temp_files import temp_file
+from temp_files import temp_dir, temp_file
 from lib.thumbhash import image_to_thumb_hash
 
 
@@ -118,6 +118,26 @@ class ImageTarget:
     """
 
 
+@dataclass
+class SvgInfo:
+    path: str
+    """path to where the svg can be found"""
+    width: int
+    """natural width of the svg"""
+    height: int
+    """natural height of the svg"""
+    thumbhash: str
+    """thumbhash of the svg at the natural aspect ratio"""
+
+
+@dataclass
+class RasterizeResult:
+    svg: Optional[SvgInfo]
+    """the svg, if an svg was rasterized, otherwise none"""
+    rasterized_path: str
+    """the path to where we think a rasterized version of the image can be found"""
+
+
 class ProcessImageException(Exception):
     pass
 
@@ -197,11 +217,17 @@ async def process_image(
     """
     async with _rasterize(
         local_filepath, max_file_size=min(max_file_size, 1024 * 1024), targets=targets
-    ) as rasterized:
-        _sanity_check_image(rasterized, max_width, max_height, max_area, max_file_size)
-        _verify_required_targets_possible(rasterized, targets)
+    ) as source:
+        if source.svg is not None:
+            _sanity_check_svg(source.svg.path, max_file_size)
+        _sanity_check_image(
+            source.rasterized_path, max_width, max_height, max_area, max_file_size
+        )
+        _verify_required_targets_possible(source.rasterized_path, targets)
         name = _name_from_name_hint(name_hint)
-        sha512 = await _hash_image(rasterized)
+        sha512 = await _hash_image(
+            source.svg.path if source.svg is not None else source.rasterized_path
+        )
 
         conn = await itgs.conn()
         cursor = conn.cursor()
@@ -210,7 +236,7 @@ async def process_image(
         )
         if response.results:
             return await _add_missing_targets(
-                rasterized,
+                source,
                 targets,
                 uid=response.results[0][0],
                 focal_point=focal_point,
@@ -219,7 +245,7 @@ async def process_image(
             )
 
         return await _make_new_image(
-            rasterized,
+            source,
             targets,
             name=name,
             sha512=sha512,
@@ -231,7 +257,7 @@ async def process_image(
 
 
 async def _add_missing_targets(
-    local_filepath: str,
+    source: RasterizeResult,
     targets: List[ImageTarget],
     *,
     uid: str,
@@ -259,6 +285,9 @@ async def _add_missing_targets(
     if image_file is None:
         raise ProcessImageException(f"Image file {uid=} does not exist")
 
+    svg_export_required = source.svg is not None and not any(
+        e.format == "svg" for e in image_file.exports
+    )
     exports_lookup: Dict[Tuple[int, int, str, str], ImageFileExport] = dict(
         (
             (
@@ -288,25 +317,40 @@ async def _add_missing_targets(
         )
     ]
 
-    if not missing_targets:
+    if not svg_export_required and not missing_targets:
         return image_file
 
     if gd.received_term_signal:
         raise ProcessImageAbortedException("Received term signal")
 
-    tmp_folder = os.path.join("tmp", secrets.token_hex(8))
     now = time.time()
-    os.makedirs(tmp_folder)
-    try:
-        local_image_file_exports = await _make_targets(
-            local_filepath,
-            missing_targets,
-            focal_point=focal_point,
-            tmp_folder=tmp_folder,
-            gd=gd,
-        )
-        if gd.received_term_signal:
-            raise ProcessImageAbortedException("Received term signal")
+    with temp_dir() as tmp_folder:
+        local_image_file_exports: List[LocalImageFileExport] = []
+        if missing_targets:
+            local_image_file_exports = await _make_targets(
+                source.rasterized_path,
+                missing_targets,
+                focal_point=focal_point,
+                tmp_folder=tmp_folder,
+                gd=gd,
+            )
+            if gd.received_term_signal:
+                raise ProcessImageAbortedException("Received term signal")
+
+        if source.svg is not None and svg_export_required:
+            local_image_file_exports.append(
+                LocalImageFileExport(
+                    uid=f"oseh_ife_{secrets.token_urlsafe(16)}",
+                    width=source.svg.width,
+                    height=source.svg.height,
+                    filepath=source.svg.path,
+                    crop=(0, 0, 0, 0),
+                    format="svg",
+                    quality_settings={},
+                    thumbhash=source.svg.thumbhash,
+                    file_size=os.path.getsize(source.svg.path),
+                )
+            )
 
         uploaded = await upload_many_image_targets(
             local_image_file_exports, itgs=itgs, gd=gd
@@ -374,8 +418,6 @@ async def _add_missing_targets(
 
         await _delete_s3_files(to_delete, itgs=itgs)
         return image_file
-    finally:
-        shutil.rmtree(tmp_folder)
 
 
 async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
@@ -488,7 +530,7 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
 
 
 async def _make_new_image(
-    local_filepath: str,
+    source: RasterizeResult,
     targets: List[ImageTarget],
     *,
     name: str,
@@ -498,8 +540,12 @@ async def _make_new_image(
     gd: GracefulDeath,
     force_uid: Optional[str] = None,
 ) -> ImageFile:
-    with Image.open(local_filepath) as img:
-        original_width, original_height = img.size
+
+    if source.svg is None:
+        with Image.open(source.rasterized_path) as img:
+            original_width, original_height = img.size
+    else:
+        original_width, original_height = source.svg.width, source.svg.height
 
     image_file_uid = (
         f"oseh_if_{secrets.token_urlsafe(16)}" if force_uid is None else force_uid
@@ -510,19 +556,37 @@ async def _make_new_image(
     try:
         local_image_file_exports, original = await asyncio.gather(
             _make_targets(
-                local_filepath,
+                source.rasterized_path,
                 targets,
                 focal_point=focal_point,
                 tmp_folder=tmp_folder,
                 gd=gd,
             ),
             _upload_original(
-                local_filepath, image_file_uid=image_file_uid, now=now, itgs=itgs
+                source.rasterized_path if source.svg is None else source.svg.path,
+                image_file_uid=image_file_uid,
+                now=now,
+                itgs=itgs,
             ),
         )
         if gd.received_term_signal:
             await _delete_s3_files([original], itgs=itgs)
             raise ProcessImageAbortedException("Received term signal")
+
+        if source.svg is not None:
+            local_image_file_exports.append(
+                LocalImageFileExport(
+                    uid=f"oseh_ife_{secrets.token_urlsafe(16)}",
+                    width=source.svg.width,
+                    height=source.svg.height,
+                    filepath=source.svg.path,
+                    crop=(0, 0, 0, 0),
+                    format="svg",
+                    quality_settings={},
+                    thumbhash=source.svg.thumbhash,
+                    file_size=os.path.getsize(source.svg.path),
+                )
+            )
 
         uploaded = await upload_many_image_targets(
             local_image_file_exports, itgs=itgs, gd=gd
@@ -798,7 +862,12 @@ async def _upload_one(
 
     now = time.time()
     uid = f"oseh_s3f_{secrets.token_urlsafe(16)}"
-    content_type = f"image/{local_image_file_export.format.lower()}"
+
+    if local_image_file_export.format.lower() == 'svg':
+        content_type = 'image/svg+xml'
+    else:
+        content_type = f"image/{local_image_file_export.format.lower()}"
+
     times_out_in = 60 * 10
     times_out_at = now + times_out_in  # 10 minutes
 
@@ -1050,7 +1119,17 @@ def split_unit(value: str) -> Tuple[float, str]:
     return float(numeric), match.group("unit")
 
 
-async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
+@dataclass
+class SvgAspectRatio:
+    ratio: float
+    """The ratio at which this svg can generally be rendered exactly as width/height"""
+    width: float
+    """natural width"""
+    height: float
+    """natural height"""
+
+
+async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspectRatio]:
     """Attempts to load the given filepath as an svg and get its natural aspect
     ratio (width / height). Returns None if the file could not be interpreted as
     an svg with this relatively simple method.
@@ -1185,7 +1264,9 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
             if width_unit != height_unit:
                 return None
 
-            return width_value / height_value
+            return SvgAspectRatio(
+                ratio=width_value / height_value, width=width_value, height=height_value
+            )
     except ValueError:
         # encoding issue
         return None
@@ -1194,11 +1275,11 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[float]:
 @contextlib.asynccontextmanager
 async def _rasterize(
     local_filepath: str, *, max_file_size: int, targets: List[ImageTarget]
-) -> AsyncGenerator[str, None]:
-    """Returns the filepath to the rasterized version of the given file. If it's
-    not in a known vector-format, returns the original path and does not delete it
-    when exited. If it's in a known vector-format, returns the path to the rasterized
-    version and deletes it when exited.
+) -> AsyncGenerator[RasterizeResult, None]:
+    """Returns the rasterized version of the given file. If it's
+    not in a known vector-format, returns the original path and does not delete
+    it when exited. If it's in a known vector-format, returns the path to the
+    rasterized version and deletes it when exited.
 
     When rasterizing, chooses a size that is sufficient for all the given targets.
 
@@ -1214,12 +1295,12 @@ async def _rasterize(
     """
     file_size = os.path.getsize(local_filepath)
     if file_size > max_file_size:
-        yield local_filepath
+        yield RasterizeResult(svg=None, rasterized_path=local_filepath)
         return
 
     svg_natural_aspect_ratio = await get_svg_natural_aspect_ratio(local_filepath)
     if svg_natural_aspect_ratio is None:
-        yield local_filepath
+        yield RasterizeResult(svg=None, rasterized_path=local_filepath)
         return
 
     min_final_width = max(target.width for target in targets)
@@ -1228,48 +1309,75 @@ async def _rasterize(
     target_width: int
     target_height: int
 
-    height_at_min_width = min_final_width / svg_natural_aspect_ratio
+    height_at_min_width = min_final_width / svg_natural_aspect_ratio.ratio
     if height_at_min_width >= min_final_height:
         target_width = min_final_width
         target_height = round(height_at_min_width)
     else:
-        target_width = round(min_final_height * svg_natural_aspect_ratio)
+        target_width = round(min_final_height * svg_natural_aspect_ratio.ratio)
         target_height = min_final_height
 
     loop = asyncio.get_event_loop()
-    with temp_file() as rasterized_path:
+    with temp_file() as rasterized_path, temp_file() as thumbhash_path:
+        rast_succeeded = True
+        thumbhash: Optional[str] = None
         with multiprocessing.Pool(processes=1) as pool:
-            fut = loop.create_future()
+            for output_width, output_height, write_to_path in (
+                (target_width, target_height, rasterized_path),
+                (round(svg_natural_aspect_ratio.ratio * 128), 128, thumbhash_path),
+            ):
+                fut = loop.create_future()
 
-            def _on_done(result):
-                loop.call_soon_threadsafe(fut.set_result, result)
+                def _on_done(result):
+                    loop.call_soon_threadsafe(fut.set_result, result)
 
-            def _on_error(err):
-                loop.call_soon_threadsafe(fut.set_exception, err)
+                def _on_error(err):
+                    loop.call_soon_threadsafe(fut.set_exception, err)
 
-            pool.apply_async(
-                cairosvg.svg2png,
-                kwds={
-                    "url": local_filepath,
-                    "write_to": rasterized_path,
-                    "output_width": target_width,
-                    "output_height": target_height,
-                },
-                callback=_on_done,
-                error_callback=_on_error,
+                pool.apply_async(
+                    cairosvg.svg2png,
+                    kwds={
+                        "url": local_filepath,
+                        "write_to": write_to_path,
+                        "output_width": output_width,
+                        "output_height": output_height,
+                    },
+                    callback=_on_done,
+                    error_callback=_on_error,
+                )
+                try:
+                    await fut
+                except Exception as e:
+                    await handle_error(e)
+                    rast_succeeded = False
+                    break
+
+                if write_to_path == thumbhash_path:
+                    fut = loop.create_future()
+                    pool.apply_async(
+                        image_to_thumb_hash,
+                        args=(write_to_path,),
+                        callback=_on_done,
+                        error_callback=_on_error,
+                    )
+                    thumbhash_raw = typing_cast(List[int], await fut)
+                    thumbhash = base64.urlsafe_b64encode(bytes(thumbhash_raw)).decode(
+                        "ascii"
+                    )
+
+        if rast_succeeded and thumbhash is not None:
+            yield RasterizeResult(
+                svg=SvgInfo(
+                    path=local_filepath,
+                    width=target_width,
+                    height=target_height,
+                    thumbhash=thumbhash,
+                ),
+                rasterized_path=rasterized_path,
             )
-            try:
-                await fut
-                rast_succeeded = True
-            except Exception as e:
-                await handle_error(e)
-                rast_succeeded = False
-
-        if rast_succeeded:
-            yield rasterized_path
             return
 
-    yield local_filepath
+    yield RasterizeResult(svg=None, rasterized_path=local_filepath)
 
 
 def _sanity_check_image(
@@ -1301,6 +1409,17 @@ def _sanity_check_image(
             raise ProcessImageException(
                 f"Image area {area=} is too large ({img.width=}x{img.height=})"
             )
+
+
+def _sanity_check_svg(
+    local_filepath: str,
+    max_file_size: int,
+):
+    file_size_bytes = os.path.getsize(local_filepath)
+    if file_size_bytes > max_file_size:
+        raise ProcessImageException(
+            f"File too large ({file_size_bytes} > {max_file_size})"
+        )
 
 
 def _verify_required_targets_possible(
