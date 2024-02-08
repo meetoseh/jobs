@@ -65,6 +65,8 @@ class JobProgress(TypedDict):
     """a hint about how to display the progress or None if no indicator
     should be displayed
     """
+    occurred_at: float
+    """the time when the progress message was created"""
 
 
 class JobCategory(IntEnum):
@@ -207,6 +209,7 @@ class Jobs:
             "type": "queued",
             "message": "waiting for an available worker",
             "indicator": {"type": "spinner"},
+            "occurred_at": time.time(),
         }
 
         async def _prepare(force: bool):

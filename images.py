@@ -863,8 +863,8 @@ async def _upload_one(
     now = time.time()
     uid = f"oseh_s3f_{secrets.token_urlsafe(16)}"
 
-    if local_image_file_export.format.lower() == 'svg':
-        content_type = 'image/svg+xml'
+    if local_image_file_export.format.lower() == "svg":
+        content_type = "image/svg+xml"
     else:
         content_type = f"image/{local_image_file_export.format.lower()}"
 
