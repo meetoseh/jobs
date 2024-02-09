@@ -903,6 +903,11 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(30,)),
     ),
+    Job(
+        name="runners.sweep_incomplete_file_uploads",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 

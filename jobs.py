@@ -271,6 +271,20 @@ class Jobs:
             pipe, progress_uid.encode("utf-8"), json.dumps(progress).encode("utf-8")
         )
 
+    async def push_progress(self, progress_uid: str, progress: JobProgress) -> None:
+        """Pushes the given job progress message to the progress event list with the
+        given uid.
+        """
+        conn = self.conn
+
+        async def _prepare(force: bool):
+            await self.prepare_progress(conn, force=force)
+
+        async def _execute():
+            await self.push_progress_in_pipe(conn, progress_uid, progress)
+
+        await run_with_prep(_prepare, _execute)
+
     async def retrieve(self, timeout: float) -> Optional[Job]:
         """blocking retrieve of the oldest job in the queue, if there is one, respecting
         our categorization limits.

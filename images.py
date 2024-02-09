@@ -30,6 +30,7 @@ import time
 import json
 import os
 import re
+from lib.progressutils.progress_helper import ProgressHelper
 
 from temp_files import temp_dir, temp_file
 from lib.thumbhash import image_to_thumb_hash
@@ -159,6 +160,7 @@ async def process_image(
     name_hint: str,
     force_uid: Optional[str] = None,
     focal_point: Tuple[float, float] = (0.5, 0.5),
+    job_progress_uid: Optional[str] = None,
 ) -> ImageFile:
     """Processes the user-provided image which we have available at the given filepath
     and generates the given targets.
@@ -201,6 +203,8 @@ async def process_image(
         focal_point (Tuple[float, float]): The focal point of the image, as a percentage
             of the width and height. Defaults to the center of the image. When cropping,
             we will attempt to keep this point at the center of the image.
+        job_progress_uid (str, None): The uid of the job progress to update, or None for
+            no job progress updates
 
     Returns:
         ImageFile: The image file that was processed
@@ -216,7 +220,11 @@ async def process_image(
             format (or not being an image at all)
     """
     async with _rasterize(
-        local_filepath, max_file_size=min(max_file_size, 1024 * 1024), targets=targets
+        local_filepath,
+        itgs=itgs,
+        max_file_size=min(max_file_size, 1024 * 1024),
+        targets=targets,
+        job_progress_uid=job_progress_uid,
     ) as source:
         if source.svg is not None:
             _sanity_check_svg(source.svg.path, max_file_size)
@@ -225,6 +233,7 @@ async def process_image(
         )
         _verify_required_targets_possible(source.rasterized_path, targets)
         name = _name_from_name_hint(name_hint)
+
         sha512 = await _hash_image(
             source.svg.path if source.svg is not None else source.rasterized_path
         )
@@ -242,6 +251,7 @@ async def process_image(
                 focal_point=focal_point,
                 itgs=itgs,
                 gd=gd,
+                job_progress_uid=job_progress_uid,
             )
 
         return await _make_new_image(
@@ -253,6 +263,7 @@ async def process_image(
             gd=gd,
             force_uid=force_uid,
             focal_point=focal_point,
+            job_progress_uid=job_progress_uid,
         )
 
 
@@ -264,6 +275,7 @@ async def _add_missing_targets(
     focal_point: Tuple[float, float],
     itgs: Itgs,
     gd: GracefulDeath,
+    job_progress_uid: Optional[str],
 ) -> ImageFile:
     """Adds any missing targets to the image file exports of the given image file
     and returns the updated image file. The returned image file will have any
@@ -278,9 +290,13 @@ async def _add_missing_targets(
     you should keep retrying the parent function until you get an image file
     with all the exports you want.
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
     conn = await itgs.conn()
     cursor = conn.cursor("weak")
 
+    await prog.push_progress(
+        "determining existing targets", indicator={"type": "spinner"}
+    )
     image_file = await get_image_file(uid=uid, itgs=itgs)
     if image_file is None:
         raise ProcessImageException(f"Image file {uid=} does not exist")
@@ -318,6 +334,7 @@ async def _add_missing_targets(
     ]
 
     if not svg_export_required and not missing_targets:
+        await prog.push_progress("determined no missing targets")
         return image_file
 
     if gd.received_term_signal:
@@ -332,7 +349,9 @@ async def _add_missing_targets(
                 missing_targets,
                 focal_point=focal_point,
                 tmp_folder=tmp_folder,
+                itgs=itgs,
                 gd=gd,
+                job_progress_uid=job_progress_uid,
             )
             if gd.received_term_signal:
                 raise ProcessImageAbortedException("Received term signal")
@@ -353,7 +372,10 @@ async def _add_missing_targets(
             )
 
         uploaded = await upload_many_image_targets(
-            local_image_file_exports, itgs=itgs, gd=gd
+            local_image_file_exports,
+            itgs=itgs,
+            gd=gd,
+            job_progress_uid=job_progress_uid,
         )
         if gd.received_term_signal:
             await _delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
@@ -416,7 +438,9 @@ async def _add_missing_targets(
                 )
             )
 
+        await prog.push_progress("cleaning up", indicator={"type": "spinner"})
         await _delete_s3_files(to_delete, itgs=itgs)
+        await prog.push_progress("cleaned up")
         return image_file
 
 
@@ -539,8 +563,9 @@ async def _make_new_image(
     itgs: Itgs,
     gd: GracefulDeath,
     force_uid: Optional[str] = None,
+    job_progress_uid: Optional[str] = None,
 ) -> ImageFile:
-
+    prog = ProgressHelper(itgs, job_progress_uid)
     if source.svg is None:
         with Image.open(source.rasterized_path) as img:
             original_width, original_height = img.size
@@ -560,7 +585,9 @@ async def _make_new_image(
                 targets,
                 focal_point=focal_point,
                 tmp_folder=tmp_folder,
+                itgs=itgs,
                 gd=gd,
+                job_progress_uid=job_progress_uid,
             ),
             _upload_original(
                 source.rasterized_path if source.svg is None else source.svg.path,
@@ -589,7 +616,10 @@ async def _make_new_image(
             )
 
         uploaded = await upload_many_image_targets(
-            local_image_file_exports, itgs=itgs, gd=gd
+            local_image_file_exports,
+            itgs=itgs,
+            gd=gd,
+            job_progress_uid=job_progress_uid,
         )
         if gd.received_term_signal:
             await _delete_s3_files(
@@ -601,6 +631,9 @@ async def _make_new_image(
         conn = await itgs.conn()
         cursor = conn.cursor()
 
+        await prog.push_progress(
+            "inserting into database", indicator={"type": "spinner"}
+        )
         response = await cursor.executemany3(
             (
                 (
@@ -792,8 +825,10 @@ async def _upload_original(
 
 async def upload_many_image_targets(
     local_image_file_exports: List[LocalImageFileExport],
+    *,
     itgs: Itgs,
     gd: GracefulDeath,
+    job_progress_uid: Optional[str] = None,
 ) -> List[UploadedImageFileExport]:
     """Uploads the given local image file exports asynchronously. The resulting list is
     already in the s3_files table.
@@ -801,7 +836,12 @@ async def upload_many_image_targets(
     The returned items will be in the same order as provided, but there may be fewer of
     them if the upload was aborted.
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
     max_concurrent_uploads = 8
+
+    progress_message = (
+        f"uploading image targets, up to {max_concurrent_uploads} at a time"
+    )
 
     local_image_file_exports = sorted(
         local_image_file_exports, key=lambda x: x.file_size, reverse=True
@@ -810,6 +850,12 @@ async def upload_many_image_targets(
     mapped_exports: Dict[int, UploadedImageFileExport] = dict()
     running: Set[asyncio.Task] = set()
     remaining: List[int] = list(range(len(local_image_file_exports)))
+    progress_task = asyncio.create_task(
+        prog.push_progress(
+            progress_message,
+            indicator={"type": "bar", "at": 0, "of": len(local_image_file_exports)},
+        )
+    )
 
     while True:
         while (
@@ -833,6 +879,28 @@ async def upload_many_image_targets(
         for task in done:
             idx, uploaded_image_file_export = task.result()
             mapped_exports[idx] = uploaded_image_file_export
+
+        if progress_task.done():
+            # ignore exceptions, raise on cancellation
+            progress_task.exception()
+
+            progress_task = asyncio.create_task(
+                prog.push_progress(
+                    progress_message,
+                    indicator={
+                        "type": "bar",
+                        "at": len(mapped_exports),
+                        "of": len(local_image_file_exports),
+                    },
+                )
+            )
+
+    try:
+        await progress_task
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
 
     return [
         mapped_exports[idx]
@@ -919,11 +987,23 @@ async def _make_targets(
     *,
     focal_point: Tuple[float, float],
     tmp_folder: str,
+    itgs: Itgs,
     gd: GracefulDeath,
+    job_progress_uid: Optional[str],
 ) -> List[LocalImageFileExport]:
+    prog = ProgressHelper(itgs, job_progress_uid)
     mapped_targets: Dict[int, Optional[LocalImageFileExport]] = dict()
     nprocesses = multiprocessing.cpu_count() // 2
     max_queued_jobs = nprocesses * 2
+
+    prog_message = f"generating image targets in {nprocesses} process{'' if nprocesses == 1 else 'es'}"
+    progress_task = asyncio.create_task(
+        prog.push_progress(
+            prog_message,
+            indicator={"type": "bar", "at": 0, "of": len(targets)},
+        )
+    )
+
     with multiprocessing.Pool(processes=nprocesses) as pool:
         # we use apply_async instead of starmap_async because we want to not queue
         # all the jobs if we're terminated (esp if there are a lot of jobs)
@@ -964,11 +1044,34 @@ async def _make_targets(
             if first_exc is not None:
                 for task in running:
                     task.cancel()
+                progress_task.cancel()
                 raise first_exc
 
             for task in done:
                 idx, local_image_file_export = task.result()
                 mapped_targets[idx] = local_image_file_export
+
+            if progress_task.done():
+                # ignore exceptions, raise on cancellation
+                progress_task.exception()
+
+                progress_task = asyncio.create_task(
+                    prog.push_progress(
+                        prog_message,
+                        indicator={
+                            "type": "bar",
+                            "at": len(mapped_targets),
+                            "of": len(targets),
+                        },
+                    )
+                )
+
+    try:
+        await progress_task
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
 
     return list(v for v in mapped_targets.values() if v is not None)
 
@@ -1274,7 +1377,12 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspec
 
 @contextlib.asynccontextmanager
 async def _rasterize(
-    local_filepath: str, *, max_file_size: int, targets: List[ImageTarget]
+    local_filepath: str,
+    *,
+    itgs: Itgs,
+    max_file_size: int,
+    targets: List[ImageTarget],
+    job_progress_uid: Optional[str] = None,
 ) -> AsyncGenerator[RasterizeResult, None]:
     """Returns the rasterized version of the given file. If it's
     not in a known vector-format, returns the original path and does not delete
@@ -1288,6 +1396,8 @@ async def _rasterize(
         max_file_size (int): The maximum file size of the vectorized version prior
             to rasterization. If the file is larger, we will not attempt to rasterize
         targets (List[ImageTarget]): The targets to rasterize for
+        job_progress_uid (str, None): The uid of the job progress to update, or None for
+            no job progress updates
 
     Yields:
         str: The path to the rasterized version of the file. This path cannot be trusted
@@ -1316,6 +1426,18 @@ async def _rasterize(
     else:
         target_width = round(min_final_height * svg_natural_aspect_ratio.ratio)
         target_height = min_final_height
+
+    jobs = await itgs.jobs()
+    if job_progress_uid is not None:
+        await jobs.push_progress(
+            job_progress_uid,
+            {
+                "type": "progress",
+                "message": f"rasterizing to {target_width}x{target_height} and producing svg thumbhash",
+                "indicator": {"type": "spinner"},
+                "occurred_at": time.time(),
+            },
+        )
 
     loop = asyncio.get_event_loop()
     with temp_file() as rasterized_path, temp_file() as thumbhash_path:

@@ -1,4 +1,5 @@
 """Contains helper functions for working with file uploads"""
+
 import asyncio
 import logging
 import os
@@ -10,6 +11,7 @@ from typing import Dict, Optional, Set, Tuple, cast as typing_cast
 from file_service import AsyncWritableBytesIO
 from graceful_death import GracefulDeath
 from itgs import Itgs
+from lib.progressutils.progress_helper import ProgressHelper
 from log_helpers import format_bps
 from si_prefix import si_format
 
@@ -20,7 +22,13 @@ class StitchFileAbortedException(Exception):
 
 
 async def stitch_file_upload(
-    file_upload_uid: str, out: str, *, itgs: Itgs, gd: GracefulDeath, parallel: int = 10
+    file_upload_uid: str,
+    out: str,
+    *,
+    itgs: Itgs,
+    gd: GracefulDeath,
+    parallel: int = 10,
+    job_progress_uid: Optional[str] = None,
 ) -> None:
     """Stitches the file upload into the target local filepath
 
@@ -32,22 +40,33 @@ async def stitch_file_upload(
         file_upload_uid (str): The uid of the file upload to stitch.
         out (str): The file path to write the stitched file to.
         parallel (int): The maximum number of concurrent file downloads
+        job_progress_uid (Optional[str]): The uid of the job progress to update
 
     Raises:
         ValueError: If no such file upload exists.
         StitchFileAbortedException: if a term signal is received before we're done
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
+    await prog.push_progress(f"preparing to stitch file with {parallel} workers")
     started_stitching_at = time.perf_counter()
-    await _stitch_file_upload(file_upload_uid, out, itgs=itgs, gd=gd, parallel=parallel)
+    await _stitch_file_upload(
+        file_upload_uid, out, itgs=itgs, gd=gd, parallel=parallel, prog=prog
+    )
     stitching_time = time.perf_counter() - started_stitching_at
     file_size = os.path.getsize(out)
-    logging.info(
-        f"stitched a {si_format(file_size, precision=3)}b file in {stitching_time:.3f}s: {format_bps(stitching_time, file_size)}"
-    )
+    msg = f"stitched a {si_format(file_size, precision=3)}b file in {stitching_time:.3f}s: {format_bps(stitching_time, file_size)}"
+    logging.info(msg)
+    await prog.push_progress(msg)
 
 
 async def _stitch_file_upload(
-    file_upload_uid: str, out: str, *, itgs: Itgs, gd: GracefulDeath, parallel: int = 10
+    file_upload_uid: str,
+    out: str,
+    *,
+    itgs: Itgs,
+    gd: GracefulDeath,
+    parallel: int = 10,
+    prog: ProgressHelper,
 ) -> None:
     conn = await itgs.conn()
     cursor = conn.cursor("strong")
@@ -85,6 +104,8 @@ async def _stitch_file_upload(
         # return the part number they downloaded, and the path to the downloaded file,
         # as a tuple
 
+        progress_task: Optional[asyncio.Task] = None
+
         response = await cursor.execute(
             """
             SELECT
@@ -107,6 +128,11 @@ async def _stitch_file_upload(
             raise ValueError("Invalid file upload uid")
 
         last_part_number: int = response.results[0][0]
+        progress_task = asyncio.create_task(
+            prog.push_progress(
+                "stitching", indicator={"type": "bar", "at": 0, "of": last_part_number}
+            )
+        )
 
         async with aiofiles.open(out, "wb") as out_stream:
             while (
@@ -120,6 +146,7 @@ async def _stitch_file_upload(
                             for t in [
                                 get_s3_keys_task,
                                 upload_part_task,
+                                progress_task,
                                 *download_part_tasks,
                             ]
                             if t is not None
@@ -202,6 +229,18 @@ async def _stitch_file_upload(
                     get_s3_keys_task = None
 
                 if upload_part_task in done:
+                    if progress_task is None or progress_task.done():
+                        progress_task = asyncio.create_task(
+                            prog.push_progress(
+                                "stitching",
+                                indicator={
+                                    "type": "bar",
+                                    "at": next_write_part_number - 1,
+                                    "of": last_part_number,
+                                },
+                            )
+                        )
+
                     upload_part_task = None
 
                 for task in done:
@@ -209,6 +248,9 @@ async def _stitch_file_upload(
                         part_number, path = task.result()
                         ready_parts[part_number] = path
                         download_part_tasks.remove(task)
+
+        if progress_task is not None:
+            await progress_task
     finally:
         shutil.rmtree(tmp_folder)
 
