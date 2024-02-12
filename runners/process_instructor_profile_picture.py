@@ -89,7 +89,7 @@ async def process_instructor_profile_picture(
     stitched_path: str,
     uploaded_by_user_sub: Optional[str],
     instructor_uid: str,
-    job_progress_uid: str,
+    job_progress_uid: Optional[str],
 ) -> None:
     """Processes the instructor profile picture available at the given local path,
     uploading it for the instructor with the given uid.

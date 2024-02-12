@@ -16,6 +16,7 @@ from graceful_death import GracefulDeath
 from images import determine_crop
 from itgs import Itgs
 from lib.codecs import determine_codecs_from_probe
+from lib.progressutils.progress_helper import ProgressHelper
 from m3u8 import M3UPlaylist, M3UVod, M3UVodReference, parse_m3u_vod
 from temp_files import temp_dir
 from audio import (
@@ -80,6 +81,7 @@ async def process_video(
     max_file_size: int,
     name_hint: str,
     exports: Sequence[VideoQuality],
+    job_progress_uid: Optional[str] = None,
 ) -> ContentFile:
     """Performs our standard video processing on the video at the given
     local filepath, then uploads it to S3 and stores it in our database
@@ -97,6 +99,8 @@ async def process_video(
         max_file_size (int): The maximum size of the content file, in bytes.
         name_hint (str): A hint for the name of the content file.
         exports (List[VideoQuality]): The qualities to encode at.
+        job_progress_uid (str or None, optional): The job progress uid to
+            update as the job progresses. Defaults to None.
 
     Raises:
         ProcessVideoAbortedException: if the process was aborted but it'll
@@ -124,6 +128,7 @@ async def process_video(
             exports=exports,
             ffmpeg=ffmpeg,
             ffprobe=ffprobe,
+            job_progress_uid=job_progress_uid,
         )
 
 
@@ -137,6 +142,7 @@ async def process_video_into(
     exports: Sequence[VideoQuality],
     ffmpeg: str,
     ffprobe: str,
+    job_progress_uid: Optional[str],
 ) -> ContentFile:
     """Processes the video file at the given local filepath into the standard
     exports, using the specified temporary folder. The produced content file is
@@ -159,13 +165,18 @@ async def process_video_into(
         exports (List[VideoQuality]): The qualities to encode at.
         ffmpeg (str): The path to the ffmpeg executable.
         ffprobe (str): The path to the ffprobe executable.
+        job_progress_uid (str or None, optional): The job progress uid to
+            update as the job progresses. Defaults to None.
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
+
     mp4_folder = os.path.join(temp_folder, "mp4")
     os.makedirs(mp4_folder, exist_ok=True)
 
     hls_folder = os.path.join(temp_folder, "hls")
     os.makedirs(hls_folder, exist_ok=True)
 
+    await prog.push_progress(f"hashing {name}", indicator={"type": "spinner"})
     original_sha512 = hash_content_sync(local_filepath)
 
     mp4s: List[Tuple[str, BasicContentFilePartInfo]] = []
@@ -174,6 +185,10 @@ async def process_video_into(
         iden = f"{export.width}x{export.height}-{export.video_bitrate}-{export.audio_bitrate}-{secrets.token_hex(8)}"
 
         mp4_path = os.path.join(mp4_folder, f"{iden}.mp4")
+        await prog.push_progress(
+            f"encoding {name} to an mp4 at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
+            indicator={"type": "spinner"},
+        )
         mp4s.append(
             (mp4_path, _encode_video(local_filepath, mp4_path, export, ffmpeg, ffprobe))
         )
@@ -183,6 +198,10 @@ async def process_video_into(
         export_hls_folder = os.path.join(hls_folder, iden)
         os.makedirs(export_hls_folder, exist_ok=True)
         export_hls_m3u8 = os.path.join(export_hls_folder, "playlist.m3u8")
+        await prog.push_progress(
+            f"encoding {name} to an hls vod at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
+            indicator={"type": "spinner"},
+        )
         _encode_hls_video(mp4_path, export_hls_m3u8, ffmpeg, ffprobe)
         if gd.received_term_signal:
             raise ProcessVideoAbortedException()
@@ -193,6 +212,7 @@ async def process_video_into(
 
         hls.append((export_hls_m3u8, hls_vod))
 
+    await prog.push_progress(f"Creating master playlist for {name}")
     master_playlist_filepath = os.path.join(hls_folder, "master.m3u8")
     master_playlist = _create_master_playlist(hls, master_playlist_filepath, ffprobe)
 
@@ -309,12 +329,17 @@ async def process_video_into(
         prepared,
         itgs=itgs,
         gd=gd,
+        name_hint=name,
+        job_progress_uid=job_progress_uid,
     )
-    return await _upsert_prepared(
+    await prog.push_progress(f"Upserting {name} into the database")
+    res = await _upsert_prepared(
         prepared,
         itgs=itgs,
         gd=gd,
     )
+    await prog.push_progress(f"Finished processing {name}")
+    return res
 
 
 def _determine_video_filters_for_sizing(
@@ -826,6 +851,7 @@ if __name__ == "__main__":
                     exports=[*INSTAGRAM_VERTICAL, *DESKTOP_LANDSCAPE],
                     ffmpeg=cast(str, shutil.which("ffmpeg")),
                     ffprobe=cast(str, shutil.which("ffprobe")),
+                    job_progress_uid=None,
                 )
 
     asyncio.run(main())

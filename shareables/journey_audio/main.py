@@ -1,8 +1,10 @@
 """Entry point for testing this pipeline"""
 
 import argparse
+import asyncio
 import logging
 from typing import Optional
+from itgs import Itgs
 from shareables.journey_audio.p01_crop_and_normalize import crop_and_normalize
 import os
 import scipy.fft
@@ -13,8 +15,9 @@ from shareables.journey_audio.p03_sliding_window_repeated_fft import (
 )
 from shareables.journey_audio.p04_partition_frequency import partition_frequency
 from shareables.journey_audio.p05_bin_frames import bin_frames
-from shareables.journey_audio.p06_render_video import render_video
-from shareables.journey_audio.p07_add_audio import add_audio
+from shareables.journey_audio.p06_transcript import create_transcript
+from shareables.journey_audio.p07_render_video import render_video
+from shareables.journey_audio.p08_add_audio import add_audio
 from dataclasses import dataclass
 
 
@@ -58,7 +61,9 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG)
 
-    run_pipeline(args.source, args.bknd, args.title, args.instructor, args.duration)
+    asyncio.run(
+        run_pipeline(args.source, args.bknd, args.title, args.instructor, args.duration)
+    )
 
 
 @dataclass
@@ -67,7 +72,7 @@ class RunPipelineResult:
     """Where the output file was written to"""
 
 
-def run_pipeline(
+async def run_pipeline(
     source: str,
     background_image_path: str,
     title: str,
@@ -142,6 +147,9 @@ def run_pipeline(
         f"Audio visualization: {audio_visualization.shape=}, {audio_visualization.dtype=}, {audio_visualization.min()=}, {audio_visualization.max()=}, {audio_visualization.mean()=}"
     )
 
+    async with Itgs() as itgs:
+        transcript = await create_transcript(itgs, source, instructor=instructor)
+
     video_only_path = os.path.join(dest_folder, "video_only.mp4")
     if os.path.exists(video_only_path):
         logging.debug("Removing old video_only.mp4")
@@ -156,6 +164,7 @@ def run_pipeline(
         framerate=60,
         width=1080,
         height=1920,
+        transcript=transcript,
     )
     logging.debug("Done rendering video without audio")
 

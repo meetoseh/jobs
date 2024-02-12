@@ -1,5 +1,6 @@
-from typing import List, Literal, Tuple, TypedDict
+from typing import List, Literal, Tuple
 from dataclasses import dataclass
+from typing_extensions import TypedDict
 
 
 @dataclass
@@ -154,6 +155,20 @@ class Transcript:
     @classmethod
     def from_dict(cls, raw: dict):
         return cls(phrases=[(TimeRange.from_dict(p[0]), p[1]) for p in raw["phrases"]])
+
+    def find_phrases_at_time(
+        self, time: float, *, margin_early: float = 0, margin_late: float = 0
+    ) -> List[int]:
+        """Returns the indices of phrases that are being said at the given time in
+        seconds, in the same order they are in the transcript.
+        """
+        result: List[int] = []
+        for idx, (tr, text) in enumerate(self.phrases):
+            if tr.start.in_seconds() - margin_early > time:
+                break
+            if tr.end.in_seconds() + margin_late >= time:
+                result.append(idx)
+        return result
 
 
 def parse_vtt_transcript(raw: str) -> Transcript:

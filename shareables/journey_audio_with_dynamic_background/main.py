@@ -15,7 +15,7 @@ from shareables.journey_audio.p03_sliding_window_repeated_fft import (
 )
 from shareables.journey_audio.p04_partition_frequency import partition_frequency
 from shareables.journey_audio.p05_bin_frames import bin_frames
-from shareables.journey_audio_with_dynamic_background.p06_transcript import (
+from shareables.journey_audio.p06_transcript import (
     create_transcript,
 )
 from shareables.journey_audio_with_dynamic_background.p07_image_descriptions import (
@@ -25,7 +25,7 @@ from shareables.journey_audio_with_dynamic_background.p08_images import create_i
 from shareables.journey_audio_with_dynamic_background.p09_render_video import (
     render_video,
 )
-from shareables.journey_audio.p07_add_audio import add_audio
+from shareables.journey_audio.p08_add_audio import add_audio
 from dataclasses import dataclass
 
 

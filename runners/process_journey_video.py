@@ -178,7 +178,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         )
         started_at = time.time()
         with temp_dir() as destination_dir:
-            result = shareables.journey_audio.main.run_pipeline(
+            result = await shareables.journey_audio.main.run_pipeline(
                 audio_source_path,
                 background_source_path,
                 journey_title,

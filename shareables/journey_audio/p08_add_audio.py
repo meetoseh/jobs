@@ -1,11 +1,15 @@
 """Adds the audio to the video"""
+
 import logging
 import shutil
 import subprocess
 import json
 from typing import Optional
 
-from shareables.journey_audio.settings import standard_audio_fade
+from shareables.journey_audio.settings import (
+    standard_audio_fade,
+    TITLE_PAUSE_TIME_SECONDS,
+)
 
 
 def add_audio(
@@ -33,10 +37,16 @@ def add_audio(
         "-loglevel",
         "warning",
         "-nostats",
-        *(["-t", str(duration)] if duration is not None else []),
+        *(
+            ["-t", str(duration + TITLE_PAUSE_TIME_SECONDS)]
+            if duration is not None
+            else []
+        ),
         "-i",
         video_path,
         *(["-t", str(duration)] if duration is not None else []),
+        "-itsoffset",
+        str(TITLE_PAUSE_TIME_SECONDS),
         "-i",
         audio_path,
         "-c:v",

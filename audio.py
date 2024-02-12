@@ -1,6 +1,5 @@
 """Module for producing content files that contain audio content, using ffmpeg"""
 
-
 import logging
 import logging.config
 import math
@@ -30,6 +29,7 @@ import asyncio
 import json
 import time
 from lib.codecs import determine_codecs_from_probe
+from lib.progressutils.progress_helper import ProgressHelper
 
 from m3u8 import (
     M3UContent,
@@ -183,6 +183,7 @@ async def process_audio(
     gd: GracefulDeath,
     max_file_size: int,
     name_hint: str,
+    job_progress_uid: Optional[str] = None,
 ) -> ContentFile:
     """Processes the audio file at the given local filepath into the standard exports,
     then returns the content file that contains the exports.
@@ -198,6 +199,7 @@ async def process_audio(
         gd (GracefulDeath): the signal tracker
         max_file_size (int): The maximum size of the content file, in bytes.
         name_hint (str): A hint for the name of the content file.
+        job_progress_uid (Optional[str]): The uid of the job progress to update
 
     Raises:
         ProcessAudioAbortedException: if the process was aborted due to a term signal.
@@ -205,6 +207,11 @@ async def process_audio(
     """
     ffmpeg = shutil.which("ffmpeg")
     assert ffmpeg is not None, "ffmpeg not found"
+
+    prog = ProgressHelper(itgs, job_progress_uid=job_progress_uid)
+    await prog.push_progress(
+        f"initailizing audio processing for {name_hint}", indicator={"type": "spinner"}
+    )
 
     file_size = os.path.getsize(local_filepath)
     if file_size > max_file_size:
@@ -222,8 +229,13 @@ async def process_audio(
             temp_folder=temp_folder,
             name=name,
             ffmpeg=ffmpeg,
+            job_progress_uid=job_progress_uid,
         )
     finally:
+        await prog.push_progress(
+            f"cleaning up temporary files after processing {name_hint}",
+            indicator={"type": "spinner"},
+        )
         shutil.rmtree(temp_folder)
 
 
@@ -235,6 +247,7 @@ async def process_audio_into(
     temp_folder: str,
     name: str,
     ffmpeg: str,
+    job_progress_uid: Optional[str],
 ) -> ContentFile:
     """Processes the audio file at the given local filepath into the standard
     exports, using the specified temporary folder. The produced content file is
@@ -255,7 +268,9 @@ async def process_audio_into(
             cleaned up.
         name (str): The name of the content file to produce.
         ffmpeg (str): The path to the ffmpeg executable.
+        job_progress_uid (Optional[str]): The uid of the job progress to update
     """
+    prog = ProgressHelper(itgs, job_progress_uid=job_progress_uid)
     mp4_folder = os.path.join(temp_folder, "mp4")
     os.makedirs(mp4_folder, exist_ok=True)
     mp4_bitrates_to_local_files: Dict[int, str] = dict()
@@ -270,6 +285,10 @@ async def process_audio_into(
 
             target_filepath = os.path.join(mp4_folder, f"{bitrate}.mp4")
             mp4_bitrates_to_local_files[bitrate] = target_filepath
+            await prog.push_progress(
+                f"processing {name} into audio-only mp4 at {bitrate} kbps",
+                indicator={"type": "spinner"},
+            )
             await produce_mp4_async(
                 local_filepath,
                 target_filepath,
@@ -284,13 +303,25 @@ async def process_audio_into(
             raise ProcessAudioAbortedException()
 
         os.makedirs(os.path.join(temp_folder, "hls"), exist_ok=True)
+        await prog.push_progress(
+            f"producing {len(AUDIO_BITRATES)} hls vods for {name} concurrently",
+            indicator={"type": "spinner"},
+        )
         hls_master_file_path = await produce_m3u8_async(
-            local_filepath, os.path.join(temp_folder, "hls"), ffmpeg=ffmpeg, pool=pool
+            local_filepath,
+            os.path.join(temp_folder, "hls"),
+            ffmpeg=ffmpeg,
+            pool=pool,
+            job_progress_uid=job_progress_uid,
         )
         if gd.received_term_signal:
             raise ProcessAudioAbortedException()
 
+        await prog.push_progress(f"parsing hls master file of {name}")
         master_m3u = await parse_m3u_playlist(hls_master_file_path)
+        await prog.push_progress(
+            f"hashing original file for {name}", indicator={"type": "spinner"}
+        )
         original_sha512 = await original_sha512_task
 
     now = time.time()
@@ -386,9 +417,7 @@ async def process_audio_into(
     )
 
     await _upload_all(
-        prepared,
-        itgs=itgs,
-        gd=gd,
+        prepared, itgs=itgs, gd=gd, name_hint=name, job_progress_uid=job_progress_uid
     )
     return await _upsert_prepared(
         prepared,
@@ -402,11 +431,15 @@ async def _upload_all(
     *,
     itgs: Itgs,
     gd: GracefulDeath,
+    name_hint: str,
     parallelism: int = 8,
+    job_progress_uid: Optional[str] = None,
 ) -> None:
     """Performs all the necessary file uploads to s3, marking all of the files in
     files:purgatory
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
+
     remaining: List[Tuple[str, S3File]] = [
         (prepared.original_filepath, prepared.original),
         *[(mp4.local_filepath, mp4.export.parts[0].s3_file) for mp4 in prepared.mp4s],
@@ -426,9 +459,22 @@ async def _upload_all(
         ),
     ]
 
+    num_targets = len(remaining)
     logging.debug(
-        f"Uploading {len(remaining)} files to s3, with up to {parallelism} at a time"
+        f"Uploading {num_targets} files to s3, with up to {parallelism} at a time"
     )
+    progress_message = (
+        f"uploading audio targets for {name_hint}, up to {parallelism} at a time"
+    )
+    progress_task = asyncio.create_task(
+        prog.push_progress(
+            progress_message,
+            indicator={"type": "bar", "at": 0, "of": num_targets},
+        )
+    )
+
+    num_finished = 0
+
     pending: Set[asyncio.Task] = set()
     errored: Set[asyncio.Task] = set()
     while remaining or pending:
@@ -453,6 +499,23 @@ async def _upload_all(
                 errored.add(task)
             else:
                 await task
+
+        num_finished += len(done)
+
+        if progress_task.done():
+            # ignore exceptions, raise on cancellation
+            progress_task.exception()
+
+            progress_task = asyncio.create_task(
+                prog.push_progress(
+                    progress_message,
+                    indicator={
+                        "type": "bar",
+                        "at": num_finished,
+                        "of": num_targets,
+                    },
+                )
+            )
 
         logging.debug(
             f"{len(done)} tasks completed, {len(pending)} uploads still pending ({len(errored)} errored so far)"
@@ -967,6 +1030,7 @@ def produce_m3u8(
         target_folder (str): The folder where the output should be stored; must already
             exist and be empty.
         ffmpeg (str): The path to the ffmpeg executable.
+        job_progress_uid (Optional[str]): The uid of the job progress to update
 
     Returns:
         str: The path to the primary m3u8 file that was produced.
@@ -1029,6 +1093,7 @@ async def produce_m3u8_async(
     *,
     ffmpeg: str,
     pool: multiprocessing.pool.Pool,
+    job_progress_uid: Optional[str],
 ) -> str:
     """Async version of produce_m3u8, using the given multiprocessing pool to
     produce the m3u8 file.

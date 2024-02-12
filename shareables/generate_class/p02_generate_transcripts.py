@@ -3,7 +3,7 @@ from typing import List
 from graceful_death import GracefulDeath
 from itgs import Itgs
 from shareables.generate_class.p01_select_classes import InputJourney, SelectedJourneys
-from shareables.journey_audio_with_dynamic_background.p06_transcript import (
+from shareables.journey_audio.p06_transcript import (
     create_transcript,
 )
 from lib.transcripts.model import Transcript

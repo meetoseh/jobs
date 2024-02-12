@@ -1,4 +1,5 @@
 """a very simple job"""
+
 import dataclasses
 import json
 import os
@@ -126,6 +127,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, only_in_env: Optional[str] =
                 stitched_path=picture_file_loc,
                 uploaded_by_user_sub=None,
                 instructor_uid=instructor_uid,
+                job_progress_uid=None,
             )
 
         instructor_created_at = time.time()
