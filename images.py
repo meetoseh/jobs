@@ -137,6 +137,8 @@ class RasterizeResult:
     """the svg, if an svg was rasterized, otherwise none"""
     rasterized_path: str
     """the path to where we think a rasterized version of the image can be found"""
+    name_hint: str
+    """a hint for the name of the image file, for better logging/progress updates"""
 
 
 class ProcessImageException(Exception):
@@ -225,6 +227,7 @@ async def process_image(
         max_file_size=min(max_file_size, 1024 * 1024),
         targets=targets,
         job_progress_uid=job_progress_uid,
+        name_hint=name_hint,
     ) as source:
         if source.svg is not None:
             _sanity_check_svg(source.svg.path, max_file_size)
@@ -295,7 +298,7 @@ async def _add_missing_targets(
     cursor = conn.cursor("weak")
 
     await prog.push_progress(
-        "determining existing targets", indicator={"type": "spinner"}
+        f"determining existing targets for {source.name_hint}", indicator={"type": "spinner"}
     )
     image_file = await get_image_file(uid=uid, itgs=itgs)
     if image_file is None:
@@ -334,7 +337,7 @@ async def _add_missing_targets(
     ]
 
     if not svg_export_required and not missing_targets:
-        await prog.push_progress("determined no missing targets")
+        await prog.push_progress(f"determined no missing targets for {source.name_hint}")
         return image_file
 
     if gd.received_term_signal:
@@ -352,6 +355,7 @@ async def _add_missing_targets(
                 itgs=itgs,
                 gd=gd,
                 job_progress_uid=job_progress_uid,
+                name_hint=source.name_hint,
             )
             if gd.received_term_signal:
                 raise ProcessImageAbortedException("Received term signal")
@@ -376,6 +380,7 @@ async def _add_missing_targets(
             itgs=itgs,
             gd=gd,
             job_progress_uid=job_progress_uid,
+            name_hint=source.name_hint
         )
         if gd.received_term_signal:
             await _delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
@@ -438,9 +443,9 @@ async def _add_missing_targets(
                 )
             )
 
-        await prog.push_progress("cleaning up", indicator={"type": "spinner"})
+        await prog.push_progress(f"cleaning up {source.name_hint}", indicator={"type": "spinner"})
         await _delete_s3_files(to_delete, itgs=itgs)
-        await prog.push_progress("cleaned up")
+        await prog.push_progress(f"cleaned up {source.name_hint}")
         return image_file
 
 
@@ -588,6 +593,7 @@ async def _make_new_image(
                 itgs=itgs,
                 gd=gd,
                 job_progress_uid=job_progress_uid,
+                name_hint=source.name_hint,
             ),
             _upload_original(
                 source.rasterized_path if source.svg is None else source.svg.path,
@@ -620,6 +626,7 @@ async def _make_new_image(
             itgs=itgs,
             gd=gd,
             job_progress_uid=job_progress_uid,
+            name_hint=source.name_hint,
         )
         if gd.received_term_signal:
             await _delete_s3_files(
@@ -632,7 +639,7 @@ async def _make_new_image(
         cursor = conn.cursor()
 
         await prog.push_progress(
-            "inserting into database", indicator={"type": "spinner"}
+            f"inserting {source.name_hint} into database", indicator={"type": "spinner"}
         )
         response = await cursor.executemany3(
             (
@@ -829,6 +836,7 @@ async def upload_many_image_targets(
     itgs: Itgs,
     gd: GracefulDeath,
     job_progress_uid: Optional[str] = None,
+    name_hint: str
 ) -> List[UploadedImageFileExport]:
     """Uploads the given local image file exports asynchronously. The resulting list is
     already in the s3_files table.
@@ -840,7 +848,7 @@ async def upload_many_image_targets(
     max_concurrent_uploads = 8
 
     progress_message = (
-        f"uploading image targets, up to {max_concurrent_uploads} at a time"
+        f"uploading image targets for {name_hint}, up to {max_concurrent_uploads} at a time"
     )
 
     local_image_file_exports = sorted(
@@ -990,13 +998,14 @@ async def _make_targets(
     itgs: Itgs,
     gd: GracefulDeath,
     job_progress_uid: Optional[str],
+    name_hint: str,
 ) -> List[LocalImageFileExport]:
     prog = ProgressHelper(itgs, job_progress_uid)
     mapped_targets: Dict[int, Optional[LocalImageFileExport]] = dict()
     nprocesses = multiprocessing.cpu_count() // 2
     max_queued_jobs = nprocesses * 2
 
-    prog_message = f"generating image targets in {nprocesses} process{'' if nprocesses == 1 else 'es'}"
+    prog_message = f"generating {len(targets)} image target{'' if len(targets) == 1 else 's'} for {name_hint} in {nprocesses} process{'' if nprocesses == 1 else 'es'}"
     progress_task = asyncio.create_task(
         prog.push_progress(
             prog_message,
@@ -1382,6 +1391,7 @@ async def _rasterize(
     itgs: Itgs,
     max_file_size: int,
     targets: List[ImageTarget],
+    name_hint: str,
     job_progress_uid: Optional[str] = None,
 ) -> AsyncGenerator[RasterizeResult, None]:
     """Returns the rasterized version of the given file. If it's
@@ -1396,6 +1406,7 @@ async def _rasterize(
         max_file_size (int): The maximum file size of the vectorized version prior
             to rasterization. If the file is larger, we will not attempt to rasterize
         targets (List[ImageTarget]): The targets to rasterize for
+        name_hint (str): A hint for the name of the file, used for logging
         job_progress_uid (str, None): The uid of the job progress to update, or None for
             no job progress updates
 
@@ -1403,14 +1414,24 @@ async def _rasterize(
         str: The path to the rasterized version of the file. This path cannot be trusted
             without further validation.
     """
+    prog = ProgressHelper(itgs, job_progress_uid)
+    await prog.push_progress(
+        f"initializing processing for {name_hint}",
+        indicator={"type": "spinner"},
+    )
+
     file_size = os.path.getsize(local_filepath)
     if file_size > max_file_size:
-        yield RasterizeResult(svg=None, rasterized_path=local_filepath)
+        yield RasterizeResult(
+            svg=None, rasterized_path=local_filepath, name_hint=name_hint
+        )
         return
 
     svg_natural_aspect_ratio = await get_svg_natural_aspect_ratio(local_filepath)
     if svg_natural_aspect_ratio is None:
-        yield RasterizeResult(svg=None, rasterized_path=local_filepath)
+        yield RasterizeResult(
+            svg=None, rasterized_path=local_filepath, name_hint=name_hint
+        )
         return
 
     min_final_width = max(target.width for target in targets)
@@ -1427,17 +1448,10 @@ async def _rasterize(
         target_width = round(min_final_height * svg_natural_aspect_ratio.ratio)
         target_height = min_final_height
 
-    jobs = await itgs.jobs()
-    if job_progress_uid is not None:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "progress",
-                "message": f"rasterizing to {target_width}x{target_height} and producing svg thumbhash",
-                "indicator": {"type": "spinner"},
-                "occurred_at": time.time(),
-            },
-        )
+    await prog.push_progress(
+        f"rasterizing {name_hint} to {target_width}x{target_height} and producing svg thumbhash",
+        indicator={"type": "spinner"},
+    )
 
     loop = asyncio.get_event_loop()
     with temp_file() as rasterized_path, temp_file() as thumbhash_path:
@@ -1496,10 +1510,11 @@ async def _rasterize(
                     thumbhash=thumbhash,
                 ),
                 rasterized_path=rasterized_path,
+                name_hint=name_hint,
             )
             return
 
-    yield RasterizeResult(svg=None, rasterized_path=local_filepath)
+    yield RasterizeResult(svg=None, rasterized_path=local_filepath, name_hint=name_hint)
 
 
 def _sanity_check_image(

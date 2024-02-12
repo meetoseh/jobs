@@ -261,7 +261,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             logging.info(f"{__name__} not uploading (term signal received, bouncing)")
             return await bounce()
 
-        uploaded = await upload_many_image_targets(finished, itgs=itgs, gd=gd)
+        uploaded = await upload_many_image_targets(
+            finished, itgs=itgs, gd=gd, name_hint="journey_share_image"
+        )
         logging.debug(f"{__name__} - all targets have been uploaded; inserting")
 
         exports_sql_writer = io.StringIO()

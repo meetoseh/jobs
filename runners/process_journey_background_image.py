@@ -1,4 +1,5 @@
 """Processes a raw image intended to be used as a journey background image"""
+
 import os
 import secrets
 import time
@@ -7,6 +8,10 @@ from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from images import process_image, ImageTarget, ProcessImageAbortedException
+from lib.progressutils.success_or_failure_reporter import (
+    BouncedException,
+    success_or_failure_reporter,
+)
 from temp_files import temp_file
 from PIL import Image, ImageFilter, ImageEnhance
 import threading
@@ -163,7 +168,12 @@ TARGETS = make_standard_targets(RESOLUTIONS)
 
 
 async def execute(
-    itgs: Itgs, gd: GracefulDeath, *, file_upload_uid: str, uploaded_by_user_sub: str
+    itgs: Itgs,
+    gd: GracefulDeath,
+    *,
+    file_upload_uid: str,
+    uploaded_by_user_sub: str,
+    job_progress_uid: str,
 ):
     """Processes the s3 file upload with the given uid as a journey background image.
 
@@ -172,6 +182,7 @@ async def execute(
         gd (GracefulDeath): the signal tracker; provided automatically
         file_upload_uid (str): used to indicate which file to process.
         uploaded_by_user_sub (str): The sub of the user who uploaded the file
+        job_progress_uid (str): the uid of the job progress to update
     """
 
     async def bounce():
@@ -180,120 +191,139 @@ async def execute(
             "runners.process_journey_background_image",
             file_upload_uid=file_upload_uid,
             uploaded_by_user_sub=uploaded_by_user_sub,
+            job_progress_uid=job_progress_uid,
         )
 
-    with temp_file() as stitched_path, temp_file() as blurred_path, temp_file() as darkened_path:
-        try:
-            await stitch_file_upload(file_upload_uid, stitched_path, itgs=itgs, gd=gd)
-        except StitchFileAbortedException:
-            return await bounce()
+    async with success_or_failure_reporter(itgs, job_progress_uid=job_progress_uid):
+        with temp_file() as stitched_path, temp_file() as blurred_path, temp_file() as darkened_path:
+            try:
+                await stitch_file_upload(
+                    file_upload_uid,
+                    stitched_path,
+                    itgs=itgs,
+                    gd=gd,
+                    job_progress_uid=job_progress_uid,
+                )
+            except StitchFileAbortedException:
+                await bounce()
+                raise BouncedException()
 
-        try:
-            image = await process_image(
-                stitched_path,
-                TARGETS,
-                itgs=itgs,
-                gd=gd,
-                max_width=16384,
-                max_height=16384,
-                max_area=8192 * 8192,
-                max_file_size=1024 * 1024 * 512,
-                name_hint="journey_background_image",
+            try:
+                image = await process_image(
+                    stitched_path,
+                    TARGETS,
+                    itgs=itgs,
+                    gd=gd,
+                    max_width=16384,
+                    max_height=16384,
+                    max_area=8192 * 8192,
+                    max_file_size=1024 * 1024 * 512,
+                    name_hint="journey_background_image",
+                    job_progress_uid=job_progress_uid,
+                )
+            except ProcessImageAbortedException:
+                await bounce()
+                raise BouncedException()
+
+            # by blurring second we know the image meets requirements
+            try:
+                await blur_image(stitched_path, blurred_path)
+            except ProcessImageAbortedException:
+                await bounce()
+                raise BouncedException()
+
+            try:
+                blurred_image = await process_image(
+                    blurred_path,
+                    TARGETS,
+                    itgs=itgs,
+                    gd=gd,
+                    max_width=16384,
+                    max_height=16384,
+                    max_area=16384 * 16384,
+                    max_file_size=1024 * 1024 * 512,
+                    name_hint="blurred_journey_background_image",
+                    job_progress_uid=job_progress_uid,
+                )
+            except ProcessImageAbortedException:
+                await bounce()
+                raise BouncedException()
+
+            try:
+                await darken_image(stitched_path, darkened_path)
+            except ProcessImageAbortedException:
+                await bounce()
+                raise BouncedException()
+
+            try:
+                darkened_image = await process_image(
+                    darkened_path,
+                    TARGETS,
+                    itgs=itgs,
+                    gd=gd,
+                    max_width=16384,
+                    max_height=16384,
+                    max_area=16384 * 16384,
+                    max_file_size=1024 * 1024 * 512,
+                    name_hint="darkened_journey_background_image",
+                    job_progress_uid=job_progress_uid,
+                )
+            except ProcessImageAbortedException:
+                await bounce()
+                raise BouncedException()
+
+        conn = await itgs.conn()
+        cursor = conn.cursor()
+
+        jbi_uid = f"oseh_jbi_{secrets.token_urlsafe(16)}"
+        last_uploaded_at = time.time()
+        await cursor.execute(
+            """
+            INSERT INTO journey_background_images (
+                uid,
+                image_file_id,
+                blurred_image_file_id,
+                darkened_image_file_id,
+                uploaded_by_user_id,
+                last_uploaded_at
             )
-        except ProcessImageAbortedException:
-            return await bounce()
-
-        # by blurring second we know the image meets requirements
-        try:
-            await blur_image(stitched_path, blurred_path)
-        except ProcessImageAbortedException:
-            return await bounce()
-
-        try:
-            blurred_image = await process_image(
-                blurred_path,
-                TARGETS,
-                itgs=itgs,
-                gd=gd,
-                max_width=16384,
-                max_height=16384,
-                max_area=16384 * 16384,
-                max_file_size=1024 * 1024 * 512,
-                name_hint="blurred_journey_background_image",
-            )
-        except ProcessImageAbortedException:
-            return await bounce()
-
-        try:
-            await darken_image(stitched_path, darkened_path)
-        except ProcessImageAbortedException:
-            return await bounce()
-
-        try:
-            darkened_image = await process_image(
-                darkened_path,
-                TARGETS,
-                itgs=itgs,
-                gd=gd,
-                max_width=16384,
-                max_height=16384,
-                max_area=16384 * 16384,
-                max_file_size=1024 * 1024 * 512,
-                name_hint="darkened_journey_background_image",
-            )
-        except ProcessImageAbortedException:
-            return await bounce()
-
-    conn = await itgs.conn()
-    cursor = conn.cursor()
-
-    jbi_uid = f"oseh_jbi_{secrets.token_urlsafe(16)}"
-    last_uploaded_at = time.time()
-    await cursor.execute(
-        """
-        INSERT INTO journey_background_images (
-            uid,
-            image_file_id,
-            blurred_image_file_id,
-            darkened_image_file_id,
-            uploaded_by_user_id,
-            last_uploaded_at
+            SELECT
+                ?,
+                image_files.id,
+                blurred_image_files.id,
+                darkened_image_files.id,
+                users.id,
+                ?
+            FROM image_files
+            JOIN image_files AS blurred_image_files ON blurred_image_files.uid = ?
+            JOIN image_files AS darkened_image_files ON darkened_image_files.uid = ?
+            LEFT OUTER JOIN users ON users.sub = ?
+            WHERE
+                image_files.uid = ?
+            ON CONFLICT (image_file_id)
+            DO UPDATE SET last_uploaded_at = ?
+            ON CONFLICT (blurred_image_file_id)
+            DO UPDATE SET last_uploaded_at = ?
+            ON CONFLICT (darkened_image_file_id)
+            DO UPDATE SET last_uploaded_at = ?
+            """,
+            (
+                jbi_uid,
+                last_uploaded_at,
+                blurred_image.uid,
+                darkened_image.uid,
+                uploaded_by_user_sub,
+                image.uid,
+                last_uploaded_at,
+                last_uploaded_at,
+                last_uploaded_at,
+            ),
         )
-        SELECT
-            ?,
-            image_files.id,
-            blurred_image_files.id,
-            darkened_image_files.id,
-            users.id,
-            ?
-        FROM image_files
-        JOIN image_files AS blurred_image_files ON blurred_image_files.uid = ?
-        JOIN image_files AS darkened_image_files ON darkened_image_files.uid = ?
-        LEFT OUTER JOIN users ON users.sub = ?
-        WHERE
-            image_files.uid = ?
-        ON CONFLICT (image_file_id)
-        DO UPDATE SET last_uploaded_at = ?
-        ON CONFLICT (blurred_image_file_id)
-        DO UPDATE SET last_uploaded_at = ?
-        ON CONFLICT (darkened_image_file_id)
-        DO UPDATE SET last_uploaded_at = ?
-        """,
-        (
-            jbi_uid,
-            last_uploaded_at,
-            blurred_image.uid,
-            darkened_image.uid,
-            uploaded_by_user_sub,
-            image.uid,
-            last_uploaded_at,
-            last_uploaded_at,
-            last_uploaded_at,
-        ),
-    )
 
-    jobs = await itgs.jobs()
-    await jobs.enqueue("runners.delete_file_upload", file_upload_uid=file_upload_uid)
+        jobs = await itgs.jobs()
+        await jobs.enqueue(
+            "runners.delete_file_upload", file_upload_uid=file_upload_uid
+        )
 
 
 async def blur_image(source_path: str, dest_path: str):
