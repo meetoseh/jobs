@@ -1,5 +1,5 @@
 FADE_TIME = 3
-TITLE_PAUSE_TIME_SECONDS = 3
+TITLE_PAUSE_TIME_SECONDS = 1
 
 
 def standard_audio_fade(duration: int) -> str:
