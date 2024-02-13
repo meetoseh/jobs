@@ -1,4 +1,5 @@
 """Deletes the image file with the given uid"""
+
 from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -88,7 +89,6 @@ async def execute(
                     SELECT 1 FROM courses
                     WHERE
                         courses.background_image_file_id = image_files.id
-                        OR courses.circle_image_file_id = image_files.id
                 )
                 AND NOT EXISTS (
                     SELECT 1 FROM journey_pinterest_pins

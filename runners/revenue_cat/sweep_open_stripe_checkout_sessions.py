@@ -1,6 +1,7 @@
 """Checks open stripe sessions which haven't been checked in a while to see if they
 are complete
 """
+
 import json
 import secrets
 from typing import Optional
@@ -196,8 +197,9 @@ async def get_session_in_executor(
     async_future = loop.create_future()
 
     def callback(fut: ConcFuture):
-        if fut.exception():
-            loop.call_soon_threadsafe(async_future.set_exception, fut.exception())
+        exc = fut.exception()
+        if exc is not None:
+            loop.call_soon_threadsafe(async_future.set_exception, exc)
         else:
             loop.call_soon_threadsafe(async_future.set_result, fut.result())
 
