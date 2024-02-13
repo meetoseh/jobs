@@ -10,12 +10,13 @@ Originally this happened because pythons redis implementation was not smart abou
 cleaning up connections to redis sentinel instances, so the max clients connected
 was happening on the redis sentinels! Talk about a confusing debugging experience.
 """
+
+import os
 from typing import Dict, Literal, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import redis.asyncio
-import random
 import logging
 
 from jobs import JobCategory
@@ -34,15 +35,17 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically
     """
-    sentinel_manager = await itgs.redis_sentinel()
-    for sentinel in sentinel_manager.sentinels:
-        await check_instance_clients(sentinel, "sentinel")
 
-    arbitrary_sentinel = random.choice(sentinel_manager.sentinels)
-    replicas_info = await arbitrary_sentinel.sentinel_slaves("mymaster")
-    for replica_info in replicas_info:
+    redis_ips = os.environ["REDIS_IPS"].split(",")
+    for ip in redis_ips:
         async with redis.asyncio.Redis(
-            host=replica_info["ip"], port=replica_info["port"]
+            host=ip, port=26379, single_connection_client=True
+        ) as sentinel:
+            await check_instance_clients(sentinel, "sentinel")
+
+    for ip in redis_ips:
+        async with redis.asyncio.Redis(
+            host=ip, port=6379, single_connection_client=True
         ) as replica:
             await check_instance_clients(replica, "replica")
 
