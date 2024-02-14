@@ -198,6 +198,10 @@ class Itgs:
                     ):
                         raise ValueError(f"Could not parse {response=}")
 
+                    assert num_other_sentinels >= (
+                        len(redis_ips) // 2
+                    ), f"{num_other_sentinels=}, {len(redis_ips)=}"
+
                     self._redis_main = redis.asyncio.Redis(
                         host=master_ip, port=master_port
                     )
