@@ -9,7 +9,7 @@ import logging
 from jobs import JobCategory
 import time
 
-category = JobCategory.HIGH_RESOURCE_COST
+category = JobCategory.LOW_RESOURCE_COST
 
 MAX_JOB_TIME_SECONDS = 10
 """The maximum duration in seconds this job can run before stopping itself to allow
