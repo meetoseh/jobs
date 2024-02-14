@@ -191,7 +191,6 @@ class JourneyForCourseExport:
 @dataclass
 class CourseForExport:
     title: str
-    title_short: str
     description: str
     background: ImageFileExportRef
     journeys: List[JourneyForCourseExport]
@@ -220,7 +219,6 @@ def write_stable_course_string(course: CourseForExport, f: io.StringIO) -> None:
     """
     print(EXPORTER_VERSION, file=f)
     print(course.title, file=f)
-    print(course.title_short, file=f)
     print(course.description, file=f)
     print(course.background.image_file_uid, file=f)
     print(course.background.base_url, file=f)
@@ -381,7 +379,6 @@ async def get_course(itgs: Itgs, uid: str) -> Optional[CourseForExport]:
         """
         SELECT
             courses.title,
-            courses.title_short,
             courses.description,
             background_images.uid
         FROM courses
@@ -395,10 +392,9 @@ async def get_course(itgs: Itgs, uid: str) -> Optional[CourseForExport]:
 
     course = CourseForExport(
         title=response.results[0][0],
-        title_short=response.results[0][1],
-        description=response.results[0][2],
+        description=response.results[0][1],
         background=await get_biggest_export_ref(
-            itgs, uid=response.results[0][3], max_width=1440, max_height=720
+            itgs, uid=response.results[0][2], max_width=1440, max_height=720
         ),
         journeys=[],
     )
