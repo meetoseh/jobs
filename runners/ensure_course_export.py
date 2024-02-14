@@ -382,7 +382,7 @@ async def get_course(itgs: Itgs, uid: str) -> Optional[CourseForExport]:
             courses.description,
             background_images.uid
         FROM courses
-        JOIN image_files AS background_images ON background_images.id = courses.background_image_file_id
+        JOIN image_files AS background_images ON background_images.id = courses.background_original_image_file_id
         WHERE courses.uid = ?
         """,
         (uid,),

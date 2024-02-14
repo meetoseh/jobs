@@ -1,4 +1,5 @@
 """Deletes a content file that's not in use"""
+
 import json
 from typing import Dict
 from error_middleware import handle_warning
@@ -41,6 +42,18 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
                 SELECT 1 FROM journeys
                 WHERE journeys.audio_content_file_id = content_files.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM journeys
+                WHERE journeys.sample_content_file_id = content_files.id
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM journeys
+                WHERE journeys.video_content_file_id = content_files.id
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM courses
+                WHERE courses.video_content_file_id = content_files.id
+            )
         """,
         (uid,),
     )
@@ -52,7 +65,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
         return
 
     logging.info(
-        f"Deleted content file with {uid=} from database, markign to clean up S3"
+        f"Deleted content file with {uid=} from database, marking to clean up S3"
     )
     redis = await itgs.redis()
 

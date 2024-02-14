@@ -88,7 +88,27 @@ async def execute(
                 AND NOT EXISTS (
                     SELECT 1 FROM courses
                     WHERE
-                        courses.background_image_file_id = image_files.id
+                        courses.background_original_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM courses
+                    WHERE
+                        courses.background_darkened_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM courses
+                    WHERE
+                        courses.video_thumbnail_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM courses
+                    WHERE
+                        courses.logo_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM courses
+                    WHERE
+                        courses.hero_image_file_id = image_files.id
                 )
                 AND NOT EXISTS (
                     SELECT 1 FROM journey_pinterest_pins
