@@ -3,7 +3,7 @@
 import os
 import secrets
 import time
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -104,6 +104,13 @@ RESOLUTIONS = list(
             (45, 90),  # icon 1x
             (90, 180),  # icon 2x
             (135, 270),  # icon 3x
+            # ADMIN COMPACT JOURNEY
+            (342, 72),  # compact journey, no feedback, 1x
+            (684, 144),  # compact journey, no feedback 2x
+            (1026, 216),  # compact journey, no feedback 3x
+            (342, 90),  # compact journey, feedback, 1x
+            (684, 180),  # compact journey, feedback 2x
+            (1026, 270),  # compact journey, feedback 3x
             # FEEDBACK/SHARE SCREEN
             (342, 237),  # smallest 1x
             (342, 314),  # most common 1x
@@ -114,6 +121,14 @@ RESOLUTIONS = list(
             (1026, 711),  # smallest 3x
             (1026, 942),  # most common 3x
             (1026, 1170),  # largest 3x
+            # SERIES CLASS LIST BACKGROUND
+            (342, 150),  # 1x
+            (684, 300),  # 2x
+            (1026, 450),  # 3x
+            # HISTORY BACKGROUND
+            (342, 76),  # 1x
+            (684, 152),  # 2x
+            (1026, 228),  # 3x
         ]
     )
 )
@@ -173,7 +188,7 @@ async def execute(
     *,
     file_upload_uid: str,
     uploaded_by_user_sub: str,
-    job_progress_uid: str,
+    job_progress_uid: Optional[str] = None,
 ):
     """Processes the s3 file upload with the given uid as a journey background image.
 
