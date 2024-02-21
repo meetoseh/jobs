@@ -1,6 +1,7 @@
 import asyncio
 import base64
 from dataclasses import dataclass
+from decimal import Decimal
 import math
 from typing import (
     AsyncGenerator,
@@ -298,7 +299,8 @@ async def _add_missing_targets(
     cursor = conn.cursor("weak")
 
     await prog.push_progress(
-        f"determining existing targets for {source.name_hint}", indicator={"type": "spinner"}
+        f"determining existing targets for {source.name_hint}",
+        indicator={"type": "spinner"},
     )
     image_file = await get_image_file(uid=uid, itgs=itgs)
     if image_file is None:
@@ -337,7 +339,9 @@ async def _add_missing_targets(
     ]
 
     if not svg_export_required and not missing_targets:
-        await prog.push_progress(f"determined no missing targets for {source.name_hint}")
+        await prog.push_progress(
+            f"determined no missing targets for {source.name_hint}"
+        )
         return image_file
 
     if gd.received_term_signal:
@@ -380,7 +384,7 @@ async def _add_missing_targets(
             itgs=itgs,
             gd=gd,
             job_progress_uid=job_progress_uid,
-            name_hint=source.name_hint
+            name_hint=source.name_hint,
         )
         if gd.received_term_signal:
             await _delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
@@ -443,7 +447,9 @@ async def _add_missing_targets(
                 )
             )
 
-        await prog.push_progress(f"cleaning up {source.name_hint}", indicator={"type": "spinner"})
+        await prog.push_progress(
+            f"cleaning up {source.name_hint}", indicator={"type": "spinner"}
+        )
         await _delete_s3_files(to_delete, itgs=itgs)
         await prog.push_progress(f"cleaned up {source.name_hint}")
         return image_file
@@ -836,7 +842,7 @@ async def upload_many_image_targets(
     itgs: Itgs,
     gd: GracefulDeath,
     job_progress_uid: Optional[str] = None,
-    name_hint: str
+    name_hint: str,
 ) -> List[UploadedImageFileExport]:
     """Uploads the given local image file exports asynchronously. The resulting list is
     already in the s3_files table.
@@ -847,9 +853,7 @@ async def upload_many_image_targets(
     prog = ProgressHelper(itgs, job_progress_uid)
     max_concurrent_uploads = 8
 
-    progress_message = (
-        f"uploading image targets for {name_hint}, up to {max_concurrent_uploads} at a time"
-    )
+    progress_message = f"uploading image targets for {name_hint}, up to {max_concurrent_uploads} at a time"
 
     local_image_file_exports = sorted(
         local_image_file_exports, key=lambda x: x.file_size, reverse=True
@@ -1220,7 +1224,7 @@ def _make_target(
         )
 
 
-def split_unit(value: str) -> Tuple[float, str]:
+def split_unit(value: str) -> Tuple[str, str]:
     """Splits an svg value into its numeric and unit components"""
     match = re.match(r"(?P<numeric>([0-9]*)\.?([0-9]*))(?P<unit>[a-z%]*)", value)
     if match is None:
@@ -1228,7 +1232,8 @@ def split_unit(value: str) -> Tuple[float, str]:
     numeric = match.group("numeric")
     if numeric == "":
         raise ValueError(f"Invalid value: {value}")
-    return float(numeric), match.group("unit")
+    float(numeric)  # raises ValueError if not a number
+    return numeric, match.group("unit")
 
 
 @dataclass
@@ -1239,6 +1244,10 @@ class SvgAspectRatio:
     """natural width"""
     height: float
     """natural height"""
+    width_exact: str
+    """the exact width as a string from the svg"""
+    height_exact: str
+    """the exact height as a string from the svg"""
 
 
 async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspectRatio]:
@@ -1339,10 +1348,10 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspec
                             parts = value.split()
                             if len(parts) == 4:
                                 try:
-                                    sx, sx_unit = split_unit(parts[0])
-                                    sy, sy_unit = split_unit(parts[1])
-                                    ex, ex_unit = split_unit(parts[2])
-                                    ey, ey_unit = split_unit(parts[3])
+                                    sx_exact, sx_unit = split_unit(parts[0])
+                                    sy_exact, sy_unit = split_unit(parts[1])
+                                    ex_exact, ex_unit = split_unit(parts[2])
+                                    ey_exact, ey_unit = split_unit(parts[3])
                                 except ValueError:
                                     return None
 
@@ -1351,6 +1360,11 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspec
                                     for unit in (sx_unit, sy_unit, ex_unit, ey_unit)
                                 ):
                                     return None
+
+                                sx = Decimal(sx_exact)
+                                sy = Decimal(sy_exact)
+                                ex = Decimal(ex_exact)
+                                ey = Decimal(ey_exact)
 
                                 width = f"{ex - sx}{sx_unit}"
                                 height = f"{ey - sy}{sy_unit}"
@@ -1368,8 +1382,11 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspec
                 return None
 
             try:
-                width_value, width_unit = split_unit(width)
-                height_value, height_unit = split_unit(height)
+                width_value_exact, width_unit = split_unit(width)
+                height_value_exact, height_unit = split_unit(height)
+
+                width_value = float(width_value_exact)
+                height_value = float(height_value_exact)
             except ValueError:
                 return None
 
@@ -1377,7 +1394,11 @@ async def get_svg_natural_aspect_ratio(local_filepath: str) -> Optional[SvgAspec
                 return None
 
             return SvgAspectRatio(
-                ratio=width_value / height_value, width=width_value, height=height_value
+                ratio=width_value / height_value,
+                width=width_value,
+                height=height_value,
+                width_exact=width,
+                height_exact=height,
             )
     except ValueError:
         # encoding issue

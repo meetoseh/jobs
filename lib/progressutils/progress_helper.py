@@ -2,7 +2,12 @@ import time
 from typing import Optional
 
 from itgs import Itgs
-from jobs import JobProgressIndicator, JobProgressType
+from jobs import (
+    JobProgress,
+    JobProgressIndicator,
+    JobProgressSpawnedInfo,
+    JobProgressType,
+)
 
 
 class ProgressHelper:
@@ -22,17 +27,30 @@ class ProgressHelper:
         *,
         indicator: Optional[JobProgressIndicator] = None,
         type: JobProgressType = "progress",
+        spawned: Optional[JobProgressSpawnedInfo] = None,
     ) -> None:
-        if self.job_progress_uid is None:
-            return
-
-        jobs = await self.itgs.jobs()
-        await jobs.push_progress(
-            self.job_progress_uid,
-            {
+        progress: JobProgress
+        if type == "spawned":
+            assert (
+                spawned is not None
+            ), "spawned info must be provided for spawned progress"
+            progress = {
+                "type": "spawned",
+                "message": message,
+                "indicator": indicator,
+                "occurred_at": time.time(),
+                "spawned": spawned,
+            }
+        else:
+            progress = {
                 "type": type,
                 "message": message,
                 "indicator": indicator,
                 "occurred_at": time.time(),
-            },
-        )
+            }
+
+        if self.job_progress_uid is None:
+            return
+
+        jobs = await self.itgs.jobs()
+        await jobs.push_progress(self.job_progress_uid, progress)

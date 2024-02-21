@@ -209,7 +209,9 @@ async def execute(
             job_progress_uid=job_progress_uid,
         )
 
-    async with success_or_failure_reporter(itgs, job_progress_uid=job_progress_uid):
+    async with success_or_failure_reporter(
+        itgs, job_progress_uid=job_progress_uid
+    ) as prog:
         with temp_file() as stitched_path, temp_file() as blurred_path, temp_file() as darkened_path:
             try:
                 await stitch_file_upload(
@@ -241,6 +243,7 @@ async def execute(
                 raise BouncedException()
 
             # by blurring second we know the image meets requirements
+            await prog.push_progress("blurring image", indicator={"type": "spinner"})
             try:
                 await blur_image(stitched_path, blurred_path)
             except ProcessImageAbortedException:
@@ -264,6 +267,7 @@ async def execute(
                 await bounce()
                 raise BouncedException()
 
+            await prog.push_progress("darkening image", indicator={"type": "spinner"})
             try:
                 await darken_image(stitched_path, darkened_path)
             except ProcessImageAbortedException:

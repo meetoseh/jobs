@@ -862,6 +862,11 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
+        name="runners.sweep_course_video_assets",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.siwo.send_delayed_email_verifications",
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=(55,)),

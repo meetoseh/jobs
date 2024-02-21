@@ -16,6 +16,12 @@ class CustomFailureReasonException(Exception):
         self.message = message
 
 
+class CustomSuccessReasonException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
 @asynccontextmanager
 async def success_or_failure_reporter(
     itgs: Itgs,
@@ -39,6 +45,9 @@ async def success_or_failure_reporter(
     If CustomFailureReasonException is raised from the block, the exception is
     not reraised and the message is used as the failure message.
 
+    If CustomSuccessReasonException is raised from the block, the exception is
+    not reraised and the message is used as the success message.
+
     For convenience this yields a ProgressHelper, but it can be ignored if not
     desired.
     """
@@ -46,6 +55,10 @@ async def success_or_failure_reporter(
         try:
             yield ProgressHelper(itgs, job_progress_uid)
         except BouncedException:
+            pass
+        except CustomFailureReasonException:
+            pass
+        except CustomSuccessReasonException:
             pass
         return
 
@@ -87,6 +100,16 @@ async def success_or_failure_reporter(
             job_progress_uid,
             {
                 "type": "failed",
+                "message": e.message,
+                "indicator": None,
+                "occurred_at": time.time(),
+            },
+        )
+    except CustomSuccessReasonException as e:
+        await jobs.push_progress(
+            job_progress_uid,
+            {
+                "type": "succeeded",
                 "message": e.message,
                 "indicator": None,
                 "occurred_at": time.time(),

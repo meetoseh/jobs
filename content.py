@@ -1,6 +1,7 @@
 """Helper module for working with content files in general. For working with
 audio content specifically, prefer the audio module.
 """
+
 from dataclasses import dataclass
 import hashlib
 import json
@@ -8,6 +9,7 @@ import time
 from typing import Any, Dict, List, Literal, Optional
 import aiofiles
 import multiprocessing.pool
+from file_service import AsyncReadableBytesIO
 from itgs import Itgs
 import asyncio
 
@@ -257,19 +259,24 @@ async def upload_s3_file_and_put_in_purgatory(
     )
 
 
+async def hash_filelike(f: AsyncReadableBytesIO) -> str:
+    """Hashes the content of the given filelike object using sha512"""
+    sha512 = hashlib.sha512()
+    while True:
+        chunk = await f.read(8192)
+        if not chunk:
+            break
+        sha512.update(chunk)
+    return sha512.hexdigest()
+
+
 async def hash_content(local_filepath: str) -> str:
     """Hashes the content at the given filepath using sha512. This will read
     asynchronously but compute the hash synchronously - so it can be better
     to use a threadpool/process pool and use hash_content_sync instead.
     """
-    sha512 = hashlib.sha512()
     async with aiofiles.open(local_filepath, mode="rb") as f:
-        while True:
-            chunk = await f.read(8192)
-            if not chunk:
-                break
-            sha512.update(chunk)
-    return sha512.hexdigest()
+        return await hash_filelike(f)
 
 
 async def hash_content_using_pool(

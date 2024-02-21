@@ -2,6 +2,7 @@ import asyncio
 from fractions import Fraction
 import json
 import math
+import random
 import subprocess
 import time
 from typing import List, Optional, Sequence, Tuple, cast
@@ -10,6 +11,7 @@ from content import (
     ContentFileExport,
     ContentFileExportPart,
     S3File,
+    get_content_file,
     hash_content_sync,
 )
 from graceful_death import GracefulDeath
@@ -59,18 +61,141 @@ class VideoQuality:
     """The audio bitrate, in kbps"""
     video_bitrate: int
     """The video bitrate, in kbps"""
+    target_display_width: int
+    """The width we wanted to target with this video quality; this only
+    differs from the width due to format restrictions, e.g., h.264 only supports
+    even dimensions, and is used to avoid cascading that error unnecessarily
+    when programmatically generating video qualities (e.g., targeting 393w
+    requires producing 394px width, but at 2x scale it should be 786px, not
+    788px)
+    """
+    target_display_height: int
+    """The height we wanted to target with this video quality; this only
+    differs from the height due to rounding or other adjustments
+    """
+
+
+def _auto_bitrate(width: int, height: int) -> int:
+    """Uses a basic calculation to determine a high quality video bitrate for
+    the given resolution
+    """
+    return round((width * height) * (10486 / (1920 * 1080)))
+
+
+def _auto_quality(width: int, height: int) -> VideoQuality:
+    fixed_width = width if width % 2 == 0 else width + 1
+    fixed_height = height if height % 2 == 0 else height + 1
+
+    return VideoQuality(
+        width=fixed_width,
+        height=fixed_height,
+        audio_bitrate=384,
+        video_bitrate=_auto_bitrate(fixed_width, fixed_height),
+        target_display_width=width,
+        target_display_height=height,
+    )
+
+
+def _auto_qualities(*resolutions: Tuple[int, int]) -> Sequence[VideoQuality]:
+    return [_auto_quality(width, height) for (width, height) in frozenset(resolutions)]
+
+
+def guess_video_file_size(
+    duration_seconds: float, video_bitrate: int, audio_bitrate: int
+) -> int:
+    """Predicts the file size of a video with the given duration, video bitrate,
+    and audio bitrate, in bytes. Useful for estimating how long it will take to
+    produce different quality videos, relative to each other.
+    """
+    return math.ceil((video_bitrate + audio_bitrate) * duration_seconds / 8)
 
 
 INSTAGRAM_VERTICAL: Sequence[VideoQuality] = (
-    VideoQuality(width=1080, height=1920, audio_bitrate=384, video_bitrate=10486),
+    VideoQuality(
+        width=1080,
+        height=1920,
+        audio_bitrate=384,
+        video_bitrate=10486,
+        target_display_width=1080,
+        target_display_height=1920,
+    ),
 )
 """Video qualities appropriate for instagram stories"""
 
 DESKTOP_LANDSCAPE: Sequence[VideoQuality] = (
-    VideoQuality(width=1920, height=1080, audio_bitrate=384, video_bitrate=10486),
-    VideoQuality(width=1280, height=720, audio_bitrate=384, video_bitrate=3456),
+    VideoQuality(
+        width=1920,
+        height=1080,
+        audio_bitrate=384,
+        video_bitrate=10486,
+        target_display_width=1920,
+        target_display_height=1080,
+    ),
+    VideoQuality(
+        width=1280,
+        height=720,
+        audio_bitrate=384,
+        video_bitrate=3456,
+        target_display_width=1280,
+        target_display_height=720,
+    ),
 )
-"""Video qualities appropriate for landscape desktop viewing"""
+"""Video qualities appropriate for mid-density landscape desktop viewing"""
+
+ADMIN_MOBILE_PREVIEW_1X: Sequence[VideoQuality] = _auto_qualities((180, 320))
+"""Video qualities for the admin preview of mobile portrait viewing"""
+
+MOBILE_PORTRAIT_1X: Sequence[VideoQuality] = _auto_qualities(
+    (430, 932),  # iPhone 15 Pro Max
+    (393, 852),  # iPhone 15 Pro
+    (430, 932),  # iPhone 15 Plus
+    (393, 852),  # iPhone 15
+    (1024, 1366),  # iPad Pro 6th gen 12.9"
+    (1366, 1024),  # iPad Pro 6th gen 12.9" rotated
+    (820, 1180),  # iPad Pro 6th gen 11"
+    (1180, 820),  # iPad Pro 6th gen 11" rotated
+    (820, 1180),  # iPad 10th gen
+    (1180, 820),  # iPad 10th gen rotated
+    (428, 926),  # iPhone 14 Plus
+    (430, 932),  # iPhone 14 Pro Max
+    (393, 852),  # iPhone 14 Pro
+    (390, 844),  # iPhone 14
+    (375, 667),  # iPhone SE 3rd gen
+    (820, 1180),  # iPad Air (5th gen)
+    (1180, 820),  # iPad Air (5th gen) rotated
+    (744, 1133),  # iPad Mini (6th gen)
+    (1133, 744),  # iPad Mini (6th gen) rotated
+    (390, 844),  # iPhone 13
+    (375, 812),  # iPhone 13 mini
+    (428, 926),  # iPhone 13 Pro Max
+    (390, 844),  # iPhone 13 Pro
+    (810, 1080),  # iPad 9th gen
+    (1080, 810),  # iPad 9th gen rotated
+    (1024, 1366),  # iPad Pro (5th gen 12.9")
+    (1366, 1024),  # iPad Pro (5th gen 12.9") rotated
+    (834, 1194),  # iPad Pro (5th gen 11")
+    (1194, 834),  # iPad Pro (5th gen 11") rotated
+    (360, 800),  # Android 20:9
+    (360, 640),  # Android 16:9
+    (480, 640),  # Android 4:3
+)
+"""Video qualities appropriate for mid-density mobile portrait viewing"""
+
+MOBILE_PORTRAIT_1_5X: Sequence[VideoQuality] = _auto_qualities(
+    *[
+        ((q.target_display_width * 3) // 2, (q.target_display_height * 3) // 2)
+        for q in MOBILE_PORTRAIT_1X
+    ]
+)
+"""Video qualities appropriate for high-density mobile portrait viewing"""
+
+MOBILE_PORTRAIT_2X: Sequence[VideoQuality] = _auto_qualities(
+    *[
+        (q.target_display_width * 2, q.target_display_height * 2)
+        for q in MOBILE_PORTRAIT_1X
+    ]
+)
+"""Video qualities appropriate for ultra-high-density mobile portrait viewing"""
 
 
 async def process_video(
@@ -82,6 +207,8 @@ async def process_video(
     name_hint: str,
     exports: Sequence[VideoQuality],
     job_progress_uid: Optional[str] = None,
+    min_width: Optional[int] = None,
+    min_height: Optional[int] = None,
 ) -> ContentFile:
     """Performs our standard video processing on the video at the given
     local filepath, then uploads it to S3 and stores it in our database
@@ -101,6 +228,14 @@ async def process_video(
         exports (List[VideoQuality]): The qualities to encode at.
         job_progress_uid (str or None, optional): The job progress uid to
             update as the job progresses. Defaults to None.
+        min_width (int or None, optional): The minimum width of the video.
+            If omitted, the largest width of the exports is used. If selected,
+            if the video is at least this wide but less than some of the
+            exports, those exports are dropped instead of raising an error.
+        min_height (int or None, optional): The minimum height of the video.
+            If omitted, the largest height of the exports is used. If selected,
+            if the video is at least this tall but less than some of the
+            exports, those exports are dropped instead of raising an error.
 
     Raises:
         ProcessVideoAbortedException: if the process was aborted but it'll
@@ -118,6 +253,19 @@ async def process_video(
 
     name = name_hint[:64] + "-" + secrets.token_urlsafe(16)
 
+    if min_width is None:
+        min_width = max(q.width for q in exports)
+    if min_height is None:
+        min_height = max(q.height for q in exports)
+
+    if min_width % 2 != 0:
+        # only even widths are supported
+        min_width += 1
+
+    if min_height % 2 != 0:
+        # only even heights are supported
+        min_height += 1
+
     with temp_dir() as temp_folder:
         return await process_video_into(
             local_filepath,
@@ -129,6 +277,8 @@ async def process_video(
             ffmpeg=ffmpeg,
             ffprobe=ffprobe,
             job_progress_uid=job_progress_uid,
+            min_width=min_width,
+            min_height=min_height,
         )
 
 
@@ -143,6 +293,8 @@ async def process_video_into(
     ffmpeg: str,
     ffprobe: str,
     job_progress_uid: Optional[str],
+    min_width: int,
+    min_height: int,
 ) -> ContentFile:
     """Processes the video file at the given local filepath into the standard
     exports, using the specified temporary folder. The produced content file is
@@ -167,6 +319,8 @@ async def process_video_into(
         ffprobe (str): The path to the ffprobe executable.
         job_progress_uid (str or None, optional): The job progress uid to
             update as the job progresses. Defaults to None.
+        min_width (int): The minimum width of the source video.
+        min_height (int): The minimum height of the source video.
     """
     prog = ProgressHelper(itgs, job_progress_uid)
 
@@ -176,31 +330,71 @@ async def process_video_into(
     hls_folder = os.path.join(temp_folder, "hls")
     os.makedirs(hls_folder, exist_ok=True)
 
+    await prog.push_progress(f"analyzing {name}", indicator={"type": "spinner"})
+    video_info = get_video_generic_info(local_filepath)
+
+    if video_info.width < min_width or video_info.height < min_height:
+        raise ValueError(
+            f"Video at {local_filepath=} is {video_info.width}x{video_info.height} but the minimum is {min_width}x{min_height}"
+        )
+
+    exports = [
+        q
+        for q in exports
+        if q.width <= video_info.width and q.height <= video_info.height
+    ]
+
+    # by shuffling if two workers got the same video, odds are they will
+    # mostly not repeat work
+    random.shuffle(exports)
+
     await prog.push_progress(f"hashing {name}", indicator={"type": "spinner"})
     original_sha512 = hash_content_sync(local_filepath)
 
-    mp4s: List[Tuple[str, BasicContentFilePartInfo]] = []
-    hls: List[Tuple[str, M3UVod]] = []
-    for export in exports:
+    estimated_work_per_export = [
+        guess_video_file_size(video_info.duration, q.video_bitrate, q.audio_bitrate)
+        for q in exports
+    ]
+    estimated_total_work = sum(estimated_work_per_export) * 2  # 2 for mp4 and hls
+    work_so_far = 0
+
+    mp4s: List[Tuple[str, BasicContentFilePartInfo, VideoQuality]] = []
+    hls: List[Tuple[str, M3UVod, VideoQuality]] = []
+    for work, export in zip(estimated_work_per_export, exports):
         iden = f"{export.width}x{export.height}-{export.video_bitrate}-{export.audio_bitrate}-{secrets.token_hex(8)}"
+
+        await prog.push_progress(
+            f"checking for existing {name} at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
+        )
+        if await _check_if_export_already_exists(
+            itgs, original_sha512=original_sha512, export=export
+        ):
+            work_so_far += 2 * work
+            continue
 
         mp4_path = os.path.join(mp4_folder, f"{iden}.mp4")
         await prog.push_progress(
             f"encoding {name} to an mp4 at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
-            indicator={"type": "spinner"},
+            indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
         )
         mp4s.append(
-            (mp4_path, _encode_video(local_filepath, mp4_path, export, ffmpeg, ffprobe))
+            (
+                mp4_path,
+                _encode_video(local_filepath, mp4_path, export, ffmpeg, ffprobe),
+                export,
+            )
         )
         if gd.received_term_signal:
             raise ProcessVideoAbortedException()
+
+        work_so_far += work
 
         export_hls_folder = os.path.join(hls_folder, iden)
         os.makedirs(export_hls_folder, exist_ok=True)
         export_hls_m3u8 = os.path.join(export_hls_folder, "playlist.m3u8")
         await prog.push_progress(
             f"encoding {name} to an hls vod at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
-            indicator={"type": "spinner"},
+            indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
         )
         _encode_hls_video(mp4_path, export_hls_m3u8, ffmpeg, ffprobe)
         if gd.received_term_signal:
@@ -210,11 +404,29 @@ async def process_video_into(
         if gd.received_term_signal:
             raise ProcessVideoAbortedException()
 
-        hls.append((export_hls_m3u8, hls_vod))
+        hls.append((export_hls_m3u8, hls_vod, export))
+        work_so_far += work
+
+    if not mp4s:
+        await prog.push_progress(f"Fetching {name} because all exports already exist")
+        conn = await itgs.conn()
+        cursor = conn.cursor("weak")
+        response = await cursor.execute(
+            "SELECT uid FROM content_files WHERE original_sha512=?", (original_sha512,)
+        )
+        assert response.results
+        existing_content_file_uid = cast(str, response.results[0][0])
+        existing = await get_content_file(itgs, existing_content_file_uid, "weak")
+        assert existing is not None
+        return existing
 
     await prog.push_progress(f"Creating master playlist for {name}")
     master_playlist_filepath = os.path.join(hls_folder, "master.m3u8")
-    master_playlist = _create_master_playlist(hls, master_playlist_filepath, ffprobe)
+    master_playlist = _create_master_playlist(
+        [(fp, vod) for (fp, vod, _) in hls], master_playlist_filepath, ffprobe
+    )
+
+    del exports
 
     now = time.time()
     files = await itgs.files()
@@ -272,7 +484,7 @@ async def process_video_into(
                     ],
                 ),
             )
-            for settings, (mp4_path, mp4) in zip(exports, mp4s)
+            for mp4_path, mp4, settings in mp4s
         ],
         hls=PreparedM3UPlaylist(
             master_file_path=master_playlist_filepath,
@@ -320,7 +532,7 @@ async def process_video_into(
                     ],
                     vod_ref=vod,
                 )
-                for (vod, export) in zip(master_playlist.vods, exports)
+                for vod, (_, _, export) in zip(master_playlist.vods, hls)
             ],
         ),
     )
@@ -340,6 +552,55 @@ async def process_video_into(
     )
     await prog.push_progress(f"Finished processing {name}")
     return res
+
+
+async def _check_if_export_already_exists(
+    itgs: Itgs, /, *, original_sha512: str, export: VideoQuality
+) -> bool:
+    conn = await itgs.conn()
+    cursor = conn.cursor("weak")
+
+    response = await cursor.execute(
+        """
+        SELECT 1
+        FROM content_files
+        WHERE
+            content_files.original_sha512 = ?
+            AND EXISTS (
+                SELECT 1 FROM content_file_exports
+                WHERE
+                    content_file_exports.content_file_id = content_files.id
+                    AND content_file_exports.format = 'mp4'
+                    AND json_extract(content_file_exports.format_parameters, '$.width') = ?
+                    AND json_extract(content_file_exports.format_parameters, '$.height') = ?
+                    AND json_extract(content_file_exports.quality_parameters, '$.target_audio_bitrate_kbps') = ?
+                    AND json_extract(content_file_exports.quality_parameters, '$.target_video_bitrate_kbps') = ?
+            )
+            AND EXISTS (
+                SELECT 1 FROM content_file_exports
+                WHERE
+                    content_file_exports.content_file_id = content_files.id
+                    AND content_file_exports.format = 'm3u8'
+                    AND json_extract(content_file_exports.format_parameters, '$.width') = ?
+                    AND json_extract(content_file_exports.format_parameters, '$.height') = ?
+                    AND json_extract(content_file_exports.quality_parameters, '$.target_audio_bitrate_kbps') = ?
+                    AND json_extract(content_file_exports.quality_parameters, '$.target_video_bitrate_kbps') = ?
+            )
+        """,
+        (
+            original_sha512,
+            export.width,
+            export.height,
+            export.audio_bitrate,
+            export.video_bitrate,
+            export.width,
+            export.height,
+            export.audio_bitrate,
+            export.video_bitrate,
+        ),
+    )
+
+    return not not response.results
 
 
 def _determine_video_filters_for_sizing(
@@ -852,6 +1113,8 @@ if __name__ == "__main__":
                     ffmpeg=cast(str, shutil.which("ffmpeg")),
                     ffprobe=cast(str, shutil.which("ffprobe")),
                     job_progress_uid=None,
+                    min_width=1920,
+                    min_height=1080,
                 )
 
     asyncio.run(main())

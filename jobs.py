@@ -49,15 +49,16 @@ JobProgressIndicator = Union[
     JobProgressIndicatorBar, JobProgressIndicatorSpinner, JobProgressIndicatorFinal
 ]
 
-JobProgressType = Literal[
+
+JobProgressTypeSimple = Literal[
     "queued", "started", "bounce", "progress", "failed", "succeeded"
 ]
 
 
-class JobProgress(TypedDict):
-    """describes a job progress message"""
+class JobProgressSimple(TypedDict):
+    """describes a simple job progress message"""
 
-    type: JobProgressType
+    type: JobProgressTypeSimple
     """the type of progress message"""
     message: str
     """the message to display to the user"""
@@ -67,6 +68,34 @@ class JobProgress(TypedDict):
     """
     occurred_at: float
     """the time when the progress message was created"""
+
+
+class JobProgressSpawnedInfo(TypedDict):
+    uid: str
+    """the uid of the spawned job; this is a job progress uid"""
+    name: str
+    """a hint for the name of this job for the client, e.g., 'extract thumbnail'"""
+
+
+class JobProgressSpawned(TypedDict):
+    """describes a job progress message which indicates theres another
+    related job with a different job progress uid
+    """
+
+    type: Literal["spawned"]
+    """the type of progress message"""
+    message: str
+    """the message to display to the user"""
+    spawned: JobProgressSpawnedInfo
+    """info about the spawned job"""
+    indicator: Optional[JobProgressIndicator]
+    """a hint about how to display the progress or None if no indicator"""
+    occurred_at: float
+    """the time when the progress message was created"""
+
+
+JobProgress = Union[JobProgressSimple, JobProgressSpawned]
+JobProgressType = Union[JobProgressTypeSimple, Literal["spawned"]]
 
 
 class JobCategory(IntEnum):
