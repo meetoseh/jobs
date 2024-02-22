@@ -964,6 +964,8 @@ async def _upload_one(
             async with aiofiles.open(local_image_file_export.filepath, "rb") as f:
                 await files.upload(f, bucket=bucket, key=key, sync=False)
         except botocore.exceptions.NoCredentialsError:
+            if attempt == 4:
+                raise
             await handle_warning(
                 f"{__name__}:no_credentials",
                 f"failed to locate s3 credentials during bulk upload, attempt {attempt+1}/5",
