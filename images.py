@@ -963,6 +963,7 @@ async def _upload_one(
         try:
             async with aiofiles.open(local_image_file_export.filepath, "rb") as f:
                 await files.upload(f, bucket=bucket, key=key, sync=False)
+            break
         except botocore.exceptions.NoCredentialsError:
             if attempt == 4:
                 raise
