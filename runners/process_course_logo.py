@@ -125,13 +125,13 @@ async def execute(
                 )
                 raise CustomFailureReasonException("0 width image or invalid SVG")
 
-            if aspect_ratio < 0.2 or aspect_ratio > 5:
+            if aspect_ratio < 0.05 or aspect_ratio > 5:
                 jobs = await itgs.jobs()
                 await jobs.enqueue(
                     "runners.delete_file_upload", file_upload_uid=file_upload_uid
                 )
                 raise CustomFailureReasonException(
-                    "image aspect ratio out of bounds (1:5 to 5:1)"
+                    f"image aspect ratio H/W {aspect_ratio}, {float(aspect_ratio):.3f} out of bounds (0.05-5)"
                 )
 
             target_resolutions: List[Tuple[int, int]] = [
