@@ -32,6 +32,7 @@ import json
 import os
 import re
 from lib.progressutils.progress_helper import ProgressHelper
+import botocore.exceptions
 
 from temp_files import temp_dir, temp_file
 from lib.thumbhash import image_to_thumb_hash
@@ -954,8 +955,20 @@ async def _upload_one(
     purgatory_key = json.dumps({"bucket": bucket, "key": key}, sort_keys=True)
 
     await redis.zadd("files:purgatory", {purgatory_key: times_out_at})
-    async with aiofiles.open(local_image_file_export.filepath, "rb") as f:
-        await files.upload(f, bucket=bucket, key=key, sync=False)
+
+    for attempt in range(5):
+        if attempt > 0:
+            await asyncio.sleep(2**attempt)
+
+        try:
+            async with aiofiles.open(local_image_file_export.filepath, "rb") as f:
+                await files.upload(f, bucket=bucket, key=key, sync=False)
+        except botocore.exceptions.NoCredentialsError:
+            await handle_warning(
+                f"{__name__}:no_credentials",
+                f"failed to locate s3 credentials during bulk upload, attempt {attempt+1}/5",
+            )
+
     await cursor.execute(
         """
         INSERT INTO s3_files(
