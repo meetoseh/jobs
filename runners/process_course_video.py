@@ -23,6 +23,15 @@ from videos import (
     process_video,
 )
 
+EXPORTS = [
+    *INSTAGRAM_VERTICAL,
+    *DESKTOP_LANDSCAPE,
+    *ADMIN_MOBILE_PREVIEW_1X,
+    *MOBILE_PORTRAIT_1X,
+    *MOBILE_PORTRAIT_1_5X,
+    *MOBILE_PORTRAIT_2X,
+]
+
 category = JobCategory.HIGH_RESOURCE_COST
 
 
@@ -76,14 +85,7 @@ async def execute(
                     gd=gd,
                     max_file_size=4 * 1024 * 1024 * 1024,
                     name_hint="course_video",
-                    exports=[
-                        *INSTAGRAM_VERTICAL,
-                        *DESKTOP_LANDSCAPE,
-                        *ADMIN_MOBILE_PREVIEW_1X,
-                        *MOBILE_PORTRAIT_1X,
-                        *MOBILE_PORTRAIT_1_5X,
-                        *MOBILE_PORTRAIT_2X,
-                    ],
+                    exports=EXPORTS,
                     job_progress_uid=job_progress_uid,
                     min_width=1920,
                     min_height=1080,

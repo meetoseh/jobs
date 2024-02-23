@@ -24,6 +24,7 @@ from lib.progressutils.success_or_failure_reporter import (
     CustomFailureReasonException,
     success_or_failure_reporter,
 )
+from runners.process_course_video import EXPORTS
 from runners.process_journey_background_image import make_standard_targets
 from temp_files import temp_dir, temp_file
 
@@ -31,6 +32,9 @@ THUMBNAIL_FRAMES = [0, 15, 30, 60]
 RESOLUTIONS = list(
     dict.fromkeys(
         [
+            # Avoid jank when swapping thumbnails for the actual video
+            *((q.width, q.height) for q in EXPORTS),
+            *((q.target_display_width, q.target_display_height) for q in EXPORTS),
             # MOBILE
             (360, 800),
             (414, 896),
@@ -87,6 +91,8 @@ RESOLUTIONS = list(
             (540, 960),  # preview desktop 2x
             (480, 270),  # preview share to instagram
             (960, 540),  # preview share to instagram 2x
+            # THUMBHASH
+            (180, 368),
         ]
     )
 )
