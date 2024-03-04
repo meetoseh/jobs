@@ -913,6 +913,11 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
     ),
+    Job(
+        name="runners.sweep_stripe_syncs",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=tuple(range(0, 60, 5)), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 
