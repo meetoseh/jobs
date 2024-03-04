@@ -1,5 +1,6 @@
 import time
 from typing import Optional
+from error_middleware import handle_warning
 
 from itgs import Itgs
 from jobs import (
@@ -8,6 +9,7 @@ from jobs import (
     JobProgressSpawnedInfo,
     JobProgressType,
 )
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 
 class ProgressHelper:
@@ -53,4 +55,16 @@ class ProgressHelper:
             return
 
         jobs = await self.itgs.jobs()
-        await jobs.push_progress(self.job_progress_uid, progress)
+        try:
+            await jobs.push_progress(self.job_progress_uid, progress)
+        except RedisConnectionError as e:
+            # redis probably timed out from idling; restart the connection
+            await handle_warning(
+                f"{__name__}:redis_connection_error",
+                "redis connection error while pushing progress",
+                exc=e,
+            )
+            await self.itgs.reconnect_redis()
+
+            jobs = await self.itgs.jobs()
+            await jobs.push_progress(self.job_progress_uid, progress)

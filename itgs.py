@@ -4,7 +4,7 @@ the integration is only loaded upon request.
 
 import json
 import random
-from typing import Callable, Coroutine, List, Optional
+from typing import Callable, Coroutine, Dict, Optional, Literal
 import rqdb
 import rqdb.async_connection
 import rqdb.logging
@@ -30,6 +30,11 @@ it's fine if:
 - this is built before we are forked
 - this is used in different threads
 """
+
+
+ItgsCleanupIdentifier = Literal[
+    "conn", "redis_main", "slack", "jobs", "file_service", "revenue_cat", "twilio"
+]
 
 
 class Itgs:
@@ -65,7 +70,9 @@ class Itgs:
         self._twilio: Optional[twilio.rest.Client] = None
         """the twilio connection if it had been opened"""
 
-        self._closures: List[Callable[["Itgs"], Coroutine]] = []
+        self._closures: Dict[ItgsCleanupIdentifier, Callable[["Itgs"], Coroutine]] = (
+            dict()
+        )
         """functions to run on __aexit__ to cleanup opened resources"""
 
     async def __aenter__(self) -> "Itgs":
@@ -75,9 +82,9 @@ class Itgs:
     async def __aexit__(self, exc_type, exc, tb) -> None:
         """closes any managed resources"""
         async with self._lock:
-            for closure in self._closures:
+            for closure in self._closures.values():
                 await closure(self)
-            self._closures = []
+            self._closures = dict()
 
     async def conn(self) -> rqdb.async_connection.AsyncConnection:
         """Gets or creates and initializes the rqdb connection.
@@ -120,7 +127,7 @@ class Itgs:
                 bknd_tasks.add(task)
                 task.add_done_callback(lambda _: bknd_tasks.remove(task))
 
-            self._closures.append(cleanup)
+            self._closures["conn"] = cleanup
             c = rqdb.connect_async(
                 hosts=rqlite_ips,
                 log=rqdb.LogConfig(
@@ -158,7 +165,7 @@ class Itgs:
                     await me._redis_main.close()
                     me._redis_main = None
 
-            self._closures.append(cleanup)
+            self._closures["redis_main"] = cleanup
             for idx, ip in enumerate(redis_ips):
                 sentinel_conn = redis.asyncio.Redis(
                     host=ip,
@@ -230,7 +237,7 @@ class Itgs:
                 await s.__aexit__(None, None, None)
                 me._slack = None
 
-            self._closures.append(cleanup)
+            self._closures["slack"] = cleanup
             self._slack = s
 
         return self._slack
@@ -260,7 +267,7 @@ class Itgs:
                 await j.__aexit__(None, None, None)
                 me._jobs = None
 
-            self._closures.append(cleanup)
+            self._closures["jobs"] = cleanup
             self._jobs = j
 
         return self._jobs
@@ -288,7 +295,7 @@ class Itgs:
                 await fs.__aexit__(None, None, None)
                 me._file_service = None
 
-            self._closures.append(cleanup)
+            self._closures["file_service"] = cleanup
             self._file_service = fs
 
         return self._file_service
@@ -317,7 +324,7 @@ class Itgs:
                 await rc.__aexit__(None, None, None)
                 me._revenue_cat = None
 
-            self._closures.append(cleanup)
+            self._closures["revenue_cat"] = cleanup
             self._revenue_cat = rc
 
         return self._revenue_cat
@@ -339,10 +346,29 @@ class Itgs:
             async def cleanup(me: "Itgs") -> None:
                 me._twilio = None
 
-            self._closures.append(cleanup)
+            self._closures["twilio"] = cleanup
             self._twilio = tw
 
         return self._twilio
+
+    async def reconnect_redis(self) -> None:
+        """If we are connected to redis, closes the connection. This will
+        also close any other connections that depend on it. They connections
+        will be reinitialized when they are next requested.
+        """
+        if self._redis_main is None:
+            return
+
+        async with self._lock:
+            if self._redis_main is None:
+                return
+
+            if self._jobs is not None:
+                await self._closures["jobs"](self)
+                del self._closures["jobs"]
+
+            await self._closures["redis_main"](self)
+            del self._closures["redis_main"]
 
 
 def get_job_category(name: str) -> jobs.JobCategory:
