@@ -103,7 +103,7 @@ async def execute(
             FROM image_files
             WHERE
                 image_files.uid = ?
-            ON CONFLICT(image_file_id)
+            ON CONFLICT(image_file_id) WHERE json_extract(source, '$.type') = 'user'
             DO UPDATE SET last_uploaded_at = ?
             """,
             (
