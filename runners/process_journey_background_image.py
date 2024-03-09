@@ -1,5 +1,6 @@
 """Processes a raw image intended to be used as a journey background image"""
 
+from decimal import Decimal
 import os
 import secrets
 import time
@@ -409,7 +410,7 @@ def blur_image_blocking(
         loop.call_soon_threadsafe(event.set)
 
 
-async def darken_image(source_path: str, dest_path: str):
+async def darken_image(source_path: str, dest_path: str, *, strength: Decimal = Decimal(0.3)):
     """Darkens the image at the given path, as intended for darkened journey
     background images. The description of this blur is canonically at journeys.md
     in the backend database docs.
@@ -431,6 +432,7 @@ async def darken_image(source_path: str, dest_path: str):
             "dest_path": dest_path,
             "loop": loop,
             "event": event,
+            "strength": strength,
         },
         daemon=True,
     )
@@ -446,6 +448,7 @@ def darken_image_blocking(
     dest_path: str,
     loop: asyncio.AbstractEventLoop,
     event: asyncio.Event,
+    strength: Decimal,
 ):
     """Darkens the image at the given path, as intended for darkened journey
     background images. The description of this blur is canonically at journeys.md
@@ -462,7 +465,7 @@ def darken_image_blocking(
     """
     try:
         im = Image.open(source_path)
-        darkened_image = ImageEnhance.Brightness(im).enhance(0.8)
+        darkened_image = ImageEnhance.Brightness(im).enhance(float(Decimal(1) - strength))
         darkened_image.save(
             dest_path, format="webp", lossless=True, quality=100, method=6
         )
