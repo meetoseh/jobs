@@ -1,6 +1,7 @@
 """Checks if a given users profile picture matches the given url, and if it does not,
 downloads the image, modifies it appropriately, and updates our database
 """
+
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -17,6 +18,34 @@ category = JobCategory.LOW_RESOURCE_COST
 
 
 TARGETS = [
+    ImageTarget(
+        required=True,
+        width=24,  # goto emotion screen
+        height=24,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=24,
+        height=24,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=32,  # home screen
+        height=32,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=32,
+        height=32,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
     ImageTarget(
         required=True,
         width=38,  # journey screen on web
@@ -47,6 +76,20 @@ TARGETS = [
     ),
     ImageTarget(
         required=True,
+        width=48,  # goto emotion screen 2x
+        height=48,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=True,
+        width=48,  # goto emotion screen 2x
+        height=48,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
         width=60,
         height=60,
         format="png",
@@ -56,6 +99,34 @@ TARGETS = [
         required=False,
         width=60,
         height=60,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=64,  # home screen 2x
+        height=64,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=64,  # home screen 2x
+        height=64,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=72,  # goto emotion screen 3x
+        height=72,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=72,  # goto emotion screen 3x
+        height=72,
         format="webp",
         quality_settings={"lossless": True, "quality": 100, "method": 6},
     ),
@@ -84,6 +155,20 @@ TARGETS = [
         required=False,
         width=90,
         height=90,
+        format="webp",
+        quality_settings={"lossless": True, "quality": 100, "method": 6},
+    ),
+    ImageTarget(
+        required=True,
+        width=96,  # home screen 3x
+        height=96,
+        format="png",
+        quality_settings={"optimize": True},
+    ),
+    ImageTarget(
+        required=False,
+        width=96,  # home screen 3x
+        height=96,
         format="webp",
         quality_settings={"lossless": True, "quality": 100, "method": 6},
     ),
@@ -131,7 +216,7 @@ TARGETS = [
     ),
 ]
 
-LAST_TARGETS_CHANGED_AT = 1672953669
+LAST_TARGETS_CHANGED_AT = 1710362509
 
 
 async def execute(
@@ -259,10 +344,10 @@ async def execute(
                 (
                     """
                     INSERT INTO user_profile_pictures (
-                        uid, user_id, latest, image_file_id, source, created_at
+                        uid, user_id, latest, image_file_id, source, created_at, last_processed_at
                     )
                     SELECT
-                        ?, users.id, 0, image_files.id, ?, ?
+                        ?, users.id, 0, image_files.id, ?, ?, ?
                     FROM users, image_files
                     WHERE
                         users.sub = ?
@@ -283,6 +368,7 @@ async def execute(
                                 "iat": jwt_iat,
                             }
                         ),
+                        now,
                         now,
                         user_sub,
                         image.uid,

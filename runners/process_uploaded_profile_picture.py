@@ -1,4 +1,5 @@
 """Processes a raw image intended to be used as a users profile picture"""
+
 import json
 import logging
 import secrets
@@ -71,10 +72,10 @@ async def execute(
             (
                 """
                     INSERT INTO user_profile_pictures (
-                        uid, user_id, latest, image_file_id, source, created_at
+                        uid, user_id, latest, image_file_id, source, created_at, last_processed_at
                     )
                     SELECT
-                        ?, users.id, 0, image_files.id, ?, ?
+                        ?, users.id, 0, image_files.id, ?, ?, ?
                     FROM users, image_files
                     WHERE
                         users.sub = ?
@@ -89,6 +90,7 @@ async def execute(
                 (
                     new_upp_uid,
                     json.dumps({"src": "upload", "uploaded_at": now}),
+                    now,
                     now,
                     user_sub,
                     image.uid,

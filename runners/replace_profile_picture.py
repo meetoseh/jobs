@@ -72,10 +72,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, s3_key: str):
                 (
                     """
                     INSERT INTO user_profile_pictures (
-                        uid, user_id, latest, image_file_id, source, created_at
+                        uid, user_id, latest, image_file_id, source, created_at, last_processed_at
                     )
                     SELECT
-                        ?, users.id, 0, image_files.id, ?, ?
+                        ?, users.id, 0, image_files.id, ?, ?, ?
                     FROM users, image_files
                     WHERE
                         users.sub = ?
@@ -92,6 +92,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str, s3_key: str):
                         json.dumps(
                             {"src": "admin", "admin_user_sub": None, "uploaded_at": now}
                         ),
+                        now,
                         now,
                         user_sub,
                         image.uid,

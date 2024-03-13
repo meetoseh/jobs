@@ -62,67 +62,21 @@ async def success_or_failure_reporter(
             pass
         return
 
-    jobs = await itgs.jobs()
+    helper = ProgressHelper(itgs, job_progress_uid)
     try:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "started",
-                "message": start_message,
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
-        )
+        await helper.push_progress(start_message, type="started")
 
-        yield ProgressHelper(itgs, job_progress_uid)
+        yield helper
 
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "succeeded",
-                "message": success_message,
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
-        )
+        await helper.push_progress(success_message, type="succeeded")
     except BouncedException:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "bounce",
-                "message": "processing bounced to another worker",
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
+        await helper.push_progress(
+            "processing bounced to another worker", type="bounce"
         )
     except CustomFailureReasonException as e:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "failed",
-                "message": e.message,
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
-        )
+        await helper.push_progress(e.message, type="failed")
     except CustomSuccessReasonException as e:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "succeeded",
-                "message": e.message,
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
-        )
+        await helper.push_progress(e.message, type="succeeded")
     except BaseException:
-        await jobs.push_progress(
-            job_progress_uid,
-            {
-                "type": "failed",
-                "message": failure_message,
-                "indicator": None,
-                "occurred_at": time.time(),
-            },
-        )
+        await helper.push_progress(failure_message, type="failed")
         raise
