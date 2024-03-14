@@ -130,10 +130,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     TARGETS,
                     itgs=itgs,
                     gd=gd,
-                    max_width=2048,
-                    max_height=2048,
-                    max_area=2048 * 2048,
-                    max_file_size=1024 * 1024 * 128,
+                    max_width=16384,
+                    max_height=16384,
+                    max_area=8192 * 8192,
+                    max_file_size=1024 * 1024 * 512,
                     name_hint="reprocess_profile_picture",
                 )
             except ProcessImageAbortedException:
