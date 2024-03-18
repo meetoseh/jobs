@@ -6,6 +6,7 @@ space to fit the prompt and response.
 This requires a transcript for each journey that is tagged; journeys without
 transcripts are skipped.
 """
+
 import datetime
 import os
 import re
@@ -157,10 +158,12 @@ to evoke the following feelings:
             # In the dev environment there aren't useful descriptions so it mainly just causes
             # confusion, but in the prod environment the descriptions are meaningful and thus
             # can greatly help the model.
-            "content": joined_transcript
-            if os.environ["ENVIRONMENT"] == "dev"
-            else (
-                f"{title} by {instructor}: {description}\n\n===\n\n{joined_transcript}"
+            "content": (
+                joined_transcript
+                if os.environ["ENVIRONMENT"] == "dev"
+                else (
+                    f"{title} by {instructor}: {description}\n\n===\n\n{joined_transcript}"
+                )
             ),
         },
     ]
@@ -538,7 +541,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         jobs = await itgs.jobs()
         await jobs.enqueue("runners.repopulate_emotions")
 
-    async with basic_redis_lock(itgs, "jobs:repopulate_emotions:lock"):
+    async with basic_redis_lock(itgs, "jobs:repopulate_emotions:lock", gd=gd):
         if gd.received_term_signal:
             await _bounce()
             return
@@ -568,9 +571,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
         logging.debug("Assigning emotions to journeys...")
         dropped: Set[str] = set()
-        async for journey_uid, content_file_uid, title, description, instructor in iter_journeys_for_emotions(
-            itgs
-        ):
+        async for (
+            journey_uid,
+            content_file_uid,
+            title,
+            description,
+            instructor,
+        ) in iter_journeys_for_emotions(itgs):
             if gd.received_term_signal:
                 await _bounce()
                 return
