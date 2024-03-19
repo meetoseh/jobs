@@ -115,6 +115,11 @@ async def execute(
                     WHERE
                         journey_pinterest_pins.image_file_id = image_files.id
                 )
+                AND NOT EXISTS (
+                    SELECT 1 FROM onboarding_videos
+                    WHERE
+                        onboarding_videos.thumbnail_image_file_id = image_files.id
+                )
             """,
             (uid,),
         )

@@ -54,6 +54,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
                 SELECT 1 FROM courses
                 WHERE courses.video_content_file_id = content_files.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM onboarding_videos
+                WHERE onboarding_videos.video_content_file_id = content_files.id
+            )
         """,
         (uid,),
     )
