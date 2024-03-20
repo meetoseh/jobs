@@ -202,7 +202,7 @@ def parse_release_lock_result(res: Any) -> ReleaseLockResult:
         assert res[1] is None, res
         return ReleaseLockSuccessResult(success=True)
     elif code == -3:
-        assert res[1] is False, res
+        assert res[1] is None, res
         return ReleaseLockNotSetResult(success=False, error_type="not_set")
     elif code == -2:
         assert isinstance(res[1], bytes), res
