@@ -473,6 +473,10 @@ async def _upload_all(
         )
     )
 
+    # If we don't wait for the first progress task, our first uploads are likely
+    # to fail with redis exceptions if we haven't been chatty enough on redis
+    await progress_task
+
     num_finished = 0
 
     pending: Set[asyncio.Task] = set()
