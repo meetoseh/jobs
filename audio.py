@@ -525,6 +525,7 @@ async def _upload_all(
             f"{len(done)} tasks completed, {len(pending)} uploads still pending ({len(errored)} errored so far)"
         )
 
+    await progress_task
     logging.debug(
         f"Finished uploading to s3; {remaining=}, {pending=}, {len(errored)=}"
     )
