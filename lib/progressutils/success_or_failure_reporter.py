@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import time
 from typing import Optional
 
 from itgs import Itgs
@@ -29,7 +28,8 @@ async def success_or_failure_reporter(
     job_progress_uid: Optional[str],
     start_message: str = "processing started",
     success_message: str = "processing finished",
-    failure_message: str = "processing failed"
+    failure_message: str = "processing failed",
+    log: bool = False,
 ):
     """
     Reports a start message before yielding, success if the block completes
@@ -49,20 +49,10 @@ async def success_or_failure_reporter(
     not reraised and the message is used as the success message.
 
     For convenience this yields a ProgressHelper, but it can be ignored if not
-    desired.
+    desired. If log is true, this progress helper will log all messages and we
+    will log the result.
     """
-    if job_progress_uid is None:
-        try:
-            yield ProgressHelper(itgs, job_progress_uid)
-        except BouncedException:
-            pass
-        except CustomFailureReasonException:
-            pass
-        except CustomSuccessReasonException:
-            pass
-        return
-
-    helper = ProgressHelper(itgs, job_progress_uid)
+    helper = ProgressHelper(itgs, job_progress_uid, log=log)
     try:
         await helper.push_progress(start_message, type="started")
 

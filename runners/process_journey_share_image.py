@@ -1,29 +1,29 @@
 """Ensures that the share image for the given journey is up-to-date"""
 
-import base64
-import json
-import multiprocessing
-import multiprocessing.pool
+from multiprocessing.synchronize import Event as MPEvent
 import os
-import secrets
-import time
 import cairosvg
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
-from content import hash_content
+from typing import Any, Optional, Tuple, cast
+from content import hash_filelike
 from error_middleware import handle_warning
 from images import (
-    ImageTarget,
-    LocalImageFileExport,
+    ImageFile,
+    SvgAspectRatio,
     _crops_to_pil_box,
     determine_crop,
     get_svg_natural_aspect_ratio,
-    upload_many_image_targets,
 )
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
 from jobs import JobCategory
-from lib.thumbhash import image_to_thumb_hash
+from lib.progressutils.async_progress_tracking_bytes_io import (
+    AsyncProgressTrackingReadableBytesIO,
+    AsyncProgressTrackingWritableBytesIO,
+)
+from lib.progressutils.progress_helper import ProgressHelper
+from shareables.generate_share_image.exceptions import ShareImageBounceError
+from shareables.generate_share_image.main import run_pipeline
 from temp_files import temp_dir, temp_file
 from dataclasses import dataclass
 import aiofiles
@@ -34,66 +34,6 @@ import asyncio
 category = JobCategory.HIGH_RESOURCE_COST
 """The category of the job; used to determine which instances can run this job.
 """
-
-RESOLUTIONS = list(
-    dict.fromkeys(
-        [
-            # 1x
-            (600, 315),
-            # 2x
-            (1200, 630),
-            # legacy sharers
-            (400, 300),
-            # linkedin and other thumbnails
-            (80, 150),
-            # imessage
-            (600, 600),
-        ]
-    )
-)
-
-
-def _share_image_jpeg_targets(w: int, h: int) -> List[ImageTarget]:
-    if w * h < 300 * 300:
-        return []
-
-    return [
-        ImageTarget(
-            required=True,
-            width=w,
-            height=h,
-            format="jpeg",
-            quality_settings={"quality": 95, "optimize": True, "progressive": True},
-        )
-    ]
-
-
-def _share_image_png_targets(w: int, h: int) -> List[ImageTarget]:
-    if w * h >= 300 * 300:
-        return []
-
-    return [
-        ImageTarget(
-            required=True,
-            width=w,
-            height=h,
-            format="png",
-            quality_settings={"optimize": True},
-        )
-    ]
-
-
-def make_share_image_targets(
-    resolutions: Sequence[Tuple[int, int]]
-) -> List[ImageTarget]:
-    result = []
-    for w, h in resolutions:
-        result.extend(_share_image_jpeg_targets(w, h))
-        result.extend(_share_image_png_targets(w, h))
-    return result
-
-
-TARGETS = make_share_image_targets(RESOLUTIONS)
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
@@ -107,241 +47,239 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
         journey_uid (str): the uid of the journey to update the share image for
     """
 
-    async def bounce():
+    try:
+        with temp_dir() as dirpath:
+            await run_pipeline(
+                itgs,
+                gd,
+                JourneyShareImageGenerator(journey_uid=journey_uid, tmp_dir=dirpath),
+                name_hint="journey_share_image",
+            )
+    except ShareImageBounceError:
         logging.info(f"{__name__} bouncing")
         jobs = await itgs.jobs()
         await jobs.enqueue(
             "runners.process_journey_share_image", journey_uid=journey_uid
         )
 
-    conn = await itgs.conn()
-    cursor = conn.cursor("weak")
 
-    response = await cursor.execute(
-        """
-        SELECT
-            darkened_image_files.original_sha512,
-            darkened_s3_files.key,
-            journeys.title,
-            instructors.name
-        FROM 
-            journeys, 
-            image_files AS darkened_image_files,
-            s3_files AS darkened_s3_files,
-            instructors
-        WHERE
-            journeys.uid = ?
-            AND journeys.darkened_background_image_file_id = darkened_image_files.id
-            AND darkened_image_files.original_s3_file_id = darkened_s3_files.id
-            AND journeys.instructor_id = instructors.id
-        """,
-        (journey_uid,),
-    )
+class JourneyShareImageGenerator:
+    """Implements ShareImageGenerator"""
 
-    if not response.results:
-        await handle_warning(
-            f"{__name__}:journey_not_found",
-            f"There is no journey with `{journey_uid=}` or it is missing the original "
-            "image files required for producing the share image",
+    def __init__(self, journey_uid: str, tmp_dir: str) -> None:
+        self.journey_uid = journey_uid
+        """The UID of the journey whose share image is being generated"""
+
+        self.tmp_dir = tmp_dir
+        """The path to the directory used to store temporary files"""
+
+        self.background_path = os.path.join(self.tmp_dir, "darkened_image")
+        """Where we are storing the darkened background image"""
+
+        self.darkened_image_file_original_sha512: Optional[str] = None
+        """The sha512 hash of the background image we are using"""
+
+        self.darkened_image_file_key: Optional[str] = None
+        """The key of the background image in the S3 bucket"""
+
+        self.darkened_image_file_size: Optional[int] = None
+        """The size of the background image in bytes"""
+
+        self.journey_title: Optional[str] = None
+        """The title of the journey"""
+
+        self.instructor_name: Optional[str] = None
+        """The name of the instructor for the journey"""
+
+        self.brandmark_natural_aspect_ratio: Optional[SvgAspectRatio] = None
+        """The natural aspect ratio of the oseh brandmark"""
+
+        self.background_image: Optional[Image.Image] = None
+        """The background image, loaded into memory in this process"""
+
+        self.open_sans_regular_raw: Optional[bytes] = None
+        """The font file for Open Sans, 400 font weight, loaded into memory in this process"""
+
+    async def get_configuration(
+        self, itgs: Itgs, gd: GracefulDeath, prog: ProgressHelper
+    ) -> Any:
+        conn = await itgs.conn()
+        cursor = conn.cursor("weak")
+
+        response = await cursor.execute(
+            """
+SELECT
+    darkened_image_files.original_sha512,
+    darkened_s3_files.key,
+    darkened_s3_files.file_size,
+    journeys.title,
+    instructors.name
+FROM 
+    journeys, 
+    image_files AS darkened_image_files,
+    s3_files AS darkened_s3_files,
+    instructors
+WHERE
+    journeys.uid = ?
+    AND journeys.darkened_background_image_file_id = darkened_image_files.id
+    AND darkened_image_files.original_s3_file_id = darkened_s3_files.id
+    AND journeys.instructor_id = instructors.id
+            """,
+            (self.journey_uid,),
         )
-        return
 
-    darkened_image_file_original_sha512 = cast(str, response.results[0][0])
-    darkened_image_file_key = cast(str, response.results[0][1])
-    journey_title = cast(str, response.results[0][2])
-    instructor_name = cast(str, response.results[0][3])
+        if not response.results:
+            await handle_warning(
+                f"{__name__}:journey_not_found",
+                f"There is no journey with `{self.journey_uid=}` or it is missing the original "
+                "image files required for producing the share image",
+            )
+            raise Exception("journey not found")
 
-    journey = _Journey(title=journey_title, instructor_name=instructor_name)
-    brandmark_natural_aspect_ratio = await get_svg_natural_aspect_ratio(
-        "assets/Oseh_Brandmark_White.svg"
-    )
-    assert brandmark_natural_aspect_ratio is not None
+        self.darkened_image_file_original_sha512 = cast(str, response.results[0][0])
+        self.darkened_image_file_key = cast(str, response.results[0][1])
+        self.darkened_image_file_size = cast(int, response.results[0][2])
+        self.journey_title = cast(str, response.results[0][3])
+        self.instructor_name = cast(str, response.results[0][4])
 
-    with temp_dir() as dirpath:
+        return {
+            "name": f"{__name__}.{self.__class__.__name__}",
+            "version": "1.0.2",
+            "title": self.journey_title,
+            "instructor_name": self.instructor_name,
+            "darkened_image_file_original_sha512": self.darkened_image_file_original_sha512,
+        }
+
+    async def prepare(self, itgs: Itgs, gd: GracefulDeath, prog: ProgressHelper):
+        assert self.darkened_image_file_key is not None
+
         files = await itgs.files()
-
-        async def download_file(filename: str, key: str, sha512: str) -> bool:
-            filepath = os.path.join(dirpath, filename)
-            async with aiofiles.open(filepath, "wb") as f:
-                await files.download(
-                    f, bucket=files.default_bucket, key=key, sync=False
-                )
-
-            real_hash = await hash_content(filepath)
-            if real_hash != sha512:
-                await handle_warning(
-                    f"{__name__}:hash_mismatch",
-                    f"Hash mismatch for {key} (expected {sha512}, got {real_hash})",
-                )
-                return False
-            return True
-
-        background_filename = "darkened_image"
-
-        integrity_matched = await download_file(
-            background_filename,
-            darkened_image_file_key,
-            darkened_image_file_original_sha512,
-        )
-        if not integrity_matched:
-            return
-
-        remaining: List[ImageTarget] = list(TARGETS)
-        running_targets: Dict[int, _PartialLocalImageFileExport] = dict()
-        running: Set[asyncio.Future] = set()
-        finished: List[LocalImageFileExport] = []
-
-        nprocesses = min(multiprocessing.cpu_count() // 2, len(TARGETS))
-        max_queued_jobs = nprocesses * 2
-        logging.debug(
-            f"{__name__} - all files have been downloaded; producing {len(remaining)} targets "
-            f"in a pool of {nprocesses} processes with {max_queued_jobs} max queued jobs"
-        )
-        with multiprocessing.Pool(processes=nprocesses) as pool:
-            while remaining or running:
-                if gd.received_term_signal:
-                    logging.warning(
-                        "interrupted while producing share image targets; bouncing"
-                    )
-                    for task in running:
-                        task.cancel()
-                    return await bounce()
-
-                while remaining and len(running) < max_queued_jobs:
-                    target = remaining.pop()
-                    result = len(TARGETS) - len(remaining)
-
-                    output_filepath = os.path.join(
-                        dirpath, f"image_{result}.{target.format}"
-                    )
-                    running_targets[result] = _PartialLocalImageFileExport(
-                        uid=f"oseh_ife_{secrets.token_urlsafe(16)}",
-                        width=target.width,
-                        height=target.height,
-                        filepath=output_filepath,
-                        crop=(0, 0, 0, 0),
-                        format=target.format,
-                        quality_settings=target.quality_settings,
-                    )
-                    running.add(
-                        make_share_image_from_pool(
-                            pool,
-                            journey,
-                            os.path.join(dirpath, background_filename),
-                            running_targets[result].filepath,
-                            target,
-                            result,
-                            brandmark_natural_aspect_ratio.ratio,
-                        )
-                    )
-                done, running = await asyncio.wait(
-                    running, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in done:
-                    result = cast(_MakeShareImageResult, await task)
-                    task_was_working_on = running_targets.pop(result.iden)
-                    logging.debug(f"{__name__} finished {task_was_working_on.filepath}")
-                    finished.append(
-                        LocalImageFileExport(
-                            uid=task_was_working_on.uid,
-                            width=task_was_working_on.width,
-                            height=task_was_working_on.height,
-                            filepath=task_was_working_on.filepath,
-                            crop=task_was_working_on.crop,
-                            format=task_was_working_on.format,
-                            quality_settings=task_was_working_on.quality_settings,
-                            thumbhash=result.thumbhash,
-                            file_size=result.file_size,
-                        )
-                    )
-
-        logging.debug(f"{__name__} - all targets have been produced; uploading")
+        async with aiofiles.open(
+            self.background_path, "wb"
+        ) as raw_f, AsyncProgressTrackingWritableBytesIO(
+            itgs,
+            job_progress_uid=prog.job_progress_uid,
+            expected_file_size=self.darkened_image_file_size,
+            delegate=raw_f,
+            message="downloading background image",
+        ) as f:
+            await files.download(
+                f,
+                bucket=files.default_bucket,
+                key=self.darkened_image_file_key,
+                sync=False,
+            )
 
         if gd.received_term_signal:
-            logging.info(f"{__name__} not uploading (term signal received, bouncing)")
-            return await bounce()
+            return
 
-        uploaded = await upload_many_image_targets(
-            finished, itgs=itgs, gd=gd, name_hint="journey_share_image"
+        async with aiofiles.open(
+            self.background_path, "rb"
+        ) as raw_f, AsyncProgressTrackingReadableBytesIO(
+            itgs,
+            job_progress_uid=prog.job_progress_uid,
+            expected_file_size=self.darkened_image_file_size,
+            delegate=raw_f,
+            message="verifying background image",
+        ) as f:
+            actual_sha512 = await hash_filelike(f)
+
+        assert (
+            actual_sha512 == self.darkened_image_file_original_sha512
+        ), f"{actual_sha512=} {self.darkened_image_file_original_sha512=}"
+
+        self.brandmark_natural_aspect_ratio = await get_svg_natural_aspect_ratio(
+            "assets/Oseh_Brandmark_White.svg"
         )
-        logging.debug(f"{__name__} - all targets have been uploaded; inserting")
+        assert self.brandmark_natural_aspect_ratio is not None
 
-        exports_sql_writer = io.StringIO()
-        exports_sql_writer.write(
-            "WITH batch(uid, s3_file_uid, width, height, format, quality_settings, thumbhash) AS ("
-            "VALUES (?, ?, ?, ?, ?, ?, ?)"
-        )
-        for _ in range(1, len(uploaded)):
-            exports_sql_writer.write(", (?, ?, ?, ?, ?, ?, ?)")
-        exports_sql_writer.write(
-            ") INSERT INTO image_file_exports ("
-            " uid,"
-            " image_file_id,"
-            " s3_file_id,"
-            " width,"
-            " height,"
-            " left_cut_px,"
-            " right_cut_px,"
-            " top_cut_px,"
-            " bottom_cut_px,"
-            " format,"
-            " quality_settings,"
-            " thumbhash,"
-            " created_at"
-            ") SELECT"
-            " batch.uid,"
-            " image_files.id,"
-            " s3_files.id,"
-            " batch.width,"
-            " batch.height,"
-            " 0, 0, 0, 0,"
-            " batch.format,"
-            " batch.quality_settings,"
-            " batch.thumbhash,"
-            " ? "
-            "FROM batch, image_files, s3_files "
-            "WHERE"
-            " image_files.uid = ?"
-            " AND s3_files.uid = batch.s3_file_uid"
-        )
-        exports_sql = exports_sql_writer.getvalue()
+    def prepare_process(self, exit_requested: MPEvent):
+        self.background_image = Image.open(self.background_path)
+        self.background_image.load()
 
-        now = time.time()
-        image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}"
+        if exit_requested.is_set():
+            return
 
-        exports_qargs = []
-        for export in uploaded:
-            exports_qargs.extend(
-                [
-                    export.local_image_file_export.uid,
-                    export.s3_file.uid,
-                    export.local_image_file_export.width,
-                    export.local_image_file_export.height,
-                    export.local_image_file_export.format,
-                    json.dumps(export.local_image_file_export.quality_settings),
-                    export.local_image_file_export.thumbhash,
-                ]
+        with open("assets/OpenSans-Regular.ttf", "rb") as f:
+            self.open_sans_regular_raw = f.read()
+
+    def generate(self, width: int, height: int, exit_requested: MPEvent) -> Image.Image:
+        assert self.open_sans_regular_raw is not None
+        assert self.background_image is not None
+        assert self.brandmark_natural_aspect_ratio is not None
+        assert self.journey_title is not None
+        assert self.instructor_name is not None
+
+        bknd = self.background_image
+        crops = determine_crop((bknd.width, bknd.height), (width, height), (0.5, 0.5))
+
+        if any(crop > 0 for crop in crops):
+            bknd = bknd.crop(_crops_to_pil_box(*crops, bknd.width, bknd.height))
+            if exit_requested.is_set():
+                raise ShareImageBounceError()
+
+        if bknd.width != width or bknd.height != height:
+            bknd = bknd.resize((width, height), Image.LANCZOS)
+            if exit_requested.is_set():
+                raise ShareImageBounceError()
+
+        settings = _estimate_share_image_settings(width, height)
+        while True:
+            if exit_requested.is_set():
+                raise ShareImageBounceError()
+
+            title_font = ImageFont.truetype(
+                font=io.BytesIO(self.open_sans_regular_raw),
+                size=settings.title_fontsize,
+                index=0,
+                encoding="unic",
+                layout_engine=ImageFont.Layout.BASIC,
             )
-        exports_qargs.extend([now, image_file_uid])
+            instructor_font = ImageFont.truetype(
+                font=io.BytesIO(self.open_sans_regular_raw),
+                size=settings.instructor_fontsize,
+                index=0,
+                encoding="unic",
+                layout_engine=ImageFont.Layout.BASIC,
+            )
+            brandmark: Optional[Image.Image] = None
+            if settings.brandmark_size is not None:
+                with temp_file(".png") as brandmark_filepath:
+                    cairosvg.svg2png(
+                        url="assets/Oseh_Brandmark_White.svg",
+                        write_to=brandmark_filepath,
+                        output_width=settings.brandmark_size,
+                        output_height=round(
+                            (
+                                settings.brandmark_size
+                                / self.brandmark_natural_aspect_ratio.ratio
+                            )
+                        ),
+                        background_color="transparent",
+                    )
+                    brandmark = Image.open(brandmark_filepath, formats=["png"])
+                    brandmark.load()
+
+            settings, result = _try_make_share_image_with_fonts(
+                self.journey_title,
+                self.instructor_name,
+                bknd,
+                title_font,
+                instructor_font,
+                brandmark,
+                settings,
+            )
+            if result is not None:
+                return result
+
+    async def finish(
+        self, itgs: Itgs, gd: GracefulDeath, prog: ProgressHelper, img: ImageFile
+    ):
+        conn = await itgs.conn()
+        cursor = conn.cursor("strong")
 
         response = await cursor.executeunified3(
             (
-                (
-                    """
-                    INSERT INTO image_files (
-                        uid, name, original_sha512, original_width, original_height, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        image_file_uid,
-                        f"share_image_for_{journey_uid}",
-                        f"garbage--{secrets.token_urlsafe(64)}",
-                        1200,
-                        630,
-                        now,
-                    ),
-                ),
-                (exports_sql, exports_qargs),
                 (
                     """
                     SELECT
@@ -351,7 +289,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                         journeys.uid = ?
                         AND journeys.share_image_file_id = image_files.id
                     """,
-                    (journey_uid,),
+                    (self.journey_uid,),
                 ),
                 (
                     """
@@ -362,33 +300,44 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
                         journeys.uid = ?
                         AND image_files.uid = ?
                     """,
-                    (journey_uid, image_file_uid),
+                    (self.journey_uid, img.uid),
                 ),
             )
         )
 
-        if response[2].results:
-            old_share_image_file_uid = cast(Optional[str], response[2].results[0][0])
-            if old_share_image_file_uid is not None:
-                jobs = await itgs.jobs()
-                await jobs.enqueue(
-                    "runners.delete_image_file", uid=old_share_image_file_uid
-                )
+        old_image_file_uid = (
+            None if not response[0].results else cast(str, response[0].results[0][0])
+        )
+        updated = (
+            response[1].rows_affected is not None and response[1].rows_affected > 0
+        )
 
-        if response[3].rows_affected != 1:
+        if updated:
+            assert response[1].rows_affected == 1, response
+
+        if not updated:
             await handle_warning(
-                f"{__name__}:failed_to_set_image",
-                f"Failed to set share image for `{journey_uid=}`; `{response[3].rows_affected=}`",
+                f"{__name__}:raced",
+                f"journey {self.journey_uid} was deleted while share image was generated",
+            )
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.delete_image_file",
+                uid=img.uid,
+            )
+            return
+
+        if old_image_file_uid is not None and old_image_file_uid != img.uid:
+            jobs = await itgs.jobs()
+            await jobs.enqueue(
+                "runners.delete_image_file",
+                uid=old_image_file_uid,
             )
 
-            jobs = await itgs.jobs()
-            await jobs.enqueue("runners.delete_image_file", uid=image_file_uid)
-
-
-@dataclass
-class _Journey:
-    title: str
-    instructor_name: str
+        if old_image_file_uid != img.uid:
+            logging.info(
+                f"{__name__} assigned new share image {img.uid} to journey {self.journey_uid}"
+            )
 
 
 @dataclass
@@ -398,210 +347,61 @@ class _ShareImageSettings:
     brandmark_size: Optional[int]
 
 
-@dataclass
-class _MakeShareImageResult:
-    file_size: int
-    thumbhash: str
-    iden: int
-
-
-@dataclass
-class _PartialLocalImageFileExport:
-    # omits filesize / thumbhash which aren't available until the export is ready
-    uid: str
-    width: int
-    height: int
-    filepath: str
-    crop: Tuple[int, int, int, int]  # top, right, bottom, left
-    format: str
-    quality_settings: Dict[str, Any]
-
-
-def _estimate_share_image_settings(target: ImageTarget) -> _ShareImageSettings:
-    if target.width == 1200 and target.height == 630:
+def _estimate_share_image_settings(width: int, height: int) -> _ShareImageSettings:
+    if width == 1200 and height == 630:
         return _ShareImageSettings(
             title_fontsize=60,
             instructor_fontsize=32,
             brandmark_size=60,
         )
 
-    if target.width == 600 and target.height == 315:
+    if width == 600 and height == 315:
         return _ShareImageSettings(
             title_fontsize=36,
             instructor_fontsize=22,
             brandmark_size=32,
         )
 
-    if target.width == 600 and target.height == 600:
+    if width == 600 and height == 600:
         return _ShareImageSettings(
             title_fontsize=36,
             instructor_fontsize=22,
             brandmark_size=32,
         )
 
-    if target.width == 400 and target.height == 300:
+    if width == 400 and height == 300:
         return _ShareImageSettings(
             title_fontsize=24,
             instructor_fontsize=12,
             brandmark_size=32,
         )
 
-    if target.width == 80 and target.height == 315:
+    if width == 80 and height == 315:
         return _ShareImageSettings(
             title_fontsize=9, instructor_fontsize=5, brandmark_size=None
         )
 
     return _ShareImageSettings(
-        title_fontsize=round((60 / 630) * target.height),
-        instructor_fontsize=round((32 / 630) * target.height),
-        brandmark_size=(
-            round((60 / 630) * target.height) if target.width > 300 else None
-        ),
+        title_fontsize=round((60 / 630) * height),
+        instructor_fontsize=round((32 / 630) * height),
+        brandmark_size=(round((60 / 630) * height) if width > 300 else None),
     )
-
-
-def make_share_image(
-    journey: _Journey,
-    background_filepath: str,
-    output_filepath: str,
-    target: ImageTarget,
-    iden: int,
-    brandmark_natural_aspect_ratio: float,
-) -> _MakeShareImageResult:
-    """Unlike with most images where we simply rescale to size, it looks
-    better if we scale the font size and then allow for subpixel rendering,
-    rather than rendering the text larger and then scaling it down.
-
-    Returns the result parameter; useful when working with pools
-    """
-    img = Image.open(background_filepath)
-
-    crops = determine_crop(
-        (img.width, img.height), (target.width, target.height), (0.5, 0.5)
-    )
-
-    if any(crop > 0 for crop in crops):
-        img = img.crop(_crops_to_pil_box(*crops, img.width, img.height))
-
-    if img.width != target.width or img.height != target.height:
-        img = img.resize((target.width, target.height), Image.LANCZOS)
-
-    img = img.convert("RGBA")
-
-    with open("assets/OpenSans-Regular.ttf", "rb") as f:
-        open_sans_medium_raw = f.read()
-
-    settings = _estimate_share_image_settings(target)
-    success = False
-    while not success:
-        title_font = ImageFont.truetype(
-            font=io.BytesIO(open_sans_medium_raw),
-            size=settings.title_fontsize,
-            index=0,
-            encoding="unic",
-            layout_engine=ImageFont.Layout.BASIC,
-        )
-        instructor_font = ImageFont.truetype(
-            font=io.BytesIO(open_sans_medium_raw),
-            size=settings.instructor_fontsize,
-            index=0,
-            encoding="unic",
-            layout_engine=ImageFont.Layout.BASIC,
-        )
-        brandmark: Optional[Image.Image] = None
-        if settings.brandmark_size is not None:
-            with temp_file(".png") as brandmark_filepath:
-                cairosvg.svg2png(
-                    url="assets/Oseh_Brandmark_White.svg",
-                    write_to=brandmark_filepath,
-                    output_width=settings.brandmark_size,
-                    output_height=round(
-                        (settings.brandmark_size / brandmark_natural_aspect_ratio)
-                    ),
-                    background_color="transparent",
-                )
-                brandmark = Image.open(brandmark_filepath, formats=["png"])
-                brandmark.load()
-
-        settings, success = _try_make_share_image_with_fonts(
-            journey,
-            img,
-            title_font,
-            instructor_font,
-            brandmark,
-            output_filepath,
-            target,
-            settings,
-        )
-
-    filesize = os.path.getsize(output_filepath)
-    thumbhash_bytes_as_list = image_to_thumb_hash(output_filepath)
-    thumbhash_bytes = bytes(thumbhash_bytes_as_list)
-    thumbhash_b64url = base64.urlsafe_b64encode(thumbhash_bytes).decode("ascii")
-
-    return _MakeShareImageResult(
-        file_size=filesize,
-        thumbhash=thumbhash_b64url,
-        iden=iden,
-    )
-
-
-def make_share_image_from_pool(
-    pool: multiprocessing.pool.Pool,
-    journey: _Journey,
-    background_filepath: str,
-    output_filepath: str,
-    target: ImageTarget,
-    iden: int,
-    brandmark_natural_aspect_ratio: float,
-) -> asyncio.Future:
-    """Same as `make_share_image`, except executes in the given pool rather than
-    synchronously.
-
-    This utilizes that `make_share_image` returns the iden parameter, which
-    means its easier to determine which results are done when many targets are
-    being processed in parallel.
-    """
-    loop = asyncio.get_event_loop()
-    future = loop.create_future()
-
-    def _on_done(result):
-        loop.call_soon_threadsafe(future.set_result, result)
-
-    def _on_error(error):
-        loop.call_soon_threadsafe(future.set_exception, error)
-
-    pool.apply_async(
-        make_share_image,
-        args=(
-            journey,
-            background_filepath,
-            output_filepath,
-            target,
-            iden,
-            brandmark_natural_aspect_ratio,
-        ),
-        callback=_on_done,
-        error_callback=_on_error,
-    )
-    return future
 
 
 def _try_make_share_image_with_fonts(
-    journey: _Journey,
+    title: str,
+    instructor_name: str,
     bknd: Image.Image,
     title_font: ImageFont.FreeTypeFont,
     instructor_font: ImageFont.FreeTypeFont,
     brandmark: Optional[Image.Image],
-    output_filepath: str,
-    target: ImageTarget,
     settings: _ShareImageSettings,
-) -> Tuple[_ShareImageSettings, bool]:
+) -> Tuple[_ShareImageSettings, Optional[Image.Image]]:
     img = Image.new("RGBA", bknd.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     brandmark_width = brandmark.width if brandmark is not None else 0
 
-    title_bbox = draw.textbbox((0, 0), journey.title, font=title_font)
+    title_bbox = draw.textbbox((0, 0), title, font=title_font)
     title_required_width = (title_bbox[2] - title_bbox[0]) + brandmark_width
 
     if title_required_width > bknd.width * 0.9:
@@ -612,7 +412,7 @@ def _try_make_share_image_with_fonts(
                     instructor_fontsize=settings.instructor_fontsize,
                     brandmark_size=None,
                 ),
-                False,
+                None,
             )
 
         desired_width = bknd.width * 0.9
@@ -623,12 +423,10 @@ def _try_make_share_image_with_fonts(
                 instructor_fontsize=settings.instructor_fontsize,
                 brandmark_size=None,
             ),
-            False,
+            None,
         )
 
-    instructor_name_bbox = draw.textbbox(
-        (0, 0), journey.instructor_name, font=instructor_font
-    )
+    instructor_name_bbox = draw.textbbox((0, 0), instructor_name, font=instructor_font)
 
     instructor_line_width = instructor_name_bbox[2] - instructor_name_bbox[0]
     instructor_line_required_width = instructor_line_width + brandmark_width
@@ -641,7 +439,7 @@ def _try_make_share_image_with_fonts(
                     instructor_fontsize=settings.instructor_fontsize,
                     brandmark_size=None,
                 ),
-                False,
+                None,
             )
 
         actual_width = instructor_line_width
@@ -655,7 +453,7 @@ def _try_make_share_image_with_fonts(
                 instructor_fontsize=new_instructor_fontsize,
                 brandmark_size=None,
             ),
-            False,
+            None,
         )
 
     title_height = title_bbox[3] - title_bbox[1]
@@ -679,7 +477,7 @@ def _try_make_share_image_with_fonts(
                     else None
                 ),
             ),
-            False,
+            None,
         )
 
     title_real_y = round((bknd.height - total_height) - (20 / 315) * bknd.height)
@@ -691,7 +489,7 @@ def _try_make_share_image_with_fonts(
     img.paste(bknd, (0, 0))
     draw.text(
         (title_real_x - title_bbox[0], title_real_y - title_bbox[1]),
-        journey.title,
+        title,
         font=title_font,
         fill=(255, 255, 255, 255),
     )
@@ -700,7 +498,7 @@ def _try_make_share_image_with_fonts(
             instructor_real_x - instructor_name_bbox[0],
             instructor_row_y - instructor_name_bbox[1],
         ),
-        journey.instructor_name,
+        instructor_name,
         font=instructor_font,
         fill=(255, 255, 255, 255),
     )
@@ -715,8 +513,7 @@ def _try_make_share_image_with_fonts(
         img.paste(brandmark, (brandmark_real_x, brandmark_real_y), brandmark)
 
     img = img.convert("RGB")
-    img.save(output_filepath, format=target.format, **target.quality_settings)
-    return settings, True
+    return settings, img
 
 
 if __name__ == "__main__":

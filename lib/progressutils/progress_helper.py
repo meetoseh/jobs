@@ -10,6 +10,7 @@ from jobs import (
     JobProgressType,
 )
 from redis.exceptions import ConnectionError as RedisConnectionError
+import logging
 
 
 class ProgressHelper:
@@ -18,9 +19,12 @@ class ProgressHelper:
     repetition on the part of the caller.
     """
 
-    def __init__(self, itgs: Itgs, job_progress_uid: Optional[str]):
+    def __init__(
+        self, itgs: Itgs, job_progress_uid: Optional[str], *, log: bool = False
+    ):
         self.itgs = itgs
         self.job_progress_uid = job_progress_uid
+        self.log = log
 
     async def push_progress(
         self,
@@ -50,6 +54,9 @@ class ProgressHelper:
                 "indicator": indicator,
                 "occurred_at": time.time(),
             }
+
+        if self.log:
+            logging.debug(f"progress reported on {self.job_progress_uid}: {progress}")
 
         if self.job_progress_uid is None:
             return

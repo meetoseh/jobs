@@ -2,6 +2,7 @@ import asyncio
 import base64
 from dataclasses import dataclass
 from decimal import Decimal
+import logging
 import math
 from typing import (
     AsyncGenerator,
@@ -237,7 +238,7 @@ async def process_image(
             source.rasterized_path, max_width, max_height, max_area, max_file_size
         )
         _verify_required_targets_possible(source.rasterized_path, targets)
-        name = _name_from_name_hint(name_hint)
+        name = name_from_name_hint(name_hint)
 
         sha512 = await _hash_image(
             source.svg.path if source.svg is not None else source.rasterized_path
@@ -388,7 +389,7 @@ async def _add_missing_targets(
             name_hint=source.name_hint,
         )
         if gd.received_term_signal:
-            await _delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
+            await delete_s3_files([export.s3_file for export in uploaded], itgs=itgs)
             raise ProcessImageAbortedException("Received term signal")
 
         response = await cursor.executemany3(
@@ -451,7 +452,7 @@ async def _add_missing_targets(
         await prog.push_progress(
             f"cleaning up {source.name_hint}", indicator={"type": "spinner"}
         )
-        await _delete_s3_files(to_delete, itgs=itgs)
+        await delete_s3_files(to_delete, itgs=itgs)
         await prog.push_progress(f"cleaned up {source.name_hint}")
         return image_file
 
@@ -461,85 +462,88 @@ async def get_image_file(itgs: Itgs, uid: str) -> Optional[ImageFile]:
     conn = await itgs.conn()
     cursor = conn.cursor()
 
-    response = await cursor.execute(
-        """
-        SELECT
-            s3_files.uid,
-            s3_files.key,
-            s3_files.file_size,
-            s3_files.content_type,
-            s3_files.created_at,
-            image_files.name,
-            image_files.original_sha512,
-            image_files.original_width,
-            image_files.original_height,
-            image_files.created_at
-        FROM image_files
-        LEFT OUTER JOIN s3_files ON s3_files.id = image_files.original_s3_file_id
-        WHERE
-            image_files.uid = ?
-        """,
-        (uid,),
+    response = await cursor.executeunified3(
+        (
+            (
+                """
+                SELECT
+                    s3_files.uid,
+                    s3_files.key,
+                    s3_files.file_size,
+                    s3_files.content_type,
+                    s3_files.created_at,
+                    image_files.name,
+                    image_files.original_sha512,
+                    image_files.original_width,
+                    image_files.original_height,
+                    image_files.created_at
+                FROM image_files
+                LEFT OUTER JOIN s3_files ON s3_files.id = image_files.original_s3_file_id
+                WHERE
+                    image_files.uid = ?
+                """,
+                (uid,),
+            ),
+            (
+                """
+                SELECT
+                    image_file_exports.uid,
+                    s3_files.uid,
+                    s3_files.key,
+                    s3_files.file_size,
+                    s3_files.content_type,
+                    s3_files.created_at,
+                    image_file_exports.width,
+                    image_file_exports.height,
+                    image_file_exports.top_cut_px,
+                    image_file_exports.right_cut_px,
+                    image_file_exports.bottom_cut_px,
+                    image_file_exports.left_cut_px,
+                    image_file_exports.format,
+                    image_file_exports.quality_settings,
+                    image_file_exports.created_at
+                FROM image_file_exports
+                JOIN s3_files ON s3_files.id = image_file_exports.s3_file_id
+                WHERE
+                    EXISTS (
+                        SELECT 1 FROM image_files
+                        WHERE image_files.id = image_file_exports.image_file_id
+                        AND image_files.uid = ?
+                    )
+                """,
+                (uid,),
+            ),
+        )
     )
-    if not response.results:
+    if not response[0].results:
         return None
 
     files = await itgs.files()
     original = (
         None
-        if response.results[0][0] is None
+        if response[0].results[0][0] is None
         else S3File(
-            uid=response.results[0][0],
+            uid=response[0].results[0][0],
             bucket=files.default_bucket,
-            key=response.results[0][1],
-            file_size=response.results[0][2],
-            content_type=response.results[0][3],
-            created_at=response.results[0][4],
+            key=response[0].results[0][1],
+            file_size=response[0].results[0][2],
+            content_type=response[0].results[0][3],
+            created_at=response[0].results[0][4],
         )
     )
 
     image_file = ImageFile(
         uid=uid,
-        name=response.results[0][5],
+        name=response[0].results[0][5],
         original_s3_file=original,
-        original_sha512=response.results[0][6],
-        original_width=response.results[0][7],
-        original_height=response.results[0][8],
-        created_at=response.results[0][9],
+        original_sha512=response[0].results[0][6],
+        original_width=response[0].results[0][7],
+        original_height=response[0].results[0][8],
+        created_at=response[0].results[0][9],
         exports=[],
     )
 
-    response = await cursor.execute(
-        """
-        SELECT
-            image_file_exports.uid,
-            s3_files.uid,
-            s3_files.key,
-            s3_files.file_size,
-            s3_files.content_type,
-            s3_files.created_at,
-            image_file_exports.width,
-            image_file_exports.height,
-            image_file_exports.top_cut_px,
-            image_file_exports.right_cut_px,
-            image_file_exports.bottom_cut_px,
-            image_file_exports.left_cut_px,
-            image_file_exports.format,
-            image_file_exports.quality_settings,
-            image_file_exports.created_at
-        FROM image_file_exports
-        JOIN s3_files ON s3_files.id = image_file_exports.s3_file_id
-        WHERE
-            EXISTS (
-                SELECT 1 FROM image_files
-                WHERE image_files.id = image_file_exports.image_file_id
-                  AND image_files.uid = ?
-            )
-        """,
-        (uid,),
-    )
-
-    for row in response.results or []:
+    for row in response[1].results or []:
         export = ImageFileExport(
             uid=row[0],
             s3_file=S3File(
@@ -602,7 +606,7 @@ async def _make_new_image(
                 job_progress_uid=job_progress_uid,
                 name_hint=source.name_hint,
             ),
-            _upload_original(
+            upload_original(
                 source.rasterized_path if source.svg is None else source.svg.path,
                 image_file_uid=image_file_uid,
                 now=now,
@@ -610,7 +614,7 @@ async def _make_new_image(
             ),
         )
         if gd.received_term_signal:
-            await _delete_s3_files([original], itgs=itgs)
+            await delete_s3_files([original], itgs=itgs)
             raise ProcessImageAbortedException("Received term signal")
 
         if source.svg is not None:
@@ -636,7 +640,7 @@ async def _make_new_image(
             name_hint=source.name_hint,
         )
         if gd.received_term_signal:
-            await _delete_s3_files(
+            await delete_s3_files(
                 [original, *[export.s3_file for export in uploaded]], itgs=itgs
             )
             raise ProcessImageAbortedException("Received term signal")
@@ -717,7 +721,7 @@ async def _make_new_image(
                 f"{__name__}:optimistic_insert_failed",
                 f"optimistic insert for {sha512=} failed - inserted during create",
             )
-            await _delete_s3_files(
+            await delete_s3_files(
                 [
                     *[export.s3_file for export in uploaded],
                     original,
@@ -757,7 +761,8 @@ async def _make_new_image(
         shutil.rmtree(tmp_folder)
 
 
-async def _delete_s3_files(s3_files: List[S3File], *, itgs: Itgs) -> None:
+async def delete_s3_files(s3_files: List[S3File], *, itgs: Itgs) -> None:
+    """Deletes the given list of s3 files from the s3_files table and the file service."""
     if not s3_files:
         return
 
@@ -792,13 +797,21 @@ async def _delete_s3_files(s3_files: List[S3File], *, itgs: Itgs) -> None:
     await redis.zadd("files:purgatory", mapping=purg_mapping)
 
 
-async def _upload_original(
+async def upload_original(
     local_filepath: str,
     *,
     image_file_uid: str,
     now: float,
     itgs: Itgs,
 ) -> S3File:
+    """Uploads the original image for the image file with the given uid.
+
+    Args:
+        local_filepath (str): path to the local file containing the original image
+        image_file_uid (str): uid of the image file to which the original image belongs
+        now (float): the current time
+        itgs (Itgs): the integrations to (re)use
+    """
     files = await itgs.files()
     image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}"
     original = S3File(
@@ -815,8 +828,22 @@ async def _upload_original(
         {"key": original.key, "bucket": original.bucket}, sort_keys=True
     )
     await redis.zadd("files:purgatory", mapping={original_purgatory_key: now + 60 * 60})
-    async with aiofiles.open(local_filepath, "rb") as f:
-        await files.upload(f, bucket=original.bucket, key=original.key, sync=False)
+    for attempt in range(5):
+        if attempt > 0:
+            logging.info(f"retrying upload of original image, attempt {attempt+1}/5")
+            await asyncio.sleep(2**(attempt - 1))
+        try:
+            async with aiofiles.open(local_filepath, "rb") as f:
+                await files.upload(f, bucket=original.bucket, key=original.key, sync=False)
+            break
+        except botocore.exceptions.NoCredentialsError:
+            if attempt == 4:
+                raise
+            await handle_warning(
+                f"{__name__}:no_credentials",
+                f"failed to locate s3 credentials during original file upload, attempt {attempt+1}/5",
+            )
+
     conn = await itgs.conn()
     cursor = conn.cursor("strong")
     await cursor.execute(
@@ -851,7 +878,7 @@ async def upload_many_image_targets(
     The returned items will be in the same order as provided, but there may be fewer of
     them if the upload was aborted.
     """
-    prog = ProgressHelper(itgs, job_progress_uid)
+    prog = ProgressHelper(itgs, job_progress_uid, log=True)
     max_concurrent_uploads = 8
 
     progress_message = f"uploading image targets for {name_hint}, up to {max_concurrent_uploads} at a time"
@@ -958,6 +985,7 @@ async def _upload_one(
 
     for attempt in range(5):
         if attempt > 0:
+            logging.debug(f"retrying upload of {local_image_file_export.uid=} attempt {attempt+1}/5")
             await asyncio.sleep(2**attempt)
 
         try:
@@ -1610,7 +1638,8 @@ def _verify_required_targets_possible(
             )
 
 
-def _name_from_name_hint(name_hint: str) -> str:
+def name_from_name_hint(name_hint: str) -> str:
+    """Determines an appropriate image_file name based on the given name_hint"""
     res = "".join(c for c in name_hint[:255] if c.isalnum() or c in "._-").lower()
 
     if len(res) < 5:

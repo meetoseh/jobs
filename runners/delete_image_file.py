@@ -111,6 +111,11 @@ async def execute(
                         courses.hero_image_file_id = image_files.id
                 )
                 AND NOT EXISTS (
+                    SELECT 1 FROM courses
+                    WHERE
+                        courses.share_image_file_id = image_files.id
+                )
+                AND NOT EXISTS (
                     SELECT 1 FROM journey_pinterest_pins
                     WHERE
                         journey_pinterest_pins.image_file_id = image_files.id
