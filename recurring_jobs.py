@@ -384,7 +384,7 @@ class JobInterval:
         except pytz.exceptions.NonExistentTimeError:
             # it's currently daily savings skip hour, use the previous offset
             current_utc_offset_timedelta = self.tz.utcoffset(
-                datetime.datetime.utcfromtimestamp(time.time() - 60 * 60 * 2)
+                datetime.datetime.fromtimestamp(time.time() - 60 * 60 * 2, tz=pytz.utc)
             )
             assert current_utc_offset_timedelta is not None
             current_utc_offset = current_utc_offset_timedelta.total_seconds()
@@ -931,6 +931,11 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(0, 1, 4, 5, 22, 23), minutes=(0, 15, 30, 45), seconds=(0,)),
     ),
+    Job(
+        name="runners.ensure_course_share_images",
+        kwargs=tuple(),
+        interval=JobInterval(pst, days_of_week=("sat",), hours=(8,), minutes=(0,), seconds=(0,)),
+    )
 )
 """The jobs that should be run."""
 
