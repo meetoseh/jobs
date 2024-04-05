@@ -66,7 +66,7 @@ RESOLUTIONS = list(
             # for 1920 width, standard desktop
             (1280, 960),  # 1x
             (2560, 1920),  # 2x (aka 4k)
-            # ADMIN PREVIEW
+            # ADMIN PREVIEW AND THUMBHASH FOR COURSE PUBLIC PAGE (frontend-ssr-web)
             # square
             (180, 180),  # 1x
             (360, 360),  # 2x
