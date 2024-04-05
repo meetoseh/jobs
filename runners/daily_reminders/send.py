@@ -88,6 +88,11 @@ class DailyRemindersSwap:
     reminders, this is email and sms
     """
 
+    min_created_at: Optional[int] = None
+    """If specified, users created at strictly before this number of seconds since the
+    unix epoch will be excluded from the swap
+    """
+
     # we always include unsubscribe_url for the email channel
 
 
@@ -98,6 +103,7 @@ CURRENT_SWAP: Optional[DailyRemindersSwap] = DailyRemindersSwap(
     touch_point_event_slug="oseh_30_launch",
     name_channels=set(),
     url_channels={"sms"},
+    min_created_at=1712127600,
 )
 
 
@@ -288,6 +294,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     and CURRENT_SWAP.start_unix_date
                     <= itm.item.unix_date
                     <= CURRENT_SWAP.end_unix_date
+                    and (
+                        CURRENT_SWAP.min_created_at is None
+                        or itm.info.user_created_at >= CURRENT_SWAP.min_created_at
+                    )
                 ):
                     swap_key = f"daily_reminders:swaps:{CURRENT_SWAP.slug}:{itm.info.channel}".encode(
                         "utf-8"
@@ -533,6 +543,7 @@ class BatchItemAugmentedInfo:
     user_sub: str
     name: str
     channel: Literal["push", "sms", "email"]
+    user_created_at: float
 
 
 @dataclass
@@ -566,7 +577,7 @@ def _create_augment_query(length: int) -> str:
     for _ in range(length - 1):
         result.write(", (?)")
     result.write(
-        ") SELECT batch.uid, users.sub, users.given_name, user_daily_reminders.channel "
+        ") SELECT batch.uid, users.sub, users.given_name, user_daily_reminders.channel, users.created_at "
         "FROM batch "
         "JOIN user_daily_reminders ON user_daily_reminders.uid = batch.uid "
         "JOIN users ON users.id = user_daily_reminders.user_id"
@@ -616,6 +627,7 @@ async def augment_batch(
                 user_sub=row[1],
                 name=row[2] if row[2] is not None else "there",
                 channel=row[3],
+                user_created_at=row[4],
             )
 
         for idx in range(start_idx, end_idx):
