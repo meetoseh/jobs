@@ -1,9 +1,10 @@
 """Daily Reminders Send Job"""
+
 import io
 import json
 import os
 import time
-from typing import Dict, List, Literal, Optional, Protocol, cast
+from typing import Dict, List, Literal, Optional, Protocol, Set, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -25,6 +26,8 @@ from lib.touch.send import (
 from lib.touch.touch_info import TouchToSend
 from redis_helpers.run_with_prep import run_with_prep
 from redis_helpers.zshift import ensure_zshift_script_exists, zshift
+import unix_dates
+import pytz
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -52,6 +55,50 @@ STALE_THRESHOLD_SECONDS = 60 * 60
 to help catch up / avoid sending messages way outside the users' preferred
 time
 """
+
+
+@dataclass
+class DailyRemindersSwap:
+    slug: str
+    """A unique slug, which is used for building the key in redis which
+    contains the users which have already received the swap on the channel.
+    Ex: 'oseh_30_launch'
+    """
+
+    start_unix_date: int
+    """The earliest unix date which we are allowed to swap. Should be at least
+    2 days ahead of when you configure the swap to allow for different timezones
+    """
+
+    end_unix_date: int
+    """The final unix date which we are done trying to swap. Should not be more than
+    7 days after. We will expire the redis key based on this date
+    """
+
+    touch_point_event_slug: str
+    """The touch point event slug we send instead of the daily reminder"""
+
+    name_channels: Set[Literal["email", "sms", "push"]]
+    """The channels we include the event parameter "name". For normal daily
+    reminders, this is just the email channel
+    """
+
+    url_channels: Set[Literal["email", "sms", "push"]]
+    """The channels we include the event parameter "url". For normal daily
+    reminders, this is email and sms
+    """
+
+    # we always include unsubscribe_url for the email channel
+
+
+CURRENT_SWAP: Optional[DailyRemindersSwap] = DailyRemindersSwap(
+    slug="oseh_30_launch",
+    start_unix_date=19821 if os.environ["ENVIRONMENT"] != "dev" else 19818,
+    end_unix_date=19828,
+    touch_point_event_slug="oseh_30_launch",
+    name_channels=set(),
+    url_channels={"sms"},
+)
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
@@ -234,9 +281,43 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             for itm in sendable:
                 if gd.received_term_signal:
                     break
+
+                swap: Optional[DailyRemindersSwap] = None
+                if (
+                    CURRENT_SWAP is not None
+                    and CURRENT_SWAP.start_unix_date
+                    <= itm.item.unix_date
+                    <= CURRENT_SWAP.end_unix_date
+                ):
+                    swap_key = f"daily_reminders:swaps:{CURRENT_SWAP.slug}:{itm.info.channel}".encode(
+                        "utf-8"
+                    )
+                    async with redis.pipeline() as pipe:
+                        pipe.multi()
+                        await redis.sadd(
+                            swap_key,  # type: ignore
+                            itm.info.user_sub.encode("utf-8"),
+                        )
+                        await redis.expireat(
+                            swap_key,
+                            int(
+                                unix_dates.unix_date_to_timestamp(
+                                    CURRENT_SWAP.end_unix_date + 2, tz=pytz.utc
+                                )
+                            ),
+                        )
+                        swap_redis_response = await pipe.execute()
+                    if swap_redis_response[0] > 0:
+                        swap = CURRENT_SWAP
+                        stats.swaps += 1
+
                 touch = initialize_touch(
                     user_sub=itm.info.user_sub,
-                    touch_point_event_slug="daily_reminder",
+                    touch_point_event_slug=(
+                        "daily_reminder"
+                        if swap is None
+                        else swap.touch_point_event_slug
+                    ),
                     channel=itm.info.channel,
                     event_parameters={},
                     success_callback=JobCallback(
@@ -249,11 +330,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 assert touch.success_callback is not None
                 assert touch.failure_callback is not None
 
-                if touch.channel == "email":
+                if (swap is None and touch.channel == "email") or (
+                    swap is not None and touch.channel in swap.name_channels
+                ):
                     touch.event_parameters["name"] = itm.info.name
 
                 link: Optional[TouchLink] = None
-                if touch.channel in ("email", "sms"):
+                if (swap is None and touch.channel in ("email", "sms")) or (
+                    swap is not None and touch.channel in swap.url_channels
+                ):
                     link = await create_buffered_link(
                         itgs,
                         touch_uid=touch.uid,
@@ -283,9 +368,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         now=touch.queued_at,
                         code_style="long",
                     )
-                    touch.event_parameters[
-                        "unsubscribe_url"
-                    ] = f"{root_frontend_url}/l/{unsubscribe_link.code}"
+                    touch.event_parameters["unsubscribe_url"] = (
+                        f"{root_frontend_url}/l/{unsubscribe_link.code}"
+                    )
                     touch.success_callback.kwargs["codes"].append(unsubscribe_link.code)
                     touch.failure_callback.kwargs["codes"].append(unsubscribe_link.code)
 
@@ -402,6 +487,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- SMS: {stats.sms}\n"
             f"- Push: {stats.push}\n"
             f"- Email: {stats.email}\n"
+            f"- Swaps: {stats.swaps}\n"
             f"- Stop Reason: {stop_reason}\n"
         )
         await redis.hset(
@@ -416,6 +502,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 b"sms": str(stats.sms).encode("ascii"),
                 b"push": str(stats.push).encode("ascii"),
                 b"email": str(stats.email).encode("ascii"),
+                b"swaps": str(stats.swaps).encode("ascii"),
                 b"stop_reason": stop_reason.encode("ascii"),
             },
         )
@@ -430,6 +517,7 @@ class RunStats:
     sms: int = 0
     push: int = 0
     email: int = 0
+    swaps: int = 0
 
 
 @dataclass

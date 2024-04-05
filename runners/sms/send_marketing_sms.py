@@ -126,7 +126,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, touch_point_event_slug: str)
                 )
                 success_callback_codes.append(link.code)
                 failure_callback_codes.append(link.code)
-                touch.event_parameters["url"] = f"{root_frontend_url}/l/{link.code}"
+                touch.event_parameters["url"] = f"{root_frontend_url}/a/{link.code}"
 
                 enc_touch = encode_touch(touch)
 

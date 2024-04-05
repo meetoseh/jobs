@@ -8,6 +8,7 @@ library, but 100 days before 19052 is 18952 - easy to answer.
 
 Note this format does not indicate anything about timezones.
 """
+
 import datetime
 from typing import Optional
 import pytz
@@ -28,8 +29,10 @@ def unix_timestamp_to_unix_date(unix_time: float, *, tz: pytz.BaseTzInfo) -> int
     Returns:
         int: The unix date
     """
-    naive_datetime = datetime.datetime.utcfromtimestamp(unix_time)
-    localized_datetime = tz.fromutc(naive_datetime)
+    utc_datetime = datetime.datetime.fromtimestamp(unix_time, tz=pytz.utc).replace(
+        tzinfo=pytz.utc
+    )
+    localized_datetime = utc_datetime.astimezone(tz)
     localized_date = localized_datetime.date()
     localized_unix_date = date_to_unix_date(localized_date)
     utc_midnight_on_localized_date = unix_date_to_timestamp(
@@ -74,7 +77,7 @@ def unix_date_to_date(unix_date: int) -> datetime.date:
     Returns:
         datetime.date: The date
     """
-    midnight_utc = datetime.datetime.utcfromtimestamp(unix_date * 86400)
+    midnight_utc = datetime.datetime.fromtimestamp(unix_date * 86400, tz=pytz.utc)
     return midnight_utc.date()
 
 
@@ -144,4 +147,4 @@ def unix_timestamp_to_datetime(
         unix_seconds (float): The unix time to convert
         tz (pytz.BaseTzInfo): The timezone for the returned date
     """
-    return tz.fromutc(datetime.datetime.utcfromtimestamp(unix_seconds))
+    return datetime.datetime.fromtimestamp(unix_seconds, tz=pytz.utc).astimezone(tz)
