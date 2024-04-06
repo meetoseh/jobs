@@ -19,6 +19,7 @@ import revenue_cat
 import asyncio
 import importlib
 import twilio.rest
+import logging
 
 
 our_diskcache: diskcache.Cache = diskcache.Cache(
@@ -175,7 +176,7 @@ class Itgs:
                 )
                 try:
                     response = await sentinel_conn.execute_command(
-                        "SENTINEL", "MASTER", "mymaster"
+                        "SENTINEL", "MASTER", "mymaster"  # type: ignore
                     )
                     assert isinstance(response, (list, tuple)), response
                     assert len(response) % 2 == 0, response
@@ -369,6 +370,17 @@ class Itgs:
 
             await self._closures["redis_main"](self)
             del self._closures["redis_main"]
+
+    async def ensure_redis_liveliness(self) -> None:
+        """Tries to ping the redis connection; if it fails, reconnects"""
+        logging.debug("Checking redis connection for liveliness...")
+        redis = await self.redis()
+        try:
+            await redis.ping()
+            logging.debug("Redis connection is alive")
+        except:
+            logging.debug("Redis connection is dead; reconnecting...")
+            await self.reconnect_redis()
 
 
 def get_job_category(name: str) -> jobs.JobCategory:

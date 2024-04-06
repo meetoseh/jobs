@@ -207,6 +207,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, journey_uid: str):
             await upload_s3_file_and_put_in_purgatory(
                 s3_file, result.output_path, itgs=itgs, protect_for=60 * 60 * 24 * 7
             )
+            await itgs.ensure_redis_liveliness()
+
             jobs = await itgs.jobs()
             await jobs.enqueue(
                 "runners.process_finished_journey_video",

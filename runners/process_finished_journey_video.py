@@ -34,6 +34,7 @@ async def execute(
     async def bounce():
         slack = await itgs.slack()
         await slack.send_ops_message(f"Bouncing {__name__} for {journey_uid=}")
+        await itgs.ensure_redis_liveliness()
         jobs = await itgs.jobs()
         await jobs.enqueue(
             "runners.process_finished_journey_video",
@@ -129,6 +130,7 @@ async def execute(
 
             await asyncio.sleep(1 + random.random())
         else:
+            await itgs.ensure_redis_liveliness()
             jobs = await itgs.jobs()
             await jobs.enqueue("runners.delete_content_file", uid=result.uid)
 
@@ -137,6 +139,8 @@ async def execute(
                 f"Failed to swap video for {journey_uid=} after 10 attempts",
             )
             return
+
+        await itgs.ensure_redis_liveliness()
 
         if (
             old_video_content_file_uid is not None

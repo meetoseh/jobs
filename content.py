@@ -234,6 +234,8 @@ async def upload_s3_file_and_put_in_purgatory(
     files = await itgs.files()
     conn = await itgs.conn()
     cursor = conn.cursor()
+
+    await itgs.ensure_redis_liveliness()
     redis = await itgs.redis()
 
     purgatory_key = json.dumps({"key": file.key, "bucket": file.bucket}, sort_keys=True)
