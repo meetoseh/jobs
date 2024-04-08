@@ -44,6 +44,7 @@ async def _main(gd: GracefulDeath):
             async with Itgs() as itgs:
                 jobs = await itgs.jobs()
                 while not gd.received_term_signal and not stop_event.is_set():
+                    jobs = await itgs.jobs()
                     try:
                         job = await jobs.retrieve(timeout=5)
                     except Exception as e:
@@ -59,9 +60,11 @@ async def _main(gd: GracefulDeath):
                         mod = importlib.import_module(job["name"])
                         started_at = time.perf_counter()
                         await mod.execute(itgs, gd, **job["kwargs"])
-                        logging.info(
-                            f"finished in {time.perf_counter() - started_at:.3f} seconds"
-                        )
+                        time_taken = time.perf_counter() - started_at
+                        logging.info(f"finished in {time_taken:.3f} seconds")
+
+                        if time_taken > 5:
+                            await itgs.ensure_redis_liveliness()
                     except Exception as e:
                         await handle_error(e)
                         break

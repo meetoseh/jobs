@@ -304,11 +304,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     )
                     async with redis.pipeline() as pipe:
                         pipe.multi()
-                        await redis.sadd(
+                        await pipe.sadd(
                             swap_key,  # type: ignore
                             itm.info.user_sub.encode("utf-8"),
                         )
-                        await redis.expireat(
+                        await pipe.expireat(
                             swap_key,
                             int(
                                 unix_dates.unix_date_to_timestamp(
