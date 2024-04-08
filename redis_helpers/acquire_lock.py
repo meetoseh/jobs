@@ -31,7 +31,7 @@ if
     or type(lock.acquired_at) ~= 'number' 
     or type(lock.lock_id) ~= 'string'
 then
-    redis.call("EXPIREAT", key, acquired_at + 300, "NX")
+    redis.call("EXPIREAT", key, now + 300, "NX")
     return {-5, current_value}
 end
 
@@ -40,14 +40,14 @@ if lock.hostname == hostname then
         return {-4, current_value}
     end
 
-    redis.call("EXPIREAT", key, acquired_at + 300, "NX")
-    redis.call("EXPIREAT", key, acquired_at + 300, "LT")
+    redis.call("EXPIREAT", key, now + 300, "NX")
+    redis.call("EXPIREAT", key, now + 300, "LT")
     return {-3, current_value}
 end
 
-if lock.acquired_at < (acquired_at - 60 * 60 * 6) then
-    redis.call("EXPIREAT", key, acquired_at + 3600, "NX")
-    redis.call("EXPIREAT", key, acquired_at + 3600, "LT")
+if lock.acquired_at < (now - 60 * 60 * 6) then
+    redis.call("EXPIREAT", key, now + 3600, "NX")
+    redis.call("EXPIREAT", key, now + 3600, "LT")
     return {-2, current_value}
 end
 
