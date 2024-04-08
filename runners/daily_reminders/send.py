@@ -88,8 +88,8 @@ class DailyRemindersSwap:
     reminders, this is email and sms
     """
 
-    min_created_at: Optional[int] = None
-    """If specified, users created at strictly before this number of seconds since the
+    max_created_at: Optional[int] = None
+    """If specified, users created at strictly after this number of seconds since the
     unix epoch will be excluded from the swap
     """
 
@@ -103,7 +103,7 @@ CURRENT_SWAP: Optional[DailyRemindersSwap] = DailyRemindersSwap(
     touch_point_event_slug="oseh_30_launch",
     name_channels=set(),
     url_channels={"sms"},
-    min_created_at=1712127600,
+    max_created_at=1712127600,
 )
 
 
@@ -295,8 +295,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     <= itm.item.unix_date
                     <= CURRENT_SWAP.end_unix_date
                     and (
-                        CURRENT_SWAP.min_created_at is None
-                        or itm.info.user_created_at >= CURRENT_SWAP.min_created_at
+                        CURRENT_SWAP.max_created_at is None
+                        or itm.info.user_created_at <= CURRENT_SWAP.max_created_at
                     )
                 ):
                     swap_key = f"daily_reminders:swaps:{CURRENT_SWAP.slug}:{itm.info.channel}".encode(
