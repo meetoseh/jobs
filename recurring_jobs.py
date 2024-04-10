@@ -695,6 +695,11 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
+        name="runners.stats.daily_sms_event_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
         name="runners.sms.send",
         kwargs=tuple(),
         interval=JobInterval(
