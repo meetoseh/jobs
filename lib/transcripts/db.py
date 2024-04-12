@@ -110,7 +110,7 @@ async def store_transcript_for_content_file(
             )
         )
 
-    response = await cursor.executemany3(
+    response = await cursor.executeunified3(
         (
             (
                 """
@@ -166,6 +166,13 @@ async def store_transcript_for_content_file(
                     transcript_uid,
                 ),
             ),
+            (
+                "SELECT journeys.uid FROM content_files, journeys "
+                "WHERE"
+                " content_files.uid = ?"
+                " AND content_files.id = journeys.audio_content_file_id",
+                (content_file_uid,),
+            ),
         )
     )
 
@@ -183,3 +190,18 @@ async def store_transcript_for_content_file(
         raise ValueError(
             f"Failed to associate {content_file_uid=} with {transcript_uid=}: this should not happen"
         )
+
+    if response[3].results:
+        redis = await itgs.redis()
+        for journey_uid in response[3].results:
+            evict_message = json.dumps(
+                {
+                    "uid": journey_uid,
+                    "min_checked_at": time.time(),
+                    "have_updated": False,
+                }
+            ).encode("utf-8")
+            await redis.publish(
+                b"ps:journeys:external:push_cache",
+                len(evict_message).to_bytes(4, "big", signed=False) + evict_message,
+            )
