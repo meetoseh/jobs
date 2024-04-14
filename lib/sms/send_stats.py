@@ -1,5 +1,6 @@
 """Assists with updating statistics related to managing SMS sends
 """
+
 from typing import Dict, Literal, Optional, Type, Union
 from pydantic import BaseModel, Field
 from redis_helpers.run_with_prep import run_with_prep
@@ -46,11 +47,11 @@ class SmsSendStatsErrorCodeExtra(BaseModel):
 
 
 class SmsSendStatsHttpStatusCodeExtra(BaseModel):
-    http_status_code: str = Field(description="The HTTP status code returned")
+    http_status_code: int = Field(description="The HTTP status code returned")
 
     @property
     def redis_key(self) -> bytes:
-        return self.http_status_code.encode("utf-8")
+        return str(self.http_status_code).encode("utf-8")
 
 
 SMS_SEND_STATS_EVENTS: Dict[
