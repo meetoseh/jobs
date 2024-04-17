@@ -97,13 +97,13 @@ class DailyRemindersSwap:
 
 
 CURRENT_SWAP: Optional[DailyRemindersSwap] = DailyRemindersSwap(
-    slug="oseh_30_launch",
-    start_unix_date=19821 if os.environ["ENVIRONMENT"] != "dev" else 19818,
-    end_unix_date=19828,
-    touch_point_event_slug="oseh_30_launch",
+    slug="oseh_302_launch",
+    start_unix_date=19830,
+    end_unix_date=19837,
+    touch_point_event_slug="oseh_302_launch",
     name_channels=set(),
     url_channels={"sms"},
-    max_created_at=1712127600,
+    max_created_at=1713387600,
 )
 
 
