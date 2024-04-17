@@ -1,8 +1,9 @@
 """Touch system log job"""
+
 import io
 import json
 import secrets
-from typing import List, Optional
+from typing import List, Literal, Optional, Set, Tuple
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -90,6 +91,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 break
 
             user_touch_point_state_updates: List[TouchLogUserTouchPointStateUpdate] = []
+            # touch_point_uid, user sub, channel
+            skippable_touch_point_state_inserts: Set[
+                Tuple[str, str, Literal["email", "push", "sms"]]
+            ] = set()
             user_touch_point_state_inserts: List[TouchLogUserTouchPointStateInsert] = []
             user_touch_inserts: List[TouchLogUserTouchInsert] = []
             user_touch_debug_log_inserts: List[TouchLogUserTouchDebugLogInsert] = []
@@ -102,6 +107,18 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     if isinstance(itm, TouchLogUserTouchPointStateUpdate):
                         user_touch_point_state_updates.append(itm)
                     elif isinstance(itm, TouchLogUserTouchPointStateInsert):
+                        key = (
+                            itm.fields.touch_point_uid,
+                            itm.fields.user_sub,
+                            itm.fields.channel,
+                        )
+                        old_len = len(skippable_touch_point_state_inserts)
+                        skippable_touch_point_state_inserts.add(key)
+                        if len(skippable_touch_point_state_inserts) == old_len:
+                            # we already have this item
+                            stats.inserts += 1
+                            stats.failed_inserts += 1
+                            continue
                         user_touch_point_state_inserts.append(itm)
                     elif isinstance(itm, TouchLogUserTouchInsert):
                         user_touch_inserts.append(itm)
