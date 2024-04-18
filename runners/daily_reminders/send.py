@@ -118,6 +118,22 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         possible to e.g., start fetching the first subbatch from the database
         while still retrieving the remainder of the batch from redis
 
+    TODO:
+        Daily reminder variety - the plan is when users are engaged they are
+        sent touch point A, otherwise they are sent touch point B. When a user
+        switches from engaged to disengaged (or vice-versa, equivalently*), we
+        reset B (which will use the new ordered_resettable selection strategy)
+        via the `ss_reset` event parameter. We will decide engagement based on
+        the journeys theyve taken + their goal + their account age.
+
+        The other part we need to handle is when a disengaged user reaches the end
+        of the disengagement flow they should be unregistered from daily reminders,
+        and prompted to re-register the next time they visit.
+
+        *: because we always reset B, and resetting an already reset touch point
+          does nothing, and theres only two states, we can choose to reset on either
+          becoming engaged, becoming disengaged, or both, whichever is easiest
+
     Args:
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically

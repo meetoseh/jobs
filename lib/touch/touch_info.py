@@ -69,12 +69,16 @@ class TouchPending(BaseModel):
         success_callback_raw = data.get_bytes(b"success_callback", default=None)
         failure_callback_raw = data.get_bytes(b"failure_callback", default=None)
         return cls(
-            success_callback=JobCallback.model_validate_json(success_callback_raw)
-            if success_callback_raw is not None
-            else None,
-            failure_callback=JobCallback.model_validate_json(failure_callback_raw)
-            if failure_callback_raw is not None
-            else None,
+            success_callback=(
+                JobCallback.model_validate_json(success_callback_raw)
+                if success_callback_raw is not None
+                else None
+            ),
+            failure_callback=(
+                JobCallback.model_validate_json(failure_callback_raw)
+                if failure_callback_raw is not None
+                else None
+            ),
         )
 
     def as_redis_mapping(self) -> Dict[bytes, bytes]:
@@ -83,18 +87,49 @@ class TouchPending(BaseModel):
         """
         result = dict()
         if self.success_callback is not None:
-            result[
-                b"success_callback"
-            ] = self.success_callback.model_dump_json().encode("utf-8")
+            result[b"success_callback"] = (
+                self.success_callback.model_dump_json().encode("utf-8")
+            )
         if self.failure_callback is not None:
-            result[
-                b"failure_callback"
-            ] = self.failure_callback.model_dump_json().encode("utf-8")
+            result[b"failure_callback"] = (
+                self.failure_callback.model_dump_json().encode("utf-8")
+            )
         return result
 
 
 UserTouchPointStateStateFixed = List[str]
-UserTouchPointStateState = UserTouchPointStateStateFixed
+
+
+class UserTouchPointStateStateOrderedResettable(BaseModel):
+    last_priority: int = Field(
+        description=(
+            "The priority of the last message sent. The next message "
+            "should be the lowest priority strictly greater, breaking ties "
+            "by preferring lower index, unless no such message exists, in "
+            "which case it should be treated as an implicit reset"
+        )
+    )
+    counter: int = Field(
+        description=(
+            "incremented by one every time a message is sent to facilitate"
+            "a well-ordered value for seen"
+        )
+    )
+    seen: Dict[str, int] = Field(
+        description=(
+            "Maps from uids of messages within the touch point to the counter "
+            "(pre-increment) when that message was last sent. Messages which "
+            "have never been sent SHOULD NOT be present in this mapping. "
+            "Breaking priority ties is done first be preferring not present, "
+            "then preferring lower values if present, then preferring lower "
+            "indices in the touch point messages list"
+        )
+    )
+
+
+UserTouchPointStateState = Union[
+    UserTouchPointStateStateFixed, UserTouchPointStateStateOrderedResettable
+]
 
 
 class TouchLogUserTouchPointStateUpdateFields(BaseModel):

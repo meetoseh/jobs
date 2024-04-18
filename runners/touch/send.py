@@ -1,4 +1,5 @@
 """Touch Send Job"""
+
 import io
 import json
 import random
@@ -17,6 +18,7 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
+    Union,
 )
 from error_middleware import handle_error, handle_warning
 from itgs import Itgs
@@ -50,6 +52,7 @@ from lib.touch.touch_info import (
     UserTouchDebugLogEventSendStale,
     UserTouchDebugLogEventSendUnreachable,
     UserTouchPointStateState,
+    UserTouchPointStateStateOrderedResettable,
 )
 from lib.touch.touch_points import (
     TouchPointEmailMessage,
@@ -65,6 +68,7 @@ import unix_dates
 from redis.asyncio import Redis as AsyncioRedisClient
 import base64
 import gzip
+import bisect
 
 category = JobCategory.LOW_RESOURCE_COST
 tz = pytz.timezone("America/Los_Angeles")
@@ -501,7 +505,9 @@ class TouchPoint:
     event_slug: str
     """The event slug of the touch point"""
 
-    selection_strategy: Literal["random_with_replacement", "fixed"]
+    selection_strategy: Literal[
+        "random_with_replacement", "fixed", "ordered_resettable"
+    ]
     """The selection strategy of the touch point"""
 
     messages: TouchPointMessages
@@ -887,6 +893,8 @@ async def augment_batch_with_user_touch_point_states(
         if relevant_touch_points[touch.touch_point_event_slug].selection_strategy
         != "random_with_replacement"
     )
+    if not unique_identifiers:
+        return dict()
 
     unique_channels = frozenset(touch.channel for touch in batch)
     assert len(unique_channels) == 1
@@ -1406,12 +1414,12 @@ class MessageBatchSegmentPreparer(
 
             if touch.success_callback is not None or touch.failure_callback is not None:
                 pending_zset_adds[touch.uid.encode("utf-8")] = batch_at
-                pending_callbacks[
-                    f"touch:pending:{touch.uid}".encode("utf-8")
-                ] = TouchPending(
-                    success_callback=touch.success_callback,
-                    failure_callback=touch.failure_callback,
-                ).as_redis_mapping()
+                pending_callbacks[f"touch:pending:{touch.uid}".encode("utf-8")] = (
+                    TouchPending(
+                        success_callback=touch.success_callback,
+                        failure_callback=touch.failure_callback,
+                    ).as_redis_mapping()
+                )
                 pending_remaining[
                     f"touch:pending:{touch.uid}:remaining".encode("utf-8")
                 ] = remaining
@@ -1899,12 +1907,36 @@ def select_message(
     state: Optional[UserTouchPointState],
     messages: List[T],
 ) -> Tuple[T, Optional[UserTouchPointState]]:
+    """Selects the appropriate message to send for the given touch, using the touch
+    points selection strategy, plus the new state for the user touch point after
+    this message.
+    """
     assert messages, messages
     if touch_point.selection_strategy == "random_with_replacement":
         return random.choice(messages), None
+    elif touch_point.selection_strategy == "fixed":
+        return _select_message_fixed(touch, touch_point, state, messages)
+    else:
+        assert (
+            touch_point.selection_strategy == "ordered_resettable"
+        ), touch_point.selection_strategy
+        return _select_message_ordered_resettable(touch, touch_point, state, messages)
 
+
+def _select_message_fixed(
+    touch: TouchToSend,
+    touch_point: TouchPoint,
+    state: Optional[UserTouchPointState],
+    messages: List[T],
+) -> Tuple[T, Optional[UserTouchPointState]]:
     assert touch_point.selection_strategy == "fixed", touch_point.selection_strategy
-    seen_set = set(state.state) if state is not None else set()
+
+    if state is None:
+        seen_set = set()
+    else:
+        assert isinstance(state.state, list), state.state
+        seen_set = set(state.state)
+
     priority = None
     choices: List[T] = []
     for msg in messages:
@@ -1924,6 +1956,110 @@ def select_message(
     return selected, UserTouchPointState(
         state.version + 1 if state is not None else 1, list(seen_set)
     )
+
+
+def _select_message_ordered_resettable(
+    touch: TouchToSend,
+    touch_point: TouchPoint,
+    state: Optional[UserTouchPointState],
+    messages: List[T],
+) -> Tuple[T, Optional[UserTouchPointState]]:
+    assert (
+        touch_point.selection_strategy == "ordered_resettable"
+    ), touch_point.selection_strategy
+    assert messages, "cannot have empty messages list"
+
+    if state is None:
+        last_priority = float("-inf")
+        counter = 0
+        seen = dict()
+    else:
+        assert isinstance(
+            state.state, UserTouchPointStateStateOrderedResettable
+        ), state.state
+        last_priority = state.state.last_priority
+        counter = state.state.counter
+        seen = state.state.seen
+
+    is_requested_reset = not not touch.event_parameters.get("ss_reset", False)
+    if not is_requested_reset:
+        message = _select_message_ordered_resettable_helper(
+            messages, seen, last_priority
+        )
+        if message is None:
+            message = _select_message_ordered_resettable_helper(
+                messages, seen, float("-inf")
+            )
+    else:
+        message = _select_message_ordered_resettable_helper(
+            messages, seen, float("-inf")
+        )
+
+    assert message is not None
+    seen = dict(seen)
+    seen[message.uid] = counter
+    return message, UserTouchPointState(
+        version=state.version + 1 if state is not None else 1,
+        state=UserTouchPointStateStateOrderedResettable(
+            last_priority=message.priority,
+            counter=counter + 1,
+            seen=seen,
+        ),
+    )
+
+
+def _select_message_ordered_resettable_helper(
+    messages: List[T], seen: Dict[str, int], priority: Union[int, float]
+) -> Optional[T]:
+    """Selects the first message in the list according to the following sort:
+
+    - Require that the messages priority is strictly larger than the given priority
+    - Prefer lower priority
+    - Prefer not in the seen map
+    - Prefer lower value in the seen map
+    - Prefer lower indices
+
+    This uses a binary search to find the start index to search, and stops as soon
+    as a higher priority is found, thus relying on the messages being sorted by
+    ascending priority.
+
+    The priority should either be an int, or the special value float('-inf').
+    """
+    best_choice: Optional[T] = None
+    start_index = (
+        0
+        if priority == float("-inf")
+        else bisect.bisect_left(messages, priority, key=lambda x: x.priority)
+    )
+
+    for idx in range(start_index, len(messages)):
+        message = messages[idx]
+        if message.priority <= priority:
+            continue
+        last_seen = seen.get(message.uid)
+        if last_seen is None and message.priority == priority + 1:
+            return message
+        if best_choice is None:
+            best_choice = message
+            continue
+        if message.priority < best_choice.priority:
+            best_choice = message
+            continue
+        if message.priority > best_choice.priority:
+            return best_choice
+
+        best_last_seen = seen.get(best_choice.uid)
+        if best_last_seen is None:
+            continue
+        if last_seen is None:
+            best_choice = message
+            continue
+
+        if last_seen < best_last_seen:
+            best_choice = message
+            continue
+
+    return best_choice
 
 
 def select_push_message(
