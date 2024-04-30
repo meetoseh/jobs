@@ -1,6 +1,7 @@
 """A self-contained module for describing users, generally for providing context
 when sending slack messages
 """
+
 import asyncio
 import os
 from typing import List, Literal, Optional, Tuple, cast as typing_cast
@@ -78,11 +79,11 @@ class DescribedUser(BaseModel):
     attribution: Optional[Attribution] = Field(
         description="If attribution data is available, where the user came from"
     )
-    identity_providers: List[
-        Literal["Google", "SignInWithApple", "Direct", "Dev"]
-    ] = Field(
-        description="The providers of the identities associated with the user",
-        max_length=4,
+    identity_providers: List[Literal["Google", "SignInWithApple", "Direct", "Dev"]] = (
+        Field(
+            description="The providers of the identities associated with the user",
+            max_length=4,
+        )
     )
     timezone: Optional[str] = Field(
         description="The users timezone as an IANA timezone string, if set"
@@ -111,8 +112,7 @@ class DescribedUser(BaseModel):
             try:
                 tz = pytz.timezone(self.timezone)
                 now_in_timezone = (
-                    datetime.datetime.utcfromtimestamp(time.time())
-                    .replace(tzinfo=pytz.utc)
+                    datetime.datetime.fromtimestamp(time.time(), tz=pytz.utc)
                     .astimezone(tz)
                     .strftime("%a, %I:%M %p")
                 )
@@ -162,9 +162,9 @@ class DescribedUser(BaseModel):
     def pretty_joined(self) -> str:
         """Represents when the user joined as a date in america/los_angeles"""
         our_time = (
-            datetime.datetime.utcfromtimestamp(self.created_at)
-            .replace(tzinfo=pytz.utc)
-            .astimezone(pytz.timezone("America/Los_Angeles"))
+            datetime.datetime.fromtimestamp(self.created_at, tz=pytz.utc).astimezone(
+                pytz.timezone("America/Los_Angeles")
+            )
         ).strftime("%a %b %d %Y, %I:%M%p")
 
         if self.timezone is None or self.timezone == "America/Los_Angeles":
@@ -173,8 +173,7 @@ class DescribedUser(BaseModel):
         try:
             tz = pytz.timezone(self.timezone)
             their_time = (
-                datetime.datetime.utcfromtimestamp(self.created_at)
-                .replace(tzinfo=pytz.utc)
+                datetime.datetime.fromtimestamp(self.created_at, tz=pytz.utc)
                 .astimezone(tz)
             ).strftime("%a, %I:%M%p")
             return f"{our_time} ({their_time} their time)"
@@ -477,22 +476,26 @@ async def _describe_user_from_source(
         emails=emails,
         phones=phones,
         profile_image=Image(uid=profile_image_uid) if profile_image_uid else None,
-        attribution=Attribution(
-            utm=attributed_utm_canonical_query_param,
-            journey=Journey(
-                uid=attributed_journey_uid,
-                title=attributed_journey_title,
-                code=attributed_journey_code,
+        attribution=(
+            Attribution(
+                utm=attributed_utm_canonical_query_param,
+                journey=(
+                    Journey(
+                        uid=attributed_journey_uid,
+                        title=attributed_journey_title,
+                        code=attributed_journey_code,
+                    )
+                    if (
+                        attributed_journey_code is not None
+                        and attributed_journey_title is not None
+                        and attributed_journey_uid is not None
+                    )
+                    else None
+                ),
             )
-            if (
-                attributed_journey_code is not None
-                and attributed_journey_title is not None
-                and attributed_journey_uid is not None
-            )
-            else None,
-        )
-        if attributed_utm_canonical_query_param or attributed_journey_code
-        else None,
+            if attributed_utm_canonical_query_param or attributed_journey_code
+            else None
+        ),
         identity_providers=identity_providers,
         timezone=timezone,
         created_at=created_at,

@@ -4,6 +4,8 @@ import io
 import json
 import secrets
 from typing import List, Literal, Optional, Set, Tuple
+
+from pydantic import BaseModel
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging
@@ -246,7 +248,10 @@ async def write_user_touch_point_state_updates(
             params.append(itm.fields.user_sub)
             params.append(itm.fields.touch_point_uid)
             params.append(itm.fields.channel)
-            params.append(json.dumps(itm.fields.state))
+            if isinstance(itm.fields.state, BaseModel):
+                params.append(itm.fields.state.model_dump_json())
+            else:
+                params.append(json.dumps(itm.fields.state))
         params.append(now)
 
         response = await cursor.execute(query, params)
@@ -326,7 +331,10 @@ async def write_user_touch_point_state_inserts(
             params.append(itm.fields.touch_point_uid)
             params.append(itm.fields.user_sub)
             params.append(itm.fields.channel)
-            params.append(json.dumps(itm.fields.state))
+            if isinstance(itm.fields.state, BaseModel):
+                params.append(itm.fields.state.model_dump_json())
+            else:
+                params.append(json.dumps(itm.fields.state))
         params.append(now)
         params.append(now)
 

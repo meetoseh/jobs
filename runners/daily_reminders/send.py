@@ -4,7 +4,7 @@ import io
 import json
 import os
 import time
-from typing import Dict, List, Literal, Optional, Protocol, Set, cast
+from typing import Any, Dict, List, Literal, Optional, Protocol, Sequence, Tuple, cast
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -24,6 +24,8 @@ from lib.touch.send import (
     send_touch_in_pipe,
 )
 from lib.touch.touch_info import TouchToSend
+from lib.users.streak import UserStreak, read_user_streak, days_of_week
+from lib.users.time_of_day import get_time_of_day
 from redis_helpers.run_with_prep import run_with_prep
 from redis_helpers.zshift import ensure_zshift_script_exists, zshift
 import unix_dates
@@ -78,16 +80,6 @@ class DailyRemindersSwap:
     touch_point_event_slug: str
     """The touch point event slug we send instead of the daily reminder"""
 
-    name_channels: Set[Literal["email", "sms", "push"]]
-    """The channels we include the event parameter "name". For normal daily
-    reminders, this is just the email channel
-    """
-
-    url_channels: Set[Literal["email", "sms", "push"]]
-    """The channels we include the event parameter "url". For normal daily
-    reminders, this is email and sms
-    """
-
     max_created_at: Optional[int] = None
     """If specified, users created at strictly after this number of seconds since the
     unix epoch will be excluded from the swap
@@ -96,15 +88,7 @@ class DailyRemindersSwap:
     # we always include unsubscribe_url for the email channel
 
 
-CURRENT_SWAP: Optional[DailyRemindersSwap] = DailyRemindersSwap(
-    slug="oseh_302_launch",
-    start_unix_date=19830,
-    end_unix_date=19837,
-    touch_point_event_slug="oseh_302_launch",
-    name_channels=set(),
-    url_channels={"sms"},
-    max_created_at=1713387600,
-)
+CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(Optional[DailyRemindersSwap], None)
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
@@ -118,22 +102,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         possible to e.g., start fetching the first subbatch from the database
         while still retrieving the remainder of the batch from redis
 
-    TODO:
-        Daily reminder variety - the plan is when users are engaged they are
-        sent touch point A, otherwise they are sent touch point B. When a user
-        switches from engaged to disengaged (or vice-versa, equivalently*), we
-        reset B (which will use the new ordered_resettable selection strategy)
-        via the `ss_reset` event parameter. We will decide engagement based on
-        the journeys theyve taken + their goal + their account age.
-
-        The other part we need to handle is when a disengaged user reaches the end
-        of the disengagement flow they should be unregistered from daily reminders,
-        and prompted to re-register the next time they visit.
-
-        *: because we always reset B, and resetting an already reset touch point
-          does nothing, and theres only two states, we can choose to reset on either
-          becoming engaged, becoming disengaged, or both, whichever is easiest
-
     Args:
         itgs (Itgs): the integration to use; provided automatically
         gd (GracefulDeath): the signal tracker; provided automatically
@@ -142,8 +110,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
     async with basic_redis_lock(
         itgs, b"daily_reminders:send_job_lock", gd=gd, spin=False
     ):
-        redis = await itgs.redis()
-        await redis.hset(  # type: ignore
+        await (await itgs.redis()).hset(  # type: ignore
             b"stats:daily_reminders:send_job",  # type: ignore
             mapping={b"started_at": str(started_at).encode("ascii")},
         )
@@ -166,6 +133,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             if time.time() - started_at > MAX_JOB_TIME_SECONDS:
                 stop_reason = "time_exhausted"
                 break
+
+            await itgs.ensure_redis_liveliness()
+            redis = await itgs.redis()
 
             purgatory_size = await redis.zcard(b"daily_reminders:send_purgatory")
             if purgatory_size != 0:
@@ -228,12 +198,13 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             if gd.received_term_signal:
                 stop_reason = "signal"
                 break
+            del redis
 
             logging.debug(
                 f"Daily Reminders Send Job fetched {len(batch)} items from redis"
             )
 
-            augmented_batch = await augment_batch(itgs, batch, gd=gd)
+            augmented_batch = await augment_batch(itgs, batch, gd=gd, now=time.time())
             if gd.received_term_signal:
                 stop_reason = "signal"
                 break
@@ -318,6 +289,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     swap_key = f"daily_reminders:swaps:{CURRENT_SWAP.slug}:{itm.info.channel}".encode(
                         "utf-8"
                     )
+                    await itgs.ensure_redis_liveliness()
+                    redis = await itgs.redis()
                     async with redis.pipeline() as pipe:
                         pipe.multi()
                         await pipe.sadd(
@@ -333,19 +306,64 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             ),
                         )
                         swap_redis_response = await pipe.execute()
+                    del redis
                     if swap_redis_response[0] > 0:
                         swap = CURRENT_SWAP
                         stats.swaps += 1
 
+                touch_at = time.time()
+                touch_weekday = unix_dates.unix_date_to_date(
+                    unix_dates.unix_timestamp_to_unix_date(
+                        touch_at, tz=itm.info.timezone
+                    )
+                ).weekday()
+                if swap is not None:
+                    touch_point_event_slug = swap.touch_point_event_slug
+                elif (
+                    itm.info.streak.goal_days_per_week is not None
+                    and len(itm.info.streak.days_of_week)
+                    == itm.info.streak.goal_days_per_week - 1
+                    and days_of_week[touch_weekday] not in itm.info.streak.days_of_week
+                ):
+                    if touch_weekday == 6:
+                        touch_point_event_slug = "daily_reminder_almost_miss_goal"
+                    else:
+                        touch_point_event_slug = "daily_reminder_almost_goal"
+                elif itm.info.engaged:
+                    touch_point_event_slug = "daily_reminder_engaged"
+                else:
+                    touch_point_event_slug = "daily_reminder_disengaged"
+
                 touch = initialize_touch(
                     user_sub=itm.info.user_sub,
-                    touch_point_event_slug=(
-                        "daily_reminder"
-                        if swap is None
-                        else swap.touch_point_event_slug
-                    ),
+                    touch_point_event_slug=touch_point_event_slug,
                     channel=itm.info.channel,
-                    event_parameters={},
+                    event_parameters={
+                        "name": itm.info.name,
+                        "time_of_day": get_time_of_day(
+                            touch_at, itm.info.timezone
+                        ).value,
+                        "streak": f"{itm.info.streak.streak} day{itm.info.streak.streak != 1 and 's' or ''}",
+                        "goal": (
+                            f"{len(itm.info.streak.days_of_week)} of {itm.info.streak.goal_days_per_week}"
+                            if itm.info.streak.goal_days_per_week is not None
+                            else "Not set"
+                        ),
+                        "goal_simple": (
+                            f"{itm.info.streak.goal_days_per_week}"
+                            if itm.info.streak.goal_days_per_week is not None
+                            else "0"
+                        ),
+                        "goal_badge_url": (
+                            f"{root_frontend_url}/goalBadge/{min(len(itm.info.streak.days_of_week), itm.info.streak.goal_days_per_week or 3)}of{itm.info.streak.goal_days_per_week or 3}-192h.png"
+                        ),
+                        **(
+                            {"ss_reset": True}
+                            if itm.info.engaged
+                            and touch_point_event_slug == "daily_reminder_disengaged"
+                            else {}
+                        ),
+                    },
                     success_callback=JobCallback(
                         name="runners.touch.persist_links", kwargs={"codes": []}
                     ),
@@ -356,15 +374,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 assert touch.success_callback is not None
                 assert touch.failure_callback is not None
 
-                if (swap is None and touch.channel == "email") or (
-                    swap is not None and touch.channel in swap.name_channels
-                ):
-                    touch.event_parameters["name"] = itm.info.name
-
                 link: Optional[TouchLink] = None
-                if (swap is None and touch.channel in ("email", "sms")) or (
-                    swap is not None and touch.channel in swap.url_channels
-                ):
+                if touch.channel != "push":
                     link = await create_buffered_link(
                         itgs,
                         touch_uid=touch.uid,
@@ -426,9 +437,14 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
             logging.debug(f"Daily Reminders Send Job prepared {len(prepared)} items")
 
+            await itgs.ensure_redis_liveliness()
+            redis = await itgs.redis()
+
             written_to_idx = 0
             got_backpressure = False
             redis_stats = DailyReminderStatsPreparer()
+            user_subs_to_mark_engaged: List[str] = []
+            user_subs_to_mark_disengaged: List[str] = []
             for start_idx in range(0, len(prepared), REDIS_WRITE_BATCH_SIZE):
                 if gd.received_term_signal or got_backpressure:
                     break
@@ -479,10 +495,44 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
                         keys_to_zrem.append(itm.item.key)
 
+                        if (
+                            not itm.info.was_engaged
+                            and itm.touch.touch_point_event_slug
+                            == "daily_reminder_engaged"
+                        ):
+                            user_subs_to_mark_engaged.append(itm.info.user_sub)
+                        elif (
+                            itm.info.was_engaged
+                            and itm.touch.touch_point_event_slug
+                            == "daily_reminder_disengaged"
+                        ):
+                            user_subs_to_mark_disengaged.append(itm.info.user_sub)
+
                 written_to_idx = end_idx + 1
-                await redis.zrem(b"daily_reminders:send_purgatory", *keys_to_zrem)
+                await itgs.ensure_redis_liveliness()
+                await (await itgs.redis()).zrem(
+                    b"daily_reminders:send_purgatory", *keys_to_zrem
+                )
+
+            del redis
 
             await redis_stats.store(itgs)
+
+            update_engaged_queries: List[Tuple[str, Sequence[Any]]] = []
+            if query_and_qargs := create_update_user_subs_engaged_query(
+                user_subs_to_mark_engaged, True
+            ):
+                stats.marked_engaged += len(user_subs_to_mark_engaged)
+                update_engaged_queries.append(query_and_qargs)
+            if query_and_qargs := create_update_user_subs_engaged_query(
+                user_subs_to_mark_disengaged, False
+            ):
+                stats.marked_disengaged += len(user_subs_to_mark_disengaged)
+                update_engaged_queries.append(query_and_qargs)
+            if update_engaged_queries:
+                conn = await itgs.conn()
+                cursor = conn.cursor()
+                await cursor.executemany3(update_engaged_queries)
 
             if gd.received_term_signal or got_backpressure:
                 for itm in prepared[written_to_idx:]:
@@ -514,9 +564,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"- Push: {stats.push}\n"
             f"- Email: {stats.email}\n"
             f"- Swaps: {stats.swaps}\n"
+            f"- Marked Engaged: {stats.marked_engaged}\n"
+            f"- Marked Disengaged: {stats.marked_disengaged}\n"
             f"- Stop Reason: {stop_reason}\n"
         )
-        await redis.hset(
+        await itgs.ensure_redis_liveliness()
+        await (await itgs.redis()).hset(
             b"stats:daily_reminders:send_job",  # type: ignore
             mapping={
                 b"finished_at": str(finished_at).encode("ascii"),
@@ -529,6 +582,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 b"push": str(stats.push).encode("ascii"),
                 b"email": str(stats.email).encode("ascii"),
                 b"swaps": str(stats.swaps).encode("ascii"),
+                b"marked_engaged": str(stats.marked_engaged).encode("ascii"),
+                b"marked_disengaged": str(stats.marked_disengaged).encode("ascii"),
                 b"stop_reason": stop_reason.encode("ascii"),
             },
         )
@@ -544,6 +599,8 @@ class RunStats:
     push: int = 0
     email: int = 0
     swaps: int = 0
+    marked_engaged: int = 0
+    marked_disengaged: int = 0
 
 
 @dataclass
@@ -555,11 +612,26 @@ class BatchItem:
 
 
 @dataclass
+class _Phase1BatchItemAugmentedInfo:
+    user_sub: str
+    name: str
+    channel: Literal["push", "sms", "email"]
+    user_created_at: float
+    timezone: pytz.BaseTzInfo
+    engaged: bool
+    was_engaged: bool
+
+
+@dataclass
 class BatchItemAugmentedInfo:
     user_sub: str
     name: str
     channel: Literal["push", "sms", "email"]
     user_created_at: float
+    timezone: pytz.BaseTzInfo
+    engaged: bool
+    was_engaged: bool
+    streak: UserStreak
 
 
 @dataclass
@@ -589,14 +661,38 @@ def _create_augment_query(length: int) -> str:
     assert length >= 1
 
     result = io.StringIO()
-    result.write("WITH batch(uid) AS (VALUES (?)")
+    result.write("WITH batch(uid, unix_date) AS (VALUES (?, ?)")
     for _ in range(length - 1):
-        result.write(", (?)")
+        result.write(", (?, ?)")
     result.write(
-        ") SELECT batch.uid, users.sub, users.given_name, user_daily_reminders.channel, users.created_at "
+        ") SELECT"
+        " batch.uid,"
+        " users.sub,"
+        " users.given_name,"
+        " user_daily_reminders.channel,"
+        " users.created_at,"
+        " users.timezone,"
+        " (CASE"
+        " WHEN users.created_at < ? THEN"
+        " EXISTS ("
+        "SELECT 1 FROM user_journeys "
+        "WHERE"
+        " user_journeys.user_id = users.id"
+        " AND user_journeys.created_at_unix_date >= batch.unix_date - 3"
+        " )"
+        " ELSE"
+        " EXISTS ("
+        "SELECT 1 FROM user_journeys "
+        "WHERE"
+        " user_journeys.user_id = users.id"
+        " AND user_journeys.created_at_unix_date >= batch.unix_date - 1"
+        " )"
+        " END) AS engaged,"
+        " user_daily_reminder_engaged.engaged "
         "FROM batch "
         "JOIN user_daily_reminders ON user_daily_reminders.uid = batch.uid "
-        "JOIN users ON users.id = user_daily_reminders.user_id"
+        "JOIN users ON users.id = user_daily_reminders.user_id "
+        "LEFT JOIN user_daily_reminder_engaged ON user_daily_reminder_engaged.user_id = users.id "
     )
     return result.getvalue()
 
@@ -617,7 +713,7 @@ def _get_or_create_augment_query(length: int) -> str:
 
 
 async def augment_batch(
-    itgs: Itgs, batch: List[BatchItem], *, gd: GracefulDeath
+    itgs: Itgs, batch: List[BatchItem], *, gd: GracefulDeath, now: float
 ) -> List[AugmentedBatchItem]:
     if not batch:
         return []
@@ -632,24 +728,70 @@ async def augment_batch(
 
         end_idx = min(start_idx + DATABASE_READ_BATCH_SIZE, len(batch))
 
+        qargs = []
+        for idx in range(start_idx, end_idx):
+            item = batch[idx]
+            qargs.append(item.uid)
+            qargs.append(item.unix_date)
+        qargs.append(now - 60 * 60 * 24 * 7)
+
         response = await cursor.execute(
             _get_or_create_augment_query(end_idx - start_idx),
-            tuple(batch[idx].uid for idx in range(start_idx, end_idx)),
+            qargs,
         )
 
-        info_by_uid: Dict[str, BatchItemAugmentedInfo] = dict()
+        info_by_uid: Dict[str, _Phase1BatchItemAugmentedInfo] = dict()
         for row in response.results or []:
-            info_by_uid[row[0]] = BatchItemAugmentedInfo(
+            if gd.received_term_signal:
+                return result
+            try:
+                user_tz = pytz.timezone(
+                    row[5] if row[5] is not None else "America/Los_Angeles"
+                )
+            except:
+                user_tz = pytz.timezone("America/Los_Angeles")
+
+            info_by_uid[row[0]] = _Phase1BatchItemAugmentedInfo(
                 user_sub=row[1],
                 name=row[2] if row[2] is not None else "there",
                 channel=row[3],
                 user_created_at=row[4],
+                timezone=user_tz,
+                engaged=bool(row[6]),
+                was_engaged=bool(row[7]),
             )
 
+        # you could try to pipeline cached streaks, but we don't expect many to be
+        # in the cache here at this time since user streak caches are very short
+
+        await itgs.ensure_redis_liveliness()
+
         for idx in range(start_idx, end_idx):
+            if gd.received_term_signal:
+                return result
             item = batch[idx]
-            info = info_by_uid.get(item.uid)
-            result.append(AugmentedBatchItem(item=item, info=info))
+            info_p1 = info_by_uid.get(item.uid)
+            if info_p1 is None:
+                result.append(AugmentedBatchItem(item=item, info=None))
+                continue
+            streak = await read_user_streak(
+                itgs, gd, sub=info_p1.user_sub, prefer="model", user_tz=info_p1.timezone
+            )
+            result.append(
+                AugmentedBatchItem(
+                    item=item,
+                    info=BatchItemAugmentedInfo(
+                        user_sub=info_p1.user_sub,
+                        name=info_p1.name,
+                        channel=info_p1.channel,
+                        user_created_at=info_p1.user_created_at,
+                        timezone=info_p1.timezone,
+                        engaged=info_p1.engaged,
+                        was_engaged=info_p1.was_engaged,
+                        streak=streak,
+                    ),
+                )
+            )
 
     return result
 
@@ -660,6 +802,30 @@ async def zrem_in_batches(itgs: Itgs, key: bytes, members: List[bytes]):
     for start_idx in range(0, len(members), REDIS_WRITE_BATCH_SIZE):
         end_idx = min(start_idx + REDIS_WRITE_BATCH_SIZE, len(members))
         await redis.zrem(key, *members[start_idx:end_idx])
+
+
+def create_update_user_subs_engaged_query(
+    user_subs: List[str], engaged: bool
+) -> Optional[Tuple[str, Sequence[Any]]]:
+    if not user_subs:
+        return
+
+    query = io.StringIO()
+    query.write("WITH batch(sub) AS (VALUES (?)")
+    for _ in range(1, len(user_subs)):
+        query.write(", (?)")
+
+    query.write(
+        ") INSERT INTO user_daily_reminder_engaged (user_id, engaged) "
+        "SELECT"
+        f" users.id, {int(engaged)} "
+        "FROM batch, users "
+        "WHERE"
+        " batch.sub = users.sub"
+        f"ON CONFLICT (user_id) DO UPDATE SET engaged={int(engaged)}"
+    )
+
+    return (query.getvalue(), user_subs)
 
 
 if __name__ == "__main__":
