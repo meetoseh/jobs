@@ -847,7 +847,7 @@ def create_update_user_subs_engaged_query(
         f" users.id, {int(engaged)} "
         "FROM batch, users "
         "WHERE"
-        " batch.sub = users.sub"
+        " batch.sub = users.sub "
         f"ON CONFLICT (user_id) DO UPDATE SET engaged={int(engaged)}"
     )
 
