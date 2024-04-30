@@ -620,6 +620,8 @@ class _Phase1BatchItemAugmentedInfo:
     timezone: pytz.BaseTzInfo
     engaged: bool
     was_engaged: bool
+    is_very_disengaged: bool
+    goal_days_per_week: Optional[int]
 
 
 @dataclass
@@ -688,11 +690,19 @@ def _create_augment_query(length: int) -> str:
         " AND user_journeys.created_at_unix_date >= batch.unix_date - 1"
         " )"
         " END) AS engaged,"
-        " user_daily_reminder_engaged.engaged "
+        " user_daily_reminder_engaged.engaged,"
+        " NOT EXISTS ("
+        "SELECT 1 FROM user_journeys "
+        "WHERE"
+        " user_journeys.user_id = users.id"
+        " AND user_journeys.created_at_unix_date >= batch.unix_date - 10"
+        " ) AS is_very_disengaged,"
+        " user_goals.days_per_week "
         "FROM batch "
         "JOIN user_daily_reminders ON user_daily_reminders.uid = batch.uid "
         "JOIN users ON users.id = user_daily_reminders.user_id "
         "LEFT JOIN user_daily_reminder_engaged ON user_daily_reminder_engaged.user_id = users.id "
+        "LEFT JOIN user_goals ON user_goals.user_id = users.id"
     )
     return result.getvalue()
 
@@ -759,6 +769,8 @@ async def augment_batch(
                 timezone=user_tz,
                 engaged=bool(row[6]),
                 was_engaged=bool(row[7]),
+                is_very_disengaged=bool(row[8]),
+                goal_days_per_week=row[9],
             )
 
         # you could try to pipeline cached streaks, but we don't expect many to be
@@ -774,9 +786,23 @@ async def augment_batch(
             if info_p1 is None:
                 result.append(AugmentedBatchItem(item=item, info=None))
                 continue
-            streak = await read_user_streak(
-                itgs, gd, sub=info_p1.user_sub, prefer="model", user_tz=info_p1.timezone
-            )
+            if not info_p1.is_very_disengaged:
+                streak = await read_user_streak(
+                    itgs,
+                    gd,
+                    sub=info_p1.user_sub,
+                    prefer="model",
+                    user_tz=info_p1.timezone,
+                )
+            else:
+                streak = UserStreak(
+                    streak=0,
+                    days_of_week=[],
+                    goal_days_per_week=info_p1.goal_days_per_week,
+                    journeys=0,
+                    prev_best_all_time_streak=0,
+                    checked_at=int(now),
+                )
             result.append(
                 AugmentedBatchItem(
                     item=item,
