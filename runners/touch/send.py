@@ -4,6 +4,7 @@ import io
 import json
 import random
 import secrets
+import sys
 import time
 import asyncio
 from typing import (
@@ -2034,7 +2035,7 @@ def _select_message_ordered_resettable_helper(
     start_index = (
         0
         if priority == float("-inf")
-        else bisect.bisect_left(messages, priority, key=lambda x: x.priority)
+        else adapt_bisect_left(messages, priority, key=lambda x: x.priority)
     )
 
     for idx in range(start_index, len(messages)):
@@ -2211,6 +2212,15 @@ def touch_send_stats_extra_key(unix_date: int, event: str) -> bytes:
 def create_user_touch_debug_log_uid() -> str:
     return f"oseh_utbl_{secrets.token_urlsafe(16)}"
 
+
+if sys.version_info >= (3, 10):
+    adapt_bisect_left = bisect.bisect_left
+else:
+    def adapt_bisect_left(arr: List[T], val: T, *, key: Callable[[T], Any]) -> int:
+        """bisect.bisect_left 3.10+ has a key argument; if we're not on that, this
+        will ponyfill
+        """
+        return bisect.bisect_left([key(x) for x in arr], key(val))
 
 touch_send_stats_earliest_key = b"stats:touch_send:daily:earliest"
 
