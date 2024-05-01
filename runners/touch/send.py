@@ -19,7 +19,10 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
+
+from pydantic import TypeAdapter
 from error_middleware import handle_error, handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -854,6 +857,8 @@ class UserTouchPointState:
     version: int
     state: UserTouchPointStateState
 
+user_touch_point_state_adapter = cast(TypeAdapter[UserTouchPointStateState], TypeAdapter(UserTouchPointStateState))
+
 
 async def augment_batch_with_user_touch_point_states(
     itgs: Itgs, touch_points: TouchPointsSet, batch: List[TouchToSend]
@@ -936,7 +941,7 @@ async def augment_batch_with_user_touch_point_states(
     for user_sub, event_slug, state, version in response.results or []:
         result[(user_sub, event_slug)] = UserTouchPointState(
             version=version,
-            state=json.loads(state),
+            state=user_touch_point_state_adapter.validate_json(state),
         )
     return result
 
