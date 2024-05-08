@@ -193,7 +193,7 @@ async def store_transcript_for_content_file(
 
     if response[3].results:
         redis = await itgs.redis()
-        for journey_uid in response[3].results:
+        for (journey_uid,) in response[3].results:
             evict_message = json.dumps(
                 {
                     "uid": journey_uid,
