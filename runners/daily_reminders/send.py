@@ -88,7 +88,13 @@ class DailyRemindersSwap:
     # we always include unsubscribe_url for the email channel
 
 
-CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(Optional[DailyRemindersSwap], None)
+CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(Optional[DailyRemindersSwap], DailyRemindersSwap(
+    touch_point_event_slug="oneoff_links_fixed",
+    start_unix_date=19851,
+    end_unix_date=19857,
+    slug="oneoff_links_fixed",
+    max_created_at=1715190954,
+))
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
