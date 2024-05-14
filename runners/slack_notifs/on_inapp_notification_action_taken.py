@@ -1,6 +1,7 @@
 """Invoked when storing an action within an inapp notification session;
 sends a slack message if appropriate
 """
+
 import json
 from typing import Literal, Optional
 from error_middleware import handle_warning
@@ -22,7 +23,18 @@ async def execute(
     *,
     user_action_uid: str,
 ):
-    """Expected to be called after storing an action within an inapp notification
+    """
+    ## DEPRECATED
+
+    This runner SHOULD NOT be depended on. It is intended to maintain support
+    for older versions of the app.
+
+    `inapp_notifications`, and the corresponding stack-based client navigation paradigm,
+    have been replaced with `client_flows`.
+
+    ## HISTORICAL
+
+    Expected to be called after storing an action within an inapp notification
     session; sends a slack message if appropriate
 
     Args:

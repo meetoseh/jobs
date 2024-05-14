@@ -125,6 +125,11 @@ async def execute(
                     WHERE
                         onboarding_videos.thumbnail_image_file_id = image_files.id
                 )
+                AND NOT EXISTS (
+                    SELECT 1 FROM client_flow_images
+                    WHERE
+                        client_flow_images.image_file_id = image_files.id
+                )
             """,
             (uid,),
         )

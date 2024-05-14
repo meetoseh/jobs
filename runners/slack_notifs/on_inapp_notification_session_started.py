@@ -1,6 +1,7 @@
 """Invoked when a user starts an inapp notification session; checks if we
 are supposed to send a slack message, if so does so
 """
+
 import json
 from typing import Literal, Optional
 from error_middleware import handle_warning
@@ -24,7 +25,18 @@ async def execute(
     user_sub: str,
     session_uid: str,
 ):
-    """Expected to be called after a user starts an inapp notification session;
+    """
+    ## DEPRECATED
+
+    This runner SHOULD NOT be depended on. It is intended to maintain support
+    for older versions of the app.
+
+    `inapp_notifications`, and the corresponding stack-based client navigation paradigm,
+    have been replaced with `client_flows`.
+
+    ## HISTORICAL
+
+    Expected to be called after a user starts an inapp notification session;
     sends a slack message if appropriate
 
     Args:
