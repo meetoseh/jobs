@@ -833,6 +833,11 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
     ),
     Job(
+        name="runners.alerting.check_backend",
+        kwargs=tuple(),
+        interval=JobInterval(pst, seconds=(0,)),
+    ),
+    Job(
         name="runners.alerting.check_email_templates",
         kwargs=tuple(),
         interval=JobInterval(pst, seconds=tuple(range(0, 60, 5))),
