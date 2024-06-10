@@ -12,6 +12,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    TypedDict,
     cast as typing_cast,
 )
 from content import hash_content
@@ -152,6 +153,21 @@ class ProcessImageAbortedException(ProcessImageException):
     pass
 
 
+class ProcessImageSanity(TypedDict):
+    """Allows for typing the standard sanity requirements for working with an image"""
+
+    max_width: int
+    """The maximum width to accept in pixels"""
+    max_height: int
+    """The maximum height to accept in pixels"""
+    max_area: int
+    """The maximum area (width*height) to accept in pixels. Sometimes we can handle
+    a longer side but can't handle both being long sides without OOM
+    """
+    max_file_size: int
+    """The maximum file size in bytes to accept"""
+
+
 async def process_image(
     local_filepath: str,
     targets: List[ImageTarget],
@@ -271,6 +287,48 @@ async def process_image(
             focal_point=focal_point,
             job_progress_uid=job_progress_uid,
         )
+
+
+async def peek_if_alpha_required(
+    local_filepath: str,
+    *,
+    itgs: Itgs,
+    gd: GracefulDeath,
+    max_file_size: int,
+    max_width: int,
+    max_height: int,
+    max_area: int,
+    job_progress_uid: Optional[str] = None,
+) -> bool:
+    """Determines if an alpha channel is included in the image at the given filepath,
+    on a best-effort basis.
+
+    Args:
+        local_filepath (str): the path to the image file
+        itgs (Itgs): the integrations to (re)use
+        gd (GracefulDeath): allows detecting signals
+        max_file_size (int): the maximum file size to process
+        max_width (int): the maximum width to process
+        max_height (int): the maximum height to process
+        max_area (int): the maximum area to process
+        job_progress_uid (str, None): the uid of the job progress to update, or None for
+            no job progress updates
+    """
+    prog = ProgressHelper(itgs, job_progress_uid)
+    await prog.push_progress("detecting if an alpha channel is included in the source")
+
+    file_size = os.path.getsize(local_filepath)
+    if file_size > max_file_size:
+        return False
+
+    svg_natural_aspect_ratio = await get_svg_natural_aspect_ratio(local_filepath)
+    if svg_natural_aspect_ratio is not None:
+        return True
+
+    img = Image.open(local_filepath)
+    result = img.mode == "RGBA"
+    img.close()
+    return result
 
 
 async def _add_missing_targets(
@@ -831,10 +889,12 @@ async def upload_original(
     for attempt in range(5):
         if attempt > 0:
             logging.info(f"retrying upload of original image, attempt {attempt+1}/5")
-            await asyncio.sleep(2**(attempt - 1))
+            await asyncio.sleep(2 ** (attempt - 1))
         try:
             async with aiofiles.open(local_filepath, "rb") as f:
-                await files.upload(f, bucket=original.bucket, key=original.key, sync=False)
+                await files.upload(
+                    f, bucket=original.bucket, key=original.key, sync=False
+                )
             break
         except botocore.exceptions.NoCredentialsError:
             if attempt == 4:
@@ -985,7 +1045,9 @@ async def _upload_one(
 
     for attempt in range(5):
         if attempt > 0:
-            logging.debug(f"retrying upload of {local_image_file_export.uid=} attempt {attempt+1}/5")
+            logging.debug(
+                f"retrying upload of {local_image_file_export.uid=} attempt {attempt+1}/5"
+            )
             await asyncio.sleep(2**attempt)
 
         try:

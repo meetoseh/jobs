@@ -135,6 +135,10 @@ RESOLUTIONS = list(
 )
 
 
+def get_png_settings(width: int, height: int) -> dict:
+    return {"optimize": True}
+
+
 def get_jpg_settings(width: int, height: int) -> dict:
     if width * height < 500 * 500:
         return {"quality": 95, "optimize": True, "progressive": True}
@@ -155,15 +159,19 @@ def get_webp_settings(width: int, height: int) -> dict:
     return {"lossless": False, "quality": 90, "method": 4}
 
 
-def make_standard_targets(resolutions: Sequence[Tuple[int, int]]) -> List[ImageTarget]:
+def make_standard_targets(
+    resolutions: Sequence[Tuple[int, int]], *, alpha: bool = False
+) -> List[ImageTarget]:
     return [
         *(
             ImageTarget(
                 required=True,
                 width=w,
                 height=h,
-                format="jpeg",
-                quality_settings=get_jpg_settings(w, h),
+                format="jpeg" if not alpha else "png",
+                quality_settings=(
+                    get_jpg_settings(w, h) if not alpha else get_png_settings(w, h)
+                ),
             )
             for w, h in resolutions
         ),
@@ -410,7 +418,9 @@ def blur_image_blocking(
         loop.call_soon_threadsafe(event.set)
 
 
-async def darken_image(source_path: str, dest_path: str, *, strength: Decimal = Decimal(0.3)):
+async def darken_image(
+    source_path: str, dest_path: str, *, strength: Decimal = Decimal(0.3)
+):
     """Darkens the image at the given path, as intended for darkened journey
     background images. The description of this blur is canonically at journeys.md
     in the backend database docs.
@@ -465,7 +475,9 @@ def darken_image_blocking(
     """
     try:
         im = Image.open(source_path)
-        darkened_image = ImageEnhance.Brightness(im).enhance(float(Decimal(1) - strength))
+        darkened_image = ImageEnhance.Brightness(im).enhance(
+            float(Decimal(1) - strength)
+        )
         darkened_image.save(
             dest_path, format="webp", lossless=True, quality=100, method=6
         )

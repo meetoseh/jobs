@@ -8,7 +8,12 @@ from typing import Optional
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
-from images import process_image, ProcessImageAbortedException
+from images import (
+    ProcessImageSanity,
+    peek_if_alpha_required,
+    process_image,
+    ProcessImageAbortedException,
+)
 from lib.devices.ios_device_size_utils import get_sizes_for_devices_newer_than
 from lib.progressutils.success_or_failure_reporter import (
     BouncedException,
@@ -45,7 +50,8 @@ RESOLUTIONS = list(
     )
 )
 
-TARGETS = make_standard_targets(RESOLUTIONS)
+NO_ALPHA_TARGETS = make_standard_targets(RESOLUTIONS, alpha=False)
+ALPHA_TARGETS = make_standard_targets(RESOLUTIONS, alpha=True)
 
 
 async def execute(
@@ -117,7 +123,8 @@ async def process_interstitial_image(
     job_progress_uid: Optional[str],
 ) -> None:
     """Processes the image at the given filepath to be used as an image in an
-    image interstitial screen.
+    image interstitial screen. This will attempt to detect if alpha is needed
+    and use the appropriate targets.
 
     Args:
         itgs (Itgs): the integrations to (re)use
@@ -126,15 +133,23 @@ async def process_interstitial_image(
         uploaded_by_user_sub (str, None): the sub of the user who uploaded the file
         job_progress_uid (str): the uid of the job progress to update
     """
+    sanity: ProcessImageSanity = {
+        "max_width": 8192,
+        "max_height": 8192,
+        "max_area": 4096 * 8192,
+        "max_file_size": 1024 * 1024 * 512,
+    }
+
+    is_alpha = await peek_if_alpha_required(
+        stitched_path, itgs=itgs, gd=gd, job_progress_uid=job_progress_uid, **sanity
+    )
+    targets = ALPHA_TARGETS if is_alpha else NO_ALPHA_TARGETS
     image = await process_image(
         stitched_path,
-        TARGETS,
+        targets,
         itgs=itgs,
         gd=gd,
-        max_width=8192,
-        max_height=8192,
-        max_area=4096 * 8192,
-        max_file_size=1024 * 1024 * 512,
+        **sanity,
         name_hint="image_interstitial_process_image",
         job_progress_uid=job_progress_uid,
     )
