@@ -871,7 +871,6 @@ async def upload_original(
         itgs (Itgs): the integrations to (re)use
     """
     files = await itgs.files()
-    image_file_uid = f"oseh_if_{secrets.token_urlsafe(16)}"
     original = S3File(
         uid=f"oseh_s3f_{secrets.token_urlsafe(16)}",
         bucket=files.default_bucket,
