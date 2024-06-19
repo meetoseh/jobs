@@ -4,7 +4,7 @@ from fractions import Fraction
 import math
 import secrets
 import time
-from typing import Optional
+from typing import Optional, Tuple
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -34,10 +34,21 @@ def _get_img_height(lw: int, lh: int, pr: Fraction) -> Fraction:
     return (lh - 410) * pr
 
 
+def _get_img_size(lw: int, lh: int, pr: Fraction) -> Tuple[int, int]:
+    return (
+        math.ceil(_get_image_width(lw, lh, pr)),
+        math.ceil(_get_img_height(lw, lh, pr)),
+    )
+
+
 RESOLUTIONS = list(
     dict.fromkeys(
         [
             (342, 223),  # preview, thumbhash
+            _get_img_size(1920, 1080, Fraction(1)),
+            _get_img_size(1366, 768, Fraction(1)),
+            _get_img_size(1536, 864, Fraction(1)),
+            _get_img_size(1440, 900, Fraction(1)),
             *get_sizes_for_devices_newer_than(
                 "2019-01-01",
                 mapper=lambda lw, lh, pr: (
