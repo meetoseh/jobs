@@ -359,12 +359,12 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 try:
                     html_read_task = (
                         None
-                        if not html_not_desired_for_template
+                        if html_not_desired_for_template
                         else asyncio.create_task(html_response.read())
                     )
                     plain_read_task = (
                         None
-                        if not plain_not_desired_for_template
+                        if plain_not_desired_for_template
                         else asyncio.create_task(plain_response.read())
                     )
                     read_tasks = [
