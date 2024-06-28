@@ -634,7 +634,7 @@ async def process_image_with_processor(
     response = await cursor.execute(
         "SELECT uid FROM image_files WHERE original_sha512 = ?", (sha512,)
     )
-    existing_uid = cast(str, response.results[0]) if response.results else None
+    existing_uid = cast(str, response.results[0][0]) if response.results else None
 
     exports = [
         *(get_preferred_export(size, alpha=alpha) for size in sizes),
@@ -642,7 +642,7 @@ async def process_image_with_processor(
     ]
 
     uid = cast(Optional[str], None)
-    if existing_uid:
+    if existing_uid is not None:
         existing_image = await get_image_file(itgs, existing_uid)
         if existing_image is not None:
             export_keys = [
