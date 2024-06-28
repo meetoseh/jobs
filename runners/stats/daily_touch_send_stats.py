@@ -1,4 +1,5 @@
 """Rotates touch send stats to the database"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from jobs import JobCategory
@@ -10,7 +11,7 @@ category = JobCategory.LOW_RESOURCE_COST
 REGULAR_EVENTS = ("queued",)
 """Which events aren't broken down by an additional dimension"""
 
-BREAKDOWN_EVENTS = ("attempted", "reachable", "unreachable")
+BREAKDOWN_EVENTS = ("attempted", "improper", "reachable", "unreachable")
 """Which events are broken down by an additional dimension."""
 
 

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Union
 
 
 class TouchPointSmsMessage(BaseModel):
@@ -42,7 +42,7 @@ class TouchPointPushMessage(BaseModel):
 
 
 class TouchPointTemplateParameterSubstitution(BaseModel):
-    key: List[str] = Field(description="the path to the key to set")
+    key: List[Union[str, int]] = Field(description="the path to the key to set")
     format: str = Field(
         description="the format string for the value, e.g., 'Hello {name}'"
     )
@@ -68,9 +68,9 @@ class TouchPointEmailMessage(BaseModel):
     template_parameters_fixed: Dict[str, Any] = Field(
         description="non-substituted template parameters"
     )
-    template_parameters_substituted: List[
-        TouchPointTemplateParameterSubstitution
-    ] = Field(description="substituted template parameters")
+    template_parameters_substituted: List[TouchPointTemplateParameterSubstitution] = (
+        Field(description="substituted template parameters")
+    )
 
 
 class TouchPointMessages(BaseModel):

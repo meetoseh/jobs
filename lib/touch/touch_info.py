@@ -299,6 +299,11 @@ class UserTouchDebugLogEventSendUnreachable(BaseModel):
     parent: str = Field(description="the UID of the send attempt that failed")
 
 
+class UserTouchDebugLogEventSendEventImproper(BaseModel):
+    type: Literal["send_event_improper"] = Field()
+    parent: str = Field(description="the UID of the send attempt that failed")
+
+
 class UserTouchDebugLogEventSendStale(BaseModel):
     type: Literal["send_stale"] = Field()
     parent: str = Field(description="the UID of the send attempt that failed")
@@ -370,6 +375,7 @@ class TouchLogUserTouchDebugLogInsertFields(BaseModel):
     event: Union[
         UserTouchDebugLogEventSendAttempt,
         UserTouchDebugLogEventSendUnreachable,
+        UserTouchDebugLogEventSendEventImproper,
         UserTouchDebugLogEventSendStale,
         UserTouchDebugLogEventSendReachable,
         UserTouchDebugLogEventSendRetry,

@@ -32,6 +32,7 @@ import logging
 from jobs import JobCategory
 import dataclasses
 from lib.basic_redis_lock import basic_redis_lock
+from lib.client_flows.helper import deep_set
 from lib.emails.send import EmailMessageContents, create_email_uid
 from lib.emails.email_info import EmailAttempt
 from lib.push.message_attempt_info import MessageAttemptToSend, MessageContents
@@ -53,6 +54,7 @@ from lib.touch.touch_info import (
     TouchPending,
     TouchToSend,
     UserTouchDebugLogEventSendAttempt,
+    UserTouchDebugLogEventSendEventImproper,
     UserTouchDebugLogEventSendReachable,
     UserTouchDebugLogEventSendStale,
     UserTouchDebugLogEventSendUnreachable,
@@ -74,6 +76,9 @@ from redis.asyncio import Redis as AsyncioRedisClient
 import base64
 import gzip
 import bisect
+from jsonschema.protocols import Validator
+from openapi_schema_validator.validators import OAS30Validator
+
 
 category = JobCategory.LOW_RESOURCE_COST
 tz = pytz.timezone("America/Los_Angeles")
@@ -510,6 +515,12 @@ class TouchPoint:
     event_slug: str
     """The event slug of the touch point"""
 
+    event_schema: Any
+    """The event schema of the touch point, for internal validation"""
+
+    event_schema_validator: Validator
+    """The jsonschema validator using the vent schema, to reduce repeated processing"""
+
     selection_strategy: Literal[
         "random_with_replacement", "fixed", "ordered_resettable"
     ]
@@ -598,7 +609,7 @@ class TouchPointsSet:
         cursor = conn.cursor("none")
 
         response = await cursor.execute(
-            "SELECT uid, selection_strategy, messages FROM touch_points WHERE event_slug = ?",
+            "SELECT uid, selection_strategy, messages, event_schema FROM touch_points WHERE event_slug = ?",
             (event_slug,),
         )
 
@@ -608,9 +619,13 @@ class TouchPointsSet:
         compressed_messages = base64.b85decode(encoded_compressed_messages)
         raw_messages = gzip.decompress(compressed_messages)
         messages = TouchPointMessages.model_validate_json(raw_messages)
+        schema = json.loads(row[3])
+        OAS30Validator.check_schema(schema)
         result = TouchPoint(
             uid=row[0],
             event_slug=event_slug,
+            event_schema=schema,
+            event_schema_validator=cast(Validator, OAS30Validator(schema)),
             selection_strategy=row[1],
             messages=messages,
         )
@@ -1173,6 +1188,16 @@ class MyRedisStatUpdatePreparer(RedisStatsPreparer):
             extra=f"{touch.touch_point_event_slug}:{touch.channel}",
         )
 
+    def incr_touch_send_improper(self, touch: TouchToSend) -> None:
+        """Increments the number of touches skipped because the event parameters don't match
+        the event schema
+        """
+        self.incr_touch_send_stats(
+            touch,
+            "improper",
+            extra=f"{touch.touch_point_event_slug}:{touch.channel}",
+        )
+
     def incr_pushes_queued(self, batch_at: float) -> None:
         """Increments how many push ticket sends have been queued"""
         assert isinstance(batch_at, float)
@@ -1220,6 +1245,7 @@ class MessageBatchSegmentStats:
     attempted: int = 0
     reachable: int = 0
     unreachable: int = 0
+    event_improper: int = 0
 
 
 class MessageBatchSegmentPreparer(
@@ -1285,6 +1311,46 @@ class MessageBatchSegmentPreparer(
             attempt_uid = create_user_touch_debug_log_uid()
             stats.incr_touch_send_attempted(touch)
             run_stats.attempted += 1
+
+            try:
+                touch_point.event_schema_validator.validate(touch.event_parameters)
+            except Exception as e:
+                await handle_error(
+                    e,
+                    extra_info=f"failed to validate event parameters for `{touch.touch_point_event_slug}`:\n\nparameters:\n```\n{json.dumps(touch.event_parameters)}\n```\n\nerror:\n```\n{e}\n```\n",
+                )
+                stats.incr_touch_send_improper(touch)
+                run_stats.event_improper += 1
+                logs.append(
+                    TouchLogUserTouchDebugLogInsert(
+                        table="user_touch_debug_log",
+                        action="insert",
+                        fields=TouchLogUserTouchDebugLogInsertFields(
+                            uid=create_user_touch_debug_log_uid(),
+                            user_sub=touch.user_sub,
+                            event=UserTouchDebugLogEventSendEventImproper(
+                                type="send_event_improper",
+                                parent=attempt_uid,
+                            ),
+                            created_at=batch_at,
+                        ),
+                        queued_at=batch_at,
+                    )
+                    .model_dump_json()
+                    .encode("utf-8")
+                )
+                if touch.failure_callback is not None:
+                    jobs_to_queue.append(
+                        json.dumps(
+                            {
+                                "name": touch.failure_callback.name,
+                                "kwargs": touch.failure_callback.kwargs,
+                                "queued_at": batch_at,
+                            }
+                        ).encode("utf-8")
+                    )
+                continue
+
             logs.append(
                 TouchLogUserTouchDebugLogInsert(
                     table="user_touch_debug_log",
@@ -1589,11 +1655,15 @@ class PushBatchSegmentPreparer(
         cls, touch: TouchToSend, message: TouchPointPushMessage
     ) -> MessageContents:
         return MessageContents(
-            title=message.title_format.format_map(
-                dict((k, touch.event_parameters[k]) for k in message.title_parameters)
+            title=format_with_dot_parameters(
+                message.title_format,
+                parameters=message.title_parameters,
+                event_parameters=touch.event_parameters,
             ),
-            body=message.body_format.format_map(
-                dict((k, touch.event_parameters[k]) for k in message.body_parameters)
+            body=format_with_dot_parameters(
+                message.body_format,
+                parameters=message.body_parameters,
+                event_parameters=touch.event_parameters,
             ),
             channel_id=message.channel_id,
         )
@@ -1611,6 +1681,7 @@ class PushBatchSegmentPreparer(
         return RunStats(
             attempted=segment_stats.attempted,
             attempted_push=segment_stats.attempted,
+            improper_push=segment_stats.event_improper,
             reachable_push=segment_stats.reachable,
             unreachable_push=segment_stats.unreachable,
         )
@@ -1701,9 +1772,11 @@ class SmsBatchSegmentPreparer(
         cls, touch: TouchToSend, message: TouchPointSmsMessage
     ) -> SmsMessageContents:
         return SmsMessageContents(
-            body=message.body_format.format_map(
-                dict((k, touch.event_parameters[k]) for k in message.body_parameters)
-            ),
+            body=format_with_dot_parameters(
+                message.body_format,
+                parameters=message.body_parameters,
+                event_parameters=touch.event_parameters,
+            )
         )
 
     @classmethod
@@ -1717,6 +1790,7 @@ class SmsBatchSegmentPreparer(
         return RunStats(
             attempted=segment_stats.attempted,
             attempted_sms=segment_stats.attempted,
+            improper_sms=segment_stats.event_improper,
             reachable_sms=segment_stats.reachable,
             unreachable_sms=segment_stats.unreachable,
         )
@@ -1810,20 +1884,22 @@ class EmailBatchSegmentPreparer(
         for fixed_key, fixed_item in message.template_parameters_fixed.items():
             template_parameters[fixed_key] = fixed_item
         for substitution in message.template_parameters_substituted:
-            key_value = substitution.format.format_map(
-                dict((k, touch.event_parameters[k]) for k in substitution.parameters)
+            deep_set(
+                template_parameters,
+                substitution.key,
+                format_with_dot_parameters(
+                    substitution.format,
+                    parameters=substitution.parameters,
+                    event_parameters=touch.event_parameters,
+                ),
+                auto_extend_lists=True,
             )
 
-            cur = template_parameters
-            for idx in range(len(substitution.key) - 1):
-                if substitution.key[idx] not in cur:
-                    cur[substitution.key[idx]] = dict()
-                cur = cur[substitution.key[idx]]
-            cur[substitution.key[-1]] = key_value
-
         return EmailMessageContents(
-            subject=message.subject_format.format_map(
-                dict((k, touch.event_parameters[k]) for k in message.subject_parameters)
+            subject=format_with_dot_parameters(
+                message.subject_format,
+                parameters=message.subject_parameters,
+                event_parameters=touch.event_parameters,
             ),
             template=message.template,
             template_parameters=template_parameters,
@@ -1844,6 +1920,7 @@ class EmailBatchSegmentPreparer(
         return RunStats(
             attempted=segment_stats.attempted,
             attempted_email=segment_stats.attempted,
+            improper_email=segment_stats.event_improper,
             reachable_email=segment_stats.reachable,
             unreachable_email=segment_stats.unreachable,
         )
@@ -2109,12 +2186,15 @@ def select_email_message(
 class RunStats:
     attempted: int = 0
     attempted_sms: int = 0
+    improper_sms: int = 0
     reachable_sms: int = 0
     unreachable_sms: int = 0
     attempted_push: int = 0
+    improper_push: int = 0
     reachable_push: int = 0
     unreachable_push: int = 0
     attempted_email: int = 0
+    improper_email: int = 0
     reachable_email: int = 0
     unreachable_email: int = 0
     stale: int = 0
@@ -2122,12 +2202,15 @@ class RunStats:
     def add(self, other: "RunStats") -> None:
         self.attempted += other.attempted
         self.attempted_sms += other.attempted_sms
+        self.improper_sms += other.improper_sms
         self.reachable_sms += other.reachable_sms
         self.unreachable_sms += other.unreachable_sms
         self.attempted_push += other.attempted_push
+        self.improper_push += other.improper_push
         self.reachable_push += other.reachable_push
         self.unreachable_push += other.unreachable_push
         self.attempted_email += other.attempted_email
+        self.improper_email += other.improper_email
         self.reachable_email += other.reachable_email
         self.unreachable_email += other.unreachable_email
         self.stale += other.stale
@@ -2158,12 +2241,15 @@ async def report_run_stats(
         f"- Attempted: {run_stats.attempted}\n"
         f"- Touch Points: {num_touch_points}\n"
         f"- Attempted SMS: {run_stats.attempted_sms}\n"
+        f"- Improper SMS: {run_stats.improper_sms}\n"
         f"- Reachable SMS: {run_stats.reachable_sms}\n"
         f"- Unreachable SMS: {run_stats.unreachable_sms}\n"
         f"- Attempted Push: {run_stats.attempted_push}\n"
+        f"- Improper Push: {run_stats.improper_push}\n"
         f"- Reachable Push: {run_stats.reachable_push}\n"
         f"- Unreachable Push: {run_stats.unreachable_push}\n"
         f"- Attempted Email: {run_stats.attempted_email}\n"
+        f"- Improper Email: {run_stats.improper_email}\n"
         f"- Reachable Email: {run_stats.reachable_email}\n"
         f"- Unreachable Email: {run_stats.unreachable_email}\n"
         f"- Stale: {run_stats.stale}\n"
@@ -2186,12 +2272,15 @@ async def report_run_stats(
             b"attempted": run_stats.attempted,
             b"touch_points": num_touch_points,
             b"attempted_sms": run_stats.attempted_sms,
+            b"improper_sms": run_stats.improper_sms,
             b"reachable_sms": run_stats.reachable_sms,
             b"unreachable_sms": run_stats.unreachable_sms,
             b"attempted_push": run_stats.attempted_push,
+            b"improper_push": run_stats.improper_push,
             b"reachable_push": run_stats.reachable_push,
             b"unreachable_push": run_stats.unreachable_push,
             b"attempted_email": run_stats.attempted_email,
+            b"improper_email": run_stats.improper_email,
             b"reachable_email": run_stats.reachable_email,
             b"unreachable_email": run_stats.unreachable_email,
             b"stale": run_stats.stale,
@@ -2215,6 +2304,48 @@ def touch_send_stats_extra_key(unix_date: int, event: str) -> bytes:
 
 def create_user_touch_debug_log_uid() -> str:
     return f"oseh_utbl_{secrets.token_urlsafe(16)}"
+
+
+def format_with_dot_parameters(
+    format_string: str,
+    /,
+    *,
+    parameters: List[str],
+    event_parameters: Dict[str, Any],
+) -> str:
+    if all("." not in p for p in parameters):
+        return format_string.format_map(
+            dict((k, event_parameters[k]) for k in parameters)
+        )
+
+    result = dict()
+    for raw_key in parameters:
+        key = raw_key.split(".")
+        if len(key) == 1:
+            assert key[0] not in result or result[key[0]] == event_parameters[key[0]]
+            result[key[0]] = event_parameters[key[0]]
+            continue
+
+        current = dict()
+        value = event_parameters[key[0]]
+        assert isinstance(value, dict)
+        result[key[0]] = current
+
+        for idx in range(1, len(key) - 1):
+            nxt = current.get(key[idx])
+            if nxt is None:
+                nxt = dict()
+                current[key[idx]] = nxt
+            else:
+                assert isinstance(nxt, dict)
+
+            current = nxt
+            value = value[key[idx]]
+            assert isinstance(value, dict)
+
+        current[key[-1]] = value[key[-1]]
+
+    return format_string.format_map(result)
 
 
 if sys.version_info >= (3, 10):
