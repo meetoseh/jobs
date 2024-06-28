@@ -1,4 +1,5 @@
 """Hands sending emails from the To Send queue"""
+
 import time
 from typing import Dict, Literal, Optional
 from error_middleware import handle_error
@@ -257,7 +258,42 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     f"Received HTTP status codes {html_response.status=} {plain_response.status=}"
                 )
 
-                worst_status = max(html_response.status, plain_response.status)
+                html_not_desired_for_template = html_response.status == 404
+                plain_not_desired_for_template = plain_response.status == 404
+
+                if html_not_desired_for_template and plain_not_desired_for_template:
+                    html_response.close()
+                    plain_response.close()
+                    logging.warning(
+                        "Email Send Job - email-templates returned 404 for both html and plain variants for "
+                        f"{next_to_send=}: this likely means the template does not exist! Either way, we cannot "
+                        "send this email.",
+                    )
+                    await fail_job_and_update_stats(
+                        itgs,
+                        email=next_to_send,
+                        action="template",
+                        identifier="TemplateClientError",
+                        retryable=False,
+                        extra=f"{html_response.status=} {plain_response.status=}",
+                        events={
+                            b"attempted": None,
+                            b"failed_permanently": b"template:404",
+                        },
+                        now=time.time(),
+                    )
+                    run_stats.attempted += 1
+                    run_stats.failed_permanently += 1
+                    await advance_next_to_send_raw()
+                    continue
+
+                worst_status = max(
+                    [
+                        s
+                        for s in (html_response.status, plain_response.status)
+                        if s != 404
+                    ]
+                )
                 if worst_status >= 500:
                     html_response.close()
                     plain_response.close()
@@ -314,17 +350,50 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await advance_next_to_send_raw()
                     continue
 
-                try:
-                    (
-                        template_html_bytes,
-                        template_plain_bytes,
-                    ) = await asyncio.gather(
-                        html_response.read(), plain_response.read()
-                    )
+                if html_not_desired_for_template:
                     html_response.close()
+
+                if plain_not_desired_for_template:
                     plain_response.close()
-                    template_html = template_html_bytes.decode("utf-8")
-                    template_plain = template_plain_bytes.decode("utf-8")
+
+                try:
+                    html_read_task = (
+                        None
+                        if not html_not_desired_for_template
+                        else asyncio.create_task(html_response.read())
+                    )
+                    plain_read_task = (
+                        None
+                        if not plain_not_desired_for_template
+                        else asyncio.create_task(plain_response.read())
+                    )
+                    read_tasks = [
+                        t for t in (html_read_task, plain_read_task) if t is not None
+                    ]
+                    await asyncio.wait(read_tasks, return_when=asyncio.ALL_COMPLETED)
+                    template_html_bytes = (
+                        html_read_task.result() if html_read_task is not None else None
+                    )
+                    template_plain_bytes = (
+                        plain_read_task.result()
+                        if plain_read_task is not None
+                        else None
+                    )
+                    if not html_not_desired_for_template:
+                        html_response.close()
+                    if not plain_not_desired_for_template:
+                        plain_response.close()
+
+                    template_html = (
+                        template_html_bytes.decode("utf-8")
+                        if template_html_bytes is not None
+                        else None
+                    )
+                    template_plain = (
+                        template_plain_bytes.decode("utf-8")
+                        if template_plain_bytes is not None
+                        else None
+                    )
                 except Exception as e:
                     logging.warning(
                         "Email Send Job - failed to read email-templates response",
@@ -348,7 +417,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     await advance_next_to_send_raw()
                     continue
 
-                # TODO -> save to suppress here
                 if SUPPRESSED:
                     logging.debug(
                         "Suppressing sending emails in dev environment, faking ses client error"
@@ -390,11 +458,26 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                                     "Data": next_to_send.subject,
                                 },
                                 "Body": {
-                                    "Html": {"Data": template_html, "Charset": "UTF-8"},
-                                    "Text": {
-                                        "Data": template_plain,
-                                        "Charset": "UTF-8",
-                                    },
+                                    **(
+                                        {
+                                            "Html": {
+                                                "Data": template_html,
+                                                "Charset": "UTF-8",
+                                            }
+                                        }
+                                        if template_html is not None
+                                        else {}
+                                    ),
+                                    **(
+                                        {
+                                            "Text": {
+                                                "Data": template_plain,
+                                                "Charset": "UTF-8",
+                                            }
+                                        }
+                                        if template_plain is not None
+                                        else {}
+                                    ),
                                 },
                             }
                         },
