@@ -4,7 +4,7 @@ import secrets
 import time
 from typing import Optional, TypedDict
 from file_uploads import StitchFileAbortedException, stitch_file_upload
-from images import ProcessImageAbortedException, ProcessImageSanity, get_image_file
+from images import ProcessImageAbortedException, ProcessImageSanity
 from itgs import Itgs
 from graceful_death import GracefulDeath
 
@@ -133,6 +133,7 @@ async def process_email_image(
         job_progress_uid=job_progress_uid,
         **sanity,
         dynamic_size=size,
+        pedantic=False,
     )
     if targets is None:
         return

@@ -6,6 +6,7 @@ from decimal import Decimal
 from fractions import Fraction
 import io
 import json
+import math
 import multiprocessing
 import multiprocessing.pool
 import os
@@ -124,6 +125,7 @@ async def execute(
                     uploaded_by_user_sub=uploaded_by_user_sub,
                     job_progress_uid=job_progress_uid,
                     dynamic_size=dynamic_size,
+                    pedantic=True
                 )
             except ProcessImageAbortedException:
                 await bounce()
@@ -143,6 +145,7 @@ async def process_exact_dynamic_image(
     uploaded_by_user_sub: Optional[str],
     job_progress_uid: Optional[str],
     dynamic_size: DynamicSize,
+    pedantic: bool = False
 ) -> None:
     """Processes the image at the given filepath via a dynamic input size. This
     never needs to crop, and the resizing always exactly maintains the aspect
@@ -170,6 +173,7 @@ async def process_exact_dynamic_image(
         job_progress_uid=job_progress_uid,
         **sanity,
         dynamic_size=dynamic_size,
+        pedantic=pedantic
     )
     if targets is None:
         return
@@ -316,6 +320,7 @@ async def get_targets(
     max_height: int,
     max_area: int,
     max_file_size: int,
+    pedantic: bool = False,
 ) -> Union[SvgRenderStrategy, RasterRenderStrategy]:
     """Determines the appropriate targets for the image at the given path being
     processed at the given size.
@@ -389,7 +394,7 @@ async def get_targets(
         )
 
     requires_alpha = mode == "RGBA"
-    targets = get_raster_sizes(dynamic_size, Size(width=width, height=height))
+    targets = get_raster_sizes(dynamic_size, Size(width=width, height=height), pedantic=True)
     return RasterRenderStrategy(
         type="raster_resize",
         raster_path=local_filepath,
@@ -399,7 +404,7 @@ async def get_targets(
     )
 
 
-def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size) -> List[Size]:
+def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size, *, pedantic: bool = False) -> List[Size]:
     """Raises CustomFailureReasonException if the dynamic size can not be produced
     from a source image at the given size
     """
@@ -415,14 +420,14 @@ def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size) -> List[Size]
         output_width = target_width * pixel_ratio
         output_height = target_height * pixel_ratio
 
-        if output_width.denominator != 1 or output_height.denominator != 1:
+        if pedantic and (output_width.denominator != 1 or output_height.denominator != 1):
             raise CustomFailureReasonException(
                 f"Cannot produce a target width of {target_width}px width by {target_height}px height, as at "
                 f"a pixel ratio of {pixel_ratio}, this would be a fractional size ({output_width}px width by {output_height}px height)"
             )
 
-        output_int_width = int(output_width)
-        output_int_height = int(output_height)
+        output_int_width = math.ceil(output_width)
+        output_int_height = math.ceil(output_height)
 
         if output_int_width > source_size.width:
             raise CustomFailureReasonException(
@@ -436,15 +441,16 @@ def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size) -> List[Size]
                 f"height of {target_height}px, because at a pixel ratio of {pixel_ratio}, we need a height of {output_height}px"
             )
 
-        ratio_input_to_output_width = Fraction(source_size.width, output_int_width)
-        ratio_input_to_output_height = Fraction(source_size.height, output_int_height)
-        if ratio_input_to_output_width != ratio_input_to_output_height:
-            raise CustomFailureReasonException(
-                f"Cannot produce a target width of {target_width}px width by {target_height}px height using "
-                f"a source image of {source_size.width}px width by {source_size.height}px height, as at "
-                f"a pixel ratio of {pixel_ratio}, the desired size {output_int_width}px width by {output_int_height}px height "
-                f"does not produce the same ratio for the width and height: {ratio_input_to_output_width} vs {ratio_input_to_output_height}"
-            )
+        if pedantic:
+            ratio_input_to_output_width = Fraction(source_size.width, output_int_width)
+            ratio_input_to_output_height = Fraction(source_size.height, output_int_height)
+            if ratio_input_to_output_width != ratio_input_to_output_height:
+                raise CustomFailureReasonException(
+                    f"Cannot produce a target width of {target_width}px width by {target_height}px height using "
+                    f"a source image of {source_size.width}px width by {source_size.height}px height, as at "
+                    f"a pixel ratio of {pixel_ratio}, the desired size {output_int_width}px width by {output_int_height}px height "
+                    f"does not produce the same ratio for the width and height: {ratio_input_to_output_width} vs {ratio_input_to_output_height}"
+                )
 
         result.append(
             Size(
