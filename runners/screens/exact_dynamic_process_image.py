@@ -394,7 +394,7 @@ async def get_targets(
         )
 
     requires_alpha = mode == "RGBA"
-    targets = get_raster_sizes(dynamic_size, Size(width=width, height=height), pedantic=True)
+    targets = get_raster_sizes(dynamic_size, Size(width=width, height=height), pedantic=pedantic)
     return RasterRenderStrategy(
         type="raster_resize",
         raster_path=local_filepath,
