@@ -28,6 +28,7 @@ from lib.image_files.image_file_ref import ImageFileRef
 from lib.journals.journal_chat import JournalChat
 from lib.journals.journal_chat_redis_packet import (
     EventBatchPacketDataItemDataError,
+    EventBatchPacketDataItemDataThinkingBar,
     EventBatchPacketDataItemDataThinkingSpinner,
     JournalChatRedisPacketMutations,
     JournalChatRedisPacketPassthrough,
@@ -369,6 +370,34 @@ async def _spinner(
         ),
     )
 
+
+
+async def _pbar(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    message: str,
+    detail: Optional[str] = None,
+    at: int,
+    of: int
+) -> None:
+    event_at = time.time()
+    await publish_journal_chat_event(
+        itgs,
+        journal_chat_uid=ctx.journal_chat_uid,
+        event=serialize_journal_chat_event(
+            journal_master_key=ctx.journal_master_key,
+            event=JournalChatRedisPacketPassthrough(
+                counter=ctx.reserve_event_counter(),
+                type="passthrough",
+                event=EventBatchPacketDataItemDataThinkingBar(
+                    type="thinking-bar", message=message, detail=detail, at=at, of=of
+                ),
+            ),
+            now=event_at,
+        ),
+    )
 
 async def _write_journal_entry_item(
     itgs: Itgs,
@@ -1105,6 +1134,8 @@ WHERE
             )
         )
 
+    await _pbar(itgs, ctx=ctx, message=f'Rating {len(possible_journeys)} journeys...', at=0, of=len(possible_journeys))
+
     async def get_possible_journey_rating(
         possible_journey: PossibleJourney,
     ) -> Optional[Tuple[float, PossibleJourney]]:
@@ -1202,6 +1233,8 @@ transcript:
     running: Set[asyncio.Task] = set()
     concurrency_limit = 10
     next_index = 0
+    finished = 0
+    _pbar_task: Optional[asyncio.Task] = None
 
     while next_index < len(possible_journeys):
         while len(running) < concurrency_limit and next_index < len(possible_journeys):
@@ -1217,6 +1250,13 @@ transcript:
             result = task.result()
             if result is not None:
                 rated_journeys.append(result)
+        
+        finished += len(done)
+        if _pbar_task is not None and _pbar_task.done():
+            await _pbar_task
+            _pbar_task = None
+        if _pbar_task is None:
+            _pbar_task = asyncio.create_task(_pbar(itgs, ctx=ctx, message=f'Rating {len(possible_journeys)} journeys...', at=finished, of=len(possible_journeys)))
 
     if running:
         await asyncio.wait(running, return_when=asyncio.ALL_COMPLETED)
@@ -1225,6 +1265,10 @@ transcript:
             if result is not None:
                 rated_journeys.append(result)
         running.clear()
+
+    if _pbar_task is not None:
+        await _pbar_task
+    del _pbar_task
 
     if not rated_journeys:
         stats.incr_system_chats_failed_internal(
@@ -1356,7 +1400,29 @@ transcript:
             return 1
         return random.choice([-1, 1])
 
-    sorted_journeys = await merge_insertion_sort(eligible_journeys, compare=_compare)
+
+
+    num_comparisons = 0
+    _spinner_task = cast(Optional[asyncio.Task], None)
+
+    async def _compare_with_progress(a: PossibleJourney, b: PossibleJourney) -> int:
+        nonlocal num_comparisons, _spinner_task
+
+        result = await _compare(a, b)
+        num_comparisons += 1
+        if _spinner_task is not None and _spinner_task.done():
+            await _spinner_task
+            _spinner_task = None
+        if _spinner_task is None:
+            _spinner_task = asyncio.create_task(_spinner(itgs, ctx=ctx, message=f'Comparing journeys... ({num_comparisons} comparisons so far)'))
+        return result
+
+    sorted_journeys = await merge_insertion_sort(eligible_journeys, compare=_compare_with_progress)
+    if _spinner_task is not None:
+        await _spinner_task
+    del _spinner_task
+
+    await _spinner(itgs, ctx=ctx, message=f"Finishing up (total comparisons: {num_comparisons})...")
 
     best_journey = sorted_journeys[0]
     response = await cursor.execute(
