@@ -978,6 +978,13 @@ JOBS: Tuple[Job, ...] = (
             pst, hours=(0, 1, 4, 5, 22, 23), minutes=(5, 20, 35, 50), seconds=(0,)
         ),
     ),
+    Job(
+        name="runners.ensure_journey_embeddings",
+        kwargs=tuple(),
+        interval=JobInterval(
+            pst, hours=(2,), minutes=(0,), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 

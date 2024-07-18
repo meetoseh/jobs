@@ -1,34 +1,18 @@
 """
-A fairly extreme way to find the ideal free journey: rank every journey the user has
-not taken on a 1-10 scale, take all the ones within 2 points of the best ranking (e.g,
-8-10), then sort them with exclusively pairwise comparisons to find the best.
-
-This also uses the best available model (gpt-4o) which is also by far the priciest
-and is probably overkill for most of this task (except possibly writing the response)
-
-Findings from this implementation, with 251 journeys available:
-- 251 rankings finished in 26s @ 10x parallelism
-- Left with 69 journeys within 2 points of the best
-- Took 3m, 3s to sort the 69 journeys (326 comparisons, no parallelization)
-- Excellent results
-
-price by calculation:
-  251 rankings + 326 comparisons ~= 577 queries. 2048 max tokens = 1.18M tokens
-  = about $6 (rough estimate since input tokens are priced differently than output
-    tokens)
-
-price by cost dashboard: about $4
+Second version of chat brute force search: rank all the journeys on a 1-10
+scale using gpt4o-mini (released the same day this was written). Then, for
+those within 2 of the top score, compare them pairwise to find the best one
 """
 
 import asyncio
 from dataclasses import dataclass
 import json
+import math
 import random
 from typing import (
     AsyncIterable,
     Awaitable,
     Callable,
-    Dict,
     List,
     Literal,
     Optional,
@@ -75,15 +59,11 @@ TECHNIQUE_PARAMETERS = cast(
         "model": "gpt-4o",
     },
 )
+CHEAP_MODEL = "gpt-4o-mini"
 
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
-    """This is a relatively simple, toy implementation for how to generate the
-    system response to the users message. It evaluates every journey against the
-    message to get a 1-10 score (1 openai query per journey), then for all within
-    2 of the top score, does N LOG(N) queries to compare them against each other
-    to find the best. It does this whole process once for pro and once for non-pro
-    journeys, so it always returns a pro journey and a non-pro journey
+    """The second iteration of chat brute force search; much faster and cheaper
 
     When `replace_index` is None, this responds to the conversation of the the
     current point, where presumably the last message in the conversation is from
@@ -98,7 +78,7 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         ctx,
         technique_parameters=TECHNIQUE_PARAMETERS,
         response_pipeline=_response_pipeline,
-        prompt_identifier="chat_brute_force_search",
+        prompt_identifier="chat_brute_force_search_2",
     )
 
 
@@ -185,7 +165,12 @@ async def _response_pipeline(
             messages=[
                 {
                     "role": "system",
-                    "content": "You listen to how users feel and respond with empathy. Your responses should be 3 sentences or fewer. Do not suggest they talk to you, as they will not be able to respond.",
+                    "content": """
+Objective: Craft responses that acknowledge the user’s current feelings, validate their experience, and leave room to later offer class suggestions to help them achieve their desired state.
+
+Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic language to show understanding and support.
+End your response such that it seems like you still have more to say.
+                        """.strip(),
                 },
                 {"role": "assistant", "content": text_greeting},
                 {"role": "user", "content": text_user_message},
@@ -540,7 +525,7 @@ transcript:
 """,
                 },
             ],
-            model=TECHNIQUE_PARAMETERS["model"],
+            model=CHEAP_MODEL,
             tools=[
                 {
                     "type": "function",
@@ -712,7 +697,7 @@ transcript:
 """,
                 },
             ],
-            model=TECHNIQUE_PARAMETERS["model"],
+            model=CHEAP_MODEL,
             tools=[
                 {
                     "type": "function",
@@ -784,8 +769,10 @@ transcript:
             )
         return result
 
-    sorted_journeys = await merge_insertion_sort(
-        eligible_journeys, compare=_compare_with_progress
+    best_journey = await fast_top_1(
+        eligible_journeys,
+        compare=_compare_with_progress,
+        semaphore=asyncio.Semaphore(10),
     )
     if _spinner_task is not None:
         await _spinner_task
@@ -795,7 +782,6 @@ transcript:
         itgs, ctx=ctx, message=f"Finishing up (total comparisons: {num_comparisons})..."
     )
 
-    best_journey = sorted_journeys[0]
     response = await cursor.execute(
         """
 SELECT
@@ -891,113 +877,133 @@ V = TypeVar("V")
 Q = TypeVar("Q")
 
 
-async def merge_insertion_sort(
-    arr: List[T], /, *, compare: Callable[[T, T], Awaitable[int]], concurrency: int = 10
-) -> List[T]:
-    """Performs a Merge-insertion sort on the given array, assuming that
-    comparisons are expensive and not necessarily consistent, and thus
-    never asks for the same (or symmetric) comparisons (via caching)
+async def fast_top_1(
+    arr: List[T],
+    /,
+    *,
+    compare: Callable[[T, T], Awaitable[int]],
+    semaphore: asyncio.Semaphore,
+) -> T:
+    """Finds the best possible candidate from the given list, assuming that
+    the comparison function may be inconsistent (i.e., it may not result
+    in a valid partial ordering)
 
-    A merge-insertion sort, aka the Ford-Johnson algorithm, is a hybrid
-    sort intended to minimize the number of comparisons.
-
-    I didn't make an effort to prove this, but I think it's fair to reason
-    that an algorithm which minimizes the # of comparisons will not check
-    inferrable comparisons (e.g. if A < B and B < C, then A < C), and thus
-    the fact that the comparison function does not necessarily produce a
-    partial order is not a problem. Regardless, this definitely terminates
+    By construction, it does not repeat known comparisons
     """
-    # Implementation based on https://gist.github.com/DominikPeters/469134edd03c1479641ab3c252111cb3
-    # This isn't a very space or time efficient implementation, but since only
-    # the # of comparisons really matters, thats fine
-    known_comparisons: Dict[Tuple[int, int], int] = dict()
+    if len(arr) <= 6:  # use 2 for fastest, larger for more accurate
+        return await _top_1_pairwise_full(arr, compare=compare, semaphore=semaphore)
 
-    async def _compare(a_index: int, b_index: int) -> int:
-        known_a_to_b = known_comparisons.get((a_index, b_index))
-        if known_a_to_b is not None:
-            return known_a_to_b
+    num_subgroups = max(math.ceil(math.sqrt(len(arr))), 2)
+    subgroup_size = len(arr) // num_subgroups
 
-        comparison = await compare(arr[a_index], arr[b_index])
-        known_comparisons[(a_index, b_index)] = comparison
-        known_comparisons[(b_index, a_index)] = -comparison
+    subgroups: List[List[T]] = []
+    for i in range(num_subgroups):
+        subgroups.append(arr[i * subgroup_size : (i + 1) * subgroup_size])
 
-        return comparison
+    best_of_subgroups = await asyncio.gather(
+        *[
+            fast_top_1(subgroup, compare=compare, semaphore=semaphore)
+            for subgroup in subgroups
+        ]
+    )
+    return await fast_top_1(best_of_subgroups, compare=compare, semaphore=semaphore)
 
-    async def _binary_insert(
-        seq: List[V], x: V, less: Callable[[V, V], Awaitable[bool]]
-    ) -> int:
-        possible_positions = range(len(seq) + 1)
-        L, R = 0, possible_positions[-1]
-        while len(possible_positions) > 1:
-            m = (L + R) // 2
-            if await less(x, seq[m]):
-                R = m
+
+async def _top_1_pairwise_full(
+    arr: List[T],
+    /,
+    *,
+    compare: Callable[[T, T], Awaitable[int]],
+    semaphore: asyncio.Semaphore,
+) -> T:
+    """Finds the best option amongst the given list using n choose 2 comparisons (so for 6
+    options, takes 15 comparisons). All comparisons can be done in parallel if there is enough
+    space on the semaphore
+    """
+    if not arr:
+        raise ValueError("Cannot find the best of an empty list")
+
+    if len(arr) == 1:
+        return arr[0]
+
+    comparisons: List[List[int]] = [[0] * len(arr) for _ in range(len(arr))]
+
+    running: Set[asyncio.Task] = set()
+    # each returns [(i, j), result]
+
+    i = 0
+    j = 1
+    additional_acquisitions = 0
+    while running or i < len(arr) - 1:
+        # start as many as we can
+        while (additional_acquisitions > 0 or not semaphore.locked()) and i < len(
+            arr
+        ) - 1:
+            if additional_acquisitions > 0:
+                additional_acquisitions -= 1
             else:
-                L = m + 1
-            possible_positions = [p for p in possible_positions if L <= p <= R]
-        return possible_positions[0]
+                await semaphore.acquire()
 
-    async def _merge_insertion(
-        seq: List[V], less: Callable[[V, V], Awaitable[bool]]
-    ) -> List[V]:
-        if len(seq) <= 1:
-            return seq
-
-        async def _augmented_less(returnv: Q, x: V, y: V) -> Tuple[Q, bool]:
-            return returnv, await less(x, y)
-
-        comparisons: List[Optional[bool]] = [None for _ in range(len(seq) // 2)]
-        running: Set[asyncio.Task] = set()
-
-        for idx, (x1, x2) in enumerate(zip(seq[::2], seq[1::2])):
-            if len(running) >= concurrency:
-                done, running = await asyncio.wait(
-                    running, return_when=asyncio.FIRST_COMPLETED
+            running.add(
+                asyncio.create_task(
+                    _augmented_compare((i, j), arr[i], arr[j], compare=compare)
                 )
-                for task in done:
-                    task_result = task.result()
-                    comparisons[task_result[0]] = task_result[1]
+            )
+            j += 1
+            if j >= len(arr):
+                i += 1
+                j = i + 1
 
-            running.add(asyncio.create_task(_augmented_less(idx, x1, x2)))
+        while additional_acquisitions > 0:
+            semaphore.release()
+            additional_acquisitions -= 1
 
-        await asyncio.wait(running, return_when=asyncio.ALL_COMPLETED)
-        for task in running:
-            task_result = task.result()
-            comparisons[task_result[0]] = task_result[1]
+        if not running:
+            await semaphore.acquire()
+            additional_acquisitions += 1
+            continue
 
-        pairs: List[Tuple[V, V]] = []
-        for x1, x2, less_result in zip(seq[::2], seq[1::2], comparisons):
-            assert less_result is not None
-            if less_result:
-                pairs.append((x1, x2))
-            else:
-                pairs.append((x2, x1))
+        if i >= len(arr) - 1:
+            done, running = await asyncio.wait(
+                running, return_when=asyncio.FIRST_COMPLETED
+            )
+            for t in done:
+                semaphore.release()
+                (done_i, done_j), done_comparison = t.result()
+                comparisons[done_i][done_j] = done_comparison
+                comparisons[done_j][done_i] = -done_comparison
+            continue
 
-        pairs = await _merge_insertion(pairs, less=lambda a, b: less(a[1], b[1]))
-        out = [x2 for x1, x2 in pairs]
-        remaining = cast(List[Tuple[V, Union[V, Literal["END"]]]], pairs[:])
-        if len(seq) % 2 == 1:
-            remaining.append((seq[-1], "END"))
-        out.insert(0, remaining.pop(0)[0])
-        buckets = [2, 2]
-        power_of_2 = 4
-        while sum(buckets) < len(remaining):
-            power_of_2 *= 2
-            buckets.append(power_of_2 - buckets[-1])
-        reordered = []
-        last_index = 0
-        for bucket in buckets:
-            reordered += reversed(remaining[last_index : last_index + bucket])
-            last_index += bucket
-        for y, x in reordered:
-            if x == "END":
-                out.insert(await _binary_insert(out, y, less), y)
-            else:
-                out.insert(await _binary_insert(out[: out.index(x)], y, less), y)
-        return out
+        something_finished_task = asyncio.create_task(
+            asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+        )
+        acquire_task = asyncio.create_task(semaphore.acquire())
+        await asyncio.wait(
+            [something_finished_task, acquire_task], return_when=asyncio.FIRST_COMPLETED
+        )
 
-    async def _less(a: int, b: int) -> bool:
-        return await _compare(a, b) < 0
+        if not acquire_task.cancel():
+            acquire_task.result()
+            additional_acquisitions += 1
 
-    sorted = await _merge_insertion(list(range(len(arr))), less=_less)
-    return [arr[i] for i in sorted]
+        if not something_finished_task.cancel():
+            done, running = await something_finished_task
+            for t in done:
+                semaphore.release()
+                (done_i, done_j), done_comparison = t.result()
+                comparisons[done_i][done_j] = done_comparison
+                comparisons[done_j][done_i] = -done_comparison
+
+    while additional_acquisitions > 0:
+        semaphore.release()
+        additional_acquisitions -= 1
+
+    scores = [sum(row) for row in comparisons]
+    best_index = max(range(len(arr)), key=lambda i: scores[i])
+    return arr[best_index]
+
+
+async def _augmented_compare(
+    retval1: V, a: T, b: T, compare: Callable[[T, T], Awaitable[int]]
+) -> Tuple[V, int]:
+    return retval1, await compare(a, b)
