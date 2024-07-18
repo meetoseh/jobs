@@ -965,6 +965,19 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
+    Job(
+        name="runners.stats.daily_journal_stats",
+        kwargs=tuple(),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
+    ),
+    Job(
+        name="runners.reprocess_home_screen_images",
+        kwargs=tuple(),
+        interval=JobInterval(
+            # dodging the profile picture job
+            pst, hours=(0, 1, 4, 5, 22, 23), minutes=(5, 20, 35, 50), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 

@@ -8,7 +8,7 @@ import socket
 import logging as logger
 
 
-async def handle_error(exc: Exception, *, extra_info: Optional[str] = None) -> None:
+async def handle_error(exc: BaseException, *, extra_info: Optional[str] = None) -> None:
     """Handles a generic error"""
     logger.error("Posting error to slack", exc_info=exc)
 

@@ -1,7 +1,9 @@
 """This module assists with working with entitlements from RevenueCat"""
-from typing import Dict, List, Literal, Optional
+
+import os
+from typing import Dict, List, Literal, Optional, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 import aiohttp
 import logging as logger
 import asyncio
@@ -77,16 +79,96 @@ class CustomerInfo(BaseModel):
     subscriber: Subscriber = Field()
 
 
+class Package(BaseModel):
+    # From https://www.revenuecat.com/docs/api-v1#tag/offerings/operation/get-offerings
+    identifier: str = Field()
+    platform_product_identifier: str = Field()
+
+    # https://community.revenuecat.com/third-party-integrations-53/android-subscription-adding-base-plan-id-to-product-id-2710
+    # used in android subscriptions, omitted from the docs
+    platform_product_plan_identifier: Optional[str] = Field(None)
+
+
+RCEnv = Literal["production", "dev"]
+
+
+class OfferingMetadata(BaseModel):
+    # We add this via the metadata section to add basic environment support
+    environment: Literal[RCEnv] = Field()
+    alternative: Dict[RCEnv, str] = Field()
+
+
+class OfferingWithoutMetadata(BaseModel):
+    # From https://www.revenuecat.com/docs/api-v1#tag/offerings/operation/get-offerings
+    description: str = Field()
+    identifier: str = Field()
+    packages: List[Package] = Field()
+
+
+class Offering(BaseModel):
+    # From https://www.revenuecat.com/docs/api-v1#tag/offerings/operation/get-offerings
+    description: str = Field()
+    identifier: str = Field()
+    metadata: OfferingMetadata = Field()
+    packages: List[Package] = Field()
+
+    def strip_metadata(self) -> OfferingWithoutMetadata:
+        return OfferingWithoutMetadata(
+            description=self.description,
+            identifier=self.identifier,
+            packages=self.packages,
+        )
+
+
+class OfferingsWithoutMetadata(BaseModel):
+    # From https://www.revenuecat.com/docs/api-v1#tag/offerings/operation/get-offerings
+    current_offering_id: str = Field()
+    offerings: List[OfferingWithoutMetadata] = Field()
+
+
+class Offerings(BaseModel):
+    # From https://www.revenuecat.com/docs/api-v1#tag/offerings/operation/get-offerings
+    current_offering_id: str = Field()
+    offerings: List[Offering] = Field()
+
+    def strip_metadata(self) -> OfferingsWithoutMetadata:
+        return OfferingsWithoutMetadata(
+            current_offering_id=self.current_offering_id,
+            offerings=[off.strip_metadata() for off in self.offerings],
+        )
+
+
+class NoOfferings(BaseModel):
+    current_offering_id: Literal[None] = Field()
+    offerings: List[Literal[None]] = Field(max_length=0)
+
+
+list_offerings_result_validator: TypeAdapter[Union[Offerings, NoOfferings]] = (
+    TypeAdapter(Union[Offerings, NoOfferings])
+)
+
+
 class RevenueCat:
     """The interface for interacting with RevenueCat. Acts as a
     async context manager, so you can use it with `async with`."""
 
-    def __init__(self, sk: str, stripe_pk: str) -> None:
+    def __init__(
+        self, sk: str, stripe_pk: str, playstore_pk: str, appstore_pk: str
+    ) -> None:
         self.sk: str = sk
         """The secret key for RevenueCat"""
 
         self.stripe_pk: str = stripe_pk
         """The public key for the Stripe app in RevenueCat"""
+
+        self.playstore_pk: str = playstore_pk
+        """The public key for the Play Store app in RevenueCat"""
+
+        self.appstore_pk: str = appstore_pk
+        """The public key for the App Store app in RevenueCat"""
+
+        self.is_sandbox: bool = os.environ["ENVIRONMENT"] == "dev"
+        """If we're accessing the sandbox environment on revenuecat"""
 
         self.session: Optional[aiohttp.ClientSession] = None
         """If this has been entered as an async context manager, this will be
@@ -124,6 +206,7 @@ class RevenueCat:
                 headers={
                     "Authorization": f"Bearer {self.sk}",
                     "Accept": "application/json",
+                    "X-Is-Sandbox": "true" if self.is_sandbox else "false",
                 },
             ) as resp:
                 if handle_ratelimits and resp.status == 429:
@@ -227,6 +310,12 @@ class RevenueCat:
         Specifying is_restore=True will cause the default restore behavior, usually
         meaning that if the checkout session was used to apply entitlements to another
         user already, those entitlements are removed and added to this user.
+
+        Args:
+            revenue_cat_id (str): The RevenueCat ID of the user
+            stripe_checkout_session_id (str): The ID of the stripe checkout session
+                or subscription ID
+            is_restore (bool, optional): Whether this is a restore operation. Defaults to False.
         """
         assert self.session is not None
 
@@ -299,3 +388,57 @@ class RevenueCat:
             },
         ) as response:
             response.raise_for_status()
+
+    async def list_offerings(
+        self,
+        *,
+        revenue_cat_id: str,
+        platform: Literal["stripe", "playstore", "appstore"],
+    ) -> Optional[Offerings]:
+        """Fetches the offerings of the app for the particular user on the given
+        platform. If the user does not exist, this will return as if for a generic
+        user.
+
+        Prefer using `users.lib.offerings.get_offerings` over this as it will reduce
+        traffic to revenuecat and has functions for augmenting the result.
+
+        WARN:
+            This will return offerings from all environments. You should filter
+            the result to the environment you want.
+
+        Args:
+            revenue_cat_id (str): The RevenueCat ID of the user
+            platform (Literal["stripe"]): The platform to get
+                offers on; effects the interpretation of `platform_product_identifier`
+
+        Returns:
+            Offerings: The offerings available to the user or None if there are no
+                offerings available
+        """
+        assert self.session is not None
+
+        if platform == "stripe":
+            platform_public_key = self.stripe_pk
+        elif platform == "playstore":
+            platform_public_key = self.playstore_pk
+        elif platform == "appstore":
+            platform_public_key = self.appstore_pk
+        else:
+            raise ValueError(
+                f"unsupported platform (no public key available): {platform=}"
+            )
+
+        async with self.session.get(
+            f"https://api.revenuecat.com/v1/subscribers/{revenue_cat_id}/offerings",
+            headers={
+                "Authorization": f"Bearer {platform_public_key}",
+                "Accept": "application/json",
+            },
+        ) as response:
+            response.raise_for_status()
+            data = await response.read()
+            result = list_offerings_result_validator.validate_json(data)
+            if result.current_offering_id is None:
+                return None
+            logger.debug(f"converted revenue_cat offerings list {data!r} to {result!r}")
+            return result

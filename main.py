@@ -1,3 +1,5 @@
+import journal_chat_jobs.main
+from mp_helper import adapt_threading_event_to_asyncio
 import mpfix  # type: ignore
 import threading
 import time
@@ -13,12 +15,18 @@ import yaml
 import logging.config
 import logging
 import os
+import perpetual_pub_sub
+import lib.transcripts.cache
+import lib.users.entitlements
 
 
 async def _main(gd: GracefulDeath):
     stop_event: threading.Event = threading.Event()
     stopping_event: threading.Event = threading.Event()
     threads: List[threading.Thread] = []
+
+    assert perpetual_pub_sub.instance is None
+    perpetual_pub_sub.instance = perpetual_pub_sub.PerpetualPubSub()
 
     print(f"{os.getpid()=}")
     threads.append(
@@ -34,6 +42,24 @@ async def _main(gd: GracefulDeath):
             args=[stop_event, stopping_event],
             daemon=True,
         )
+    )
+    threads.append(
+        threading.Thread(
+            target=journal_chat_jobs.main.run_forever_sync,
+            args=[stop_event, stopping_event],
+            daemon=True,
+        )
+    )
+
+    background_tasks = set()
+    background_tasks.add(
+        asyncio.create_task(perpetual_pub_sub.instance.run_in_background_async())
+    )
+    background_tasks.add(
+        asyncio.create_task(lib.transcripts.cache.actively_sync_local_cache())
+    )
+    background_tasks.add(
+        asyncio.create_task(lib.users.entitlements.purge_cache_loop_async())
     )
 
     for t in threads:
@@ -73,9 +99,16 @@ async def _main(gd: GracefulDeath):
             await graceful_sleep(gd, 30)
 
     stop_event.set()
+    perpetual_pub_sub.instance.exit_event.set()
 
     for t in threads:
         t.join(15)
+
+    await adapt_threading_event_to_asyncio(
+        perpetual_pub_sub.instance.exitted_event
+    ).wait()
+
+    await asyncio.wait(background_tasks, return_when=asyncio.ALL_COMPLETED)
 
 
 def main():

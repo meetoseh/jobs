@@ -7,3 +7,5 @@ the keys we store locally on backend instances via diskcache
   `updates:{repo}:lock` for more information.
 - `transcripts:{audio_sha512}`: Used to cache transcripts on audio files
   for which there is no corresponding content file.
+- `transcripts:byuid:{uid}`: Used to cache transcripts by their database
+  stable external identifier.

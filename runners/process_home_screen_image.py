@@ -24,13 +24,14 @@ from temp_files import temp_file
 category = JobCategory.HIGH_RESOURCE_COST
 
 
-def _get_img_height(logical_height: int) -> int:
+def _get_small_img_height(logical_height: int) -> int:
     return 258 + max(min(logical_height - 633, 92), 0)
 
 
 RESOLUTIONS = list(
     dict.fromkeys(
         [
+            # SMALL IMAGE SIZE (original home screen)
             # GENERIC
             # Mobile Small
             (360, 258),  # 1x
@@ -49,7 +50,7 @@ RESOLUTIONS = list(
                 "2019-01-01",
                 mapper=lambda lw, lh, pr: (
                     math.ceil(lw * pr),
-                    math.ceil(_get_img_height(lh) * pr),
+                    math.ceil(_get_small_img_height(lh) * pr),
                 ),
                 exclude_families={"Apple Watch", "iPod touch"},
             ),
@@ -58,6 +59,36 @@ RESOLUTIONS = list(
             (2880, 700),  # 2x
             (1920, 350),  # 1x
             (3840, 700),  # 2x
+            # LARGE IMAGE SIZE (new home screen; full height)
+            # GENERIC
+            # Mobile Small
+            (360, 633),  # 1x
+            (720, 1266),  # 2x
+            (1080, 1899),  # 3x
+            # Mobile, Medium
+            (390, 844),  # 1x
+            (780, 1688),  # 2x
+            (1170, 2532),  # 3x
+            # Mobile, Large
+            (414, 915),  # 1x
+            (828, 1830),  # 2x
+            (1242, 2745),  # 3x
+            # IOS - EXACT - 2019 and newer
+            *get_sizes_for_devices_newer_than(
+                "2019-01-01",
+                mapper=lambda lw, lh, pr: (
+                    math.ceil(lw * pr),
+                    math.ceil(lh * pr),
+                ),
+                exclude_families={"Apple Watch", "iPod touch"},
+            ),
+            # Desktop
+            (1280, 1024),  # 1x
+            (2560, 2048),  # 2x
+            (1600, 900),  # 1x
+            (3200, 1800),  # 2x
+            (1920, 1080),  # 1x
+            (3840, 2160),  # 2x
         ]
     )
 )
@@ -66,6 +97,8 @@ TARGETS = make_standard_targets(RESOLUTIONS)
 for target in TARGETS:
     if target.required and target.width > 1920:
         target.required = False
+
+LAST_TARGETS_CHANGED_AT = 1721250600
 
 
 async def execute(
@@ -164,10 +197,18 @@ async def execute(
         await cursor.execute(
             """
 INSERT INTO home_screen_images (
-    uid, image_file_id, darkened_image_file_id, start_time, end_time, flags, dates, created_at, live_at
+    uid, 
+    image_file_id, 
+    darkened_image_file_id, 
+    start_time, end_time, 
+    flags, 
+    dates, 
+    created_at, 
+    live_at,
+    last_processed_at
 )
 SELECT
-    ?, image_files.id, darkened_image_files.id, 0, 86400, 2097152, NULL, ?, ?
+    ?, image_files.id, darkened_image_files.id, 0, 86400, 2097152, NULL, ?, ?, ?
 FROM image_files, image_files AS darkened_image_files
 WHERE
     image_files.uid = ?
@@ -176,7 +217,7 @@ WHERE
         SELECT 1 FROM home_screen_images AS hsi WHERE hsi.image_file_id = image_files.id
     )
             """,
-            (hsi_uid, now, now, image.uid, darkened_image.uid),
+            (hsi_uid, now, now, now, image.uid, darkened_image.uid),
         )
 
         jobs = await itgs.jobs()

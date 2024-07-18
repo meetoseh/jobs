@@ -1,5 +1,5 @@
 """
-Checks if any of the redis nodes or sentinels have more than 50 clients connected,
+Checks if any of the redis nodes or sentinels have more than 55 clients connected,
 which implies something is leaking connections and will eventually cause redis to
 stop accepting connections. Eventually, this will cause a redis failover which will
 reset the connections, but there is an interval of time where the redis sentinels
@@ -28,8 +28,8 @@ category = JobCategory.LOW_RESOURCE_COST
 
 async def execute(itgs: Itgs, gd: GracefulDeath):
     """Verifies that all redis sentinel servers and redis servers discoverable from the
-    sentinels have less than 50 clients connected. If any have more than 50 clients,
-    awarning is sent to slack. If they have more than 100 clients, the warning is urgent.
+    sentinels have less than 55 clients connected. If any have more than 55 clients,
+    awarning is sent to slack. If they have more than 105 clients, the warning is urgent.
 
     Args:
         itgs (Itgs): the integration to use; provided automatically
@@ -66,11 +66,11 @@ async def check_instance_clients(
             f"expected int, got {type(num_clients)}",
         )
         return
-    if num_clients > 50:
+    if num_clients > 55:
         await handle_warning(
             f"{__name__}:{category}_too_many_clients:{host}",
             f"{host} has {num_clients} clients connected: may be leaking connections",
-            is_urgent=num_clients > 100,
+            is_urgent=num_clients > 105,
         )
 
 
