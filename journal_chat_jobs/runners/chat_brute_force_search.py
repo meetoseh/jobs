@@ -371,7 +371,6 @@ async def _spinner(
     )
 
 
-
 async def _pbar(
     itgs: Itgs,
     /,
@@ -380,7 +379,7 @@ async def _pbar(
     message: str,
     detail: Optional[str] = None,
     at: int,
-    of: int
+    of: int,
 ) -> None:
     event_at = time.time()
     await publish_journal_chat_event(
@@ -398,6 +397,7 @@ async def _pbar(
             now=event_at,
         ),
     )
+
 
 async def _write_journal_entry_item(
     itgs: Itgs,
@@ -1134,7 +1134,13 @@ WHERE
             )
         )
 
-    await _pbar(itgs, ctx=ctx, message=f'Rating {len(possible_journeys)} journeys...', at=0, of=len(possible_journeys))
+    await _pbar(
+        itgs,
+        ctx=ctx,
+        message=f"Rating {len(possible_journeys)} journeys...",
+        at=0,
+        of=len(possible_journeys),
+    )
 
     async def get_possible_journey_rating(
         possible_journey: PossibleJourney,
@@ -1236,7 +1242,7 @@ transcript:
     finished = 0
     _pbar_task: Optional[asyncio.Task] = None
 
-    while next_index < len(possible_journeys):
+    while running or (next_index < len(possible_journeys)):
         while len(running) < concurrency_limit and next_index < len(possible_journeys):
             running.add(
                 asyncio.create_task(
@@ -1250,21 +1256,21 @@ transcript:
             result = task.result()
             if result is not None:
                 rated_journeys.append(result)
-        
+
         finished += len(done)
         if _pbar_task is not None and _pbar_task.done():
             await _pbar_task
             _pbar_task = None
         if _pbar_task is None:
-            _pbar_task = asyncio.create_task(_pbar(itgs, ctx=ctx, message=f'Rating {len(possible_journeys)} journeys...', at=finished, of=len(possible_journeys)))
-
-    if running:
-        await asyncio.wait(running, return_when=asyncio.ALL_COMPLETED)
-        for task in running:
-            result = task.result()
-            if result is not None:
-                rated_journeys.append(result)
-        running.clear()
+            _pbar_task = asyncio.create_task(
+                _pbar(
+                    itgs,
+                    ctx=ctx,
+                    message=f"Rating {len(possible_journeys)} journeys...",
+                    at=finished,
+                    of=len(possible_journeys),
+                )
+            )
 
     if _pbar_task is not None:
         await _pbar_task
@@ -1400,8 +1406,6 @@ transcript:
             return 1
         return random.choice([-1, 1])
 
-
-
     num_comparisons = 0
     _spinner_task = cast(Optional[asyncio.Task], None)
 
@@ -1414,15 +1418,26 @@ transcript:
             await _spinner_task
             _spinner_task = None
         if _spinner_task is None:
-            _spinner_task = asyncio.create_task(_spinner(itgs, ctx=ctx, message=f'Comparing journeys... ({num_comparisons} comparisons so far)'))
+            _spinner_task = asyncio.create_task(
+                _spinner(
+                    itgs,
+                    ctx=ctx,
+                    message=f"Ranking top {len(eligible_journeys)} pairwise...",
+                    detail=f"Comparisons so far: {num_comparisons}",
+                )
+            )
         return result
 
-    sorted_journeys = await merge_insertion_sort(eligible_journeys, compare=_compare_with_progress)
+    sorted_journeys = await merge_insertion_sort(
+        eligible_journeys, compare=_compare_with_progress
+    )
     if _spinner_task is not None:
         await _spinner_task
     del _spinner_task
 
-    await _spinner(itgs, ctx=ctx, message=f"Finishing up (total comparisons: {num_comparisons})...")
+    await _spinner(
+        itgs, ctx=ctx, message=f"Finishing up (total comparisons: {num_comparisons})..."
+    )
 
     best_journey = sorted_journeys[0]
     response = await cursor.execute(
