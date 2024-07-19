@@ -82,7 +82,7 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         ctx,
         technique_parameters=TECHNIQUE_PARAMETERS,
         response_pipeline=_response_pipeline,
-        prompt_identifier="chat_brute_force_search",
+        prompt_identifier="chat_embeddings_rank_and_pluck",
     )
 
 
@@ -270,10 +270,24 @@ the transcript of that class
 {str(free_class_transcript)}
 ```
 
-I need you to add 1-2 sentences to my response so far. Do not include my response in your
+Here's a general description:
+
+{free_class.description}
+
+I need you to add 1-3 sentences to my response so far. Do not include my response in your
 message. There has been some time since I wrote my initial message, so start this one with
 a proper sentence (starting with an uppercase letter). Use emojis if appropriate for clarity,
-but ensure the message is still interpretable even if the emojis are removed.
+but ensure the message is still interpretable even if the emojis are removed. Prefer to use
+emojis which are visualizations of terms you are using, and put them adjacent to the term,
+for example "🎨 art" or "🎶 music". Do not use emojis as a substitute for words or as a sign-off.
+Avoid emojis that are commonly associated with romantic or sexual contexts.
+
+Mention specific information about the contents of the class, taking from either the description
+or the transcript. To help keep your message short, use "this" or "this class" instead of mentioning
+the class by name. You rarely need to mention the instructor, but if you do, just use their first name.
+
+Focus on talking about why you picked this class for them, and try to make sure its clear how it
+relates to their original message.
 
 {empathy_message.content}
                     """
