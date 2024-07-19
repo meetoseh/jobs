@@ -22,7 +22,7 @@ from typing import (
     Union,
     cast,
 )
-
+from error_middleware import handle_warning
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from lib.image_files.image_file_ref import ImageFileRef
@@ -59,7 +59,10 @@ TECHNIQUE_PARAMETERS = cast(
         "model": "gpt-4o",
     },
 )
-CHEAP_MODEL = "gpt-4o-mini"
+SMALL_MODEL = "gpt-4o-mini"
+
+BIG_RATELIMIT_CATEGORY = "gpt-4o"
+SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
 
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
@@ -160,6 +163,9 @@ async def _response_pipeline(
     )
 
     try:
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
+        )
         chat_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -176,8 +182,13 @@ End your response such that it seems like you still have more to say.
                 {"role": "user", "content": text_user_message},
             ],
             model=TECHNIQUE_PARAMETERS["model"],
+            max_tokens=2048,
         )
     except Exception as e:
+        if os.environ["ENVIRONMENT"] == "dev":
+            await handle_warning(
+                f"{__name__}:llm", f"Failed to connect with LLM", exc=e
+            )
         stats.incr_system_chats_failed_net_unknown(
             unix_date=ctx.queued_at_unix_date_in_stats_tz,
             **TECHNIQUE_PARAMETERS,
@@ -232,6 +243,9 @@ End your response such that it seems like you still have more to say.
         return
 
     try:
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
+        )
         chat_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -263,8 +277,13 @@ message.
                 },
             ],
             model=TECHNIQUE_PARAMETERS["model"],
+            max_tokens=2048,
         )
     except Exception as e:
+        if os.environ["ENVIRONMENT"] == "dev":
+            await handle_warning(
+                f"{__name__}:llm", f"Failed to connect with LLM", exc=e
+            )
         stats.incr_system_chats_failed_net_unknown(
             unix_date=ctx.queued_at_unix_date_in_stats_tz,
             **TECHNIQUE_PARAMETERS,
@@ -491,6 +510,9 @@ WHERE
             return None
 
         text_transcript = str(transcript.to_internal())
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
+        )
         rating_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -525,7 +547,7 @@ transcript:
 """,
                 },
             ],
-            model=CHEAP_MODEL,
+            model=SMALL_MODEL,
             tools=[
                 {
                     "type": "function",
@@ -653,6 +675,9 @@ transcript:
         if a_id == b_id:
             return random.choice([-1, 1])
 
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
+        )
         comparison_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -697,7 +722,7 @@ transcript:
 """,
                 },
             ],
-            model=CHEAP_MODEL,
+            model=SMALL_MODEL,
             tools=[
                 {
                     "type": "function",

@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import secrets
 import string
@@ -18,6 +19,10 @@ import pytz
 
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
+from journal_chat_jobs.lib.openai_ratelimits import (
+    OpenAICategory,
+    reserve_openai_tokens,
+)
 from lib.journals.journal_chat import JournalChat
 from lib.journals.journal_chat_redis_packet import (
     EventBatchPacketDataItemDataError,
@@ -841,6 +846,47 @@ async def fail_openai_exception(
         message=message,
         detail=detail,
     )
+
+
+class OpenAIRatelimitExcessivelyBehindException(Exception):
+    """Raised when we are too far behind in the openai ratelimit queue"""
+
+    def __init__(self):
+        super().__init__("ratelimited-excessive")
+
+
+async def reserve_tokens(
+    itgs: Itgs, /, *, ctx: JournalChatJobContext, category: OpenAICategory, tokens: int
+) -> None:
+    """Wraps `reserve_openai_tokens`, handling the wait response for you. Raises
+    an error if reserving would cause us to wait excessively long, and makes sure
+    the client doesn't reconnect to the websocket server due to timeout while we
+    are waiting
+    """
+
+    reserve_result = await reserve_openai_tokens(
+        itgs, category=category, count=2048, max_wait_seconds=120
+    )
+    if reserve_result.type == "wait":
+        started_at = time.time()
+        done_at = time.time() + reserve_result.wait_seconds
+        while True:
+            now = time.time()
+            sleep_remaining = done_at - now
+            if sleep_remaining <= 0:
+                break
+            sleep_done = now - started_at
+            await publish_pbar(
+                itgs,
+                ctx=ctx,
+                message=f"Waiting in {category} queue",
+                detail=f"Waited {int(sleep_done)}/{reserve_result.wait_seconds} seconds",
+                at=int(sleep_done),
+                of=reserve_result.wait_seconds,
+            )
+            await asyncio.sleep(min(sleep_remaining, 1))
+    elif reserve_result.type == "fail":
+        raise OpenAIRatelimitExcessivelyBehindException()
 
 
 def make_id(v: str) -> str:

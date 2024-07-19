@@ -75,6 +75,7 @@ TECHNIQUE_PARAMETERS = cast(
         "model": "gpt-4o",
     },
 )
+RATELIMIT_CATEGORY = "gpt-4o"
 
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
@@ -180,6 +181,9 @@ async def _response_pipeline(
     )
 
     try:
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=RATELIMIT_CATEGORY, tokens=2048
+        )
         chat_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -191,6 +195,7 @@ async def _response_pipeline(
                 {"role": "user", "content": text_user_message},
             ],
             model=TECHNIQUE_PARAMETERS["model"],
+            max_tokens=2048,
         )
     except Exception as e:
         stats.incr_system_chats_failed_net_unknown(
@@ -247,6 +252,9 @@ async def _response_pipeline(
         return
 
     try:
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=RATELIMIT_CATEGORY, tokens=2048
+        )
         chat_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -278,6 +286,7 @@ message.
                 },
             ],
             model=TECHNIQUE_PARAMETERS["model"],
+            max_tokens=2048,
         )
     except Exception as e:
         stats.incr_system_chats_failed_net_unknown(
@@ -506,6 +515,9 @@ WHERE
             return None
 
         text_transcript = str(transcript.to_internal())
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=RATELIMIT_CATEGORY, tokens=2048
+        )
         rating_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -668,6 +680,9 @@ transcript:
         if a_id == b_id:
             return random.choice([-1, 1])
 
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=RATELIMIT_CATEGORY, tokens=2048
+        )
         comparison_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
