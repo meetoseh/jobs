@@ -35,6 +35,7 @@ async def handle_journal_chat_job(
     one call per process and receiving a GracefulDeath to detect signals
     """
     logging.info(f"{log_id=} starting job for {user_sub=}...")
+    await itgs.ensure_redis_liveliness()
     ctx = JournalChatJobContext(
         journal_chat_uid=journal_chat_uid,
         journal_master_key=journal_master_key,

@@ -764,6 +764,7 @@ WHERE
             detail="Generating user message embedding",
         )
 
+    await ctx.maybe_check_redis(itgs)
     embeddings = await get_journey_embeddings(itgs)
     if embeddings.type != "success":
         raise ValueError(f"Failed to get journey embeddings: {embeddings.type}")
