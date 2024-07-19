@@ -6,6 +6,7 @@ then a few head-to-head comparisons with gpt-4o
 import asyncio
 from dataclasses import dataclass
 import json
+import math
 import random
 from typing import (
     AsyncIterable,
@@ -24,6 +25,7 @@ from itgs import Itgs
 from journal_chat_jobs.lib.fast_top_1 import fast_top_1
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.lib.journey_embeddings import get_journey_embeddings
+from journal_chat_jobs.lib.openai_ratelimits import reserve_openai_tokens
 from lib.image_files.image_file_ref import ImageFileRef
 from lib.journals.journal_chat_redis_packet import (
     EventBatchPacketDataItemDataError,
@@ -173,11 +175,16 @@ async def _response_pipeline(
                 {
                     "role": "system",
                     "content": """
-Objective: Craft responses that acknowledge the user’s current feelings and validate their experience.
+Objective: Craft responses that acknowledge the user’s current feelings and
+validate their experience.
 
-Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic language to show understanding and support.
+Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic
+language to show understanding and support. Keep your response professional
+and forward-thinking; for example, do not apologize for negative emotions, but
+instead thank them for sharing.
 
-Do not conclude your messages. End responses on a strong semantically meaningful sentence. If they did not share a lot of information, use only two sentences.
+Do not conclude your messages. End responses on a strong semantically meaningful
+sentence. If they did not share a lot of information, use only two sentences.
                         """.strip(),
                 },
                 {"role": "assistant", "content": text_greeting},
@@ -303,7 +310,8 @@ letter). Use emojis if appropriate for visual variety.
 Include specific information about the contents of the class, taking from either
 the description or the transcript. Try to suggest ways to get the most out of the
 class. Talk about why I picked this class for them, and try to make sure
-its clear how it relates to their original message.
+its clear how it relates to their original message. Do not use italics or bold.
+If necessary, use paragraph breaks (2 newlines).
 
 
 {empathy_message.content}
@@ -443,7 +451,8 @@ letter). Use emojis if appropriate for visual variety.
 Include specific information about the contents of the class, taking from either
 the description or the transcript. Try to suggest ways to get the most out of the
 class. Talk about why I picked this class for them, and try to make sure
-its clear how it relates to their original message.
+its clear how it relates to their original message.  Do not use italics or bold.
+If necessary, use paragraph breaks (2 newlines).
 
 ---
 
@@ -748,12 +757,18 @@ WHERE
             continue
         rated_journeys.append((float(similarities[idx]), journey))
 
-    best_rating = max(rated_journeys, key=lambda x: x[0])[0]
+    journey_ratings_by_uid = dict(
+        (journey.journey_uid, rating) for rating, journey in rated_journeys
+    )
 
     eligible_journeys = [v[1] for v in sorted(rated_journeys, key=lambda x: -x[0])]
-    if len(eligible_journeys) > 10:
+
+    min_amt = 3 if not has_pro else 10
+    if len(eligible_journeys) > min_amt:
+        max_cnt = 10 if not has_pro else 25
+        max_perc = 0.05 if not has_pro else 0.1
         eligible_journeys = eligible_journeys[
-            : min(max(10, len(eligible_journeys) // 10), 100)
+            : min(max(min_amt, math.ceil(len(eligible_journeys) * max_perc)), max_cnt)
         ]
 
     if not eligible_journeys:
@@ -781,9 +796,16 @@ WHERE
         if a_id == b_id:
             return random.choice([-1, 1])
 
-        await chat_helper.reserve_tokens(
-            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
+        reserve_result = await reserve_openai_tokens(
+            itgs, category=SMALL_RATELIMIT_CATEGORY, count=2048, max_wait_seconds=0
         )
+        if reserve_result != "success":
+            semantic_a = journey_ratings_by_uid.get(a.journey_uid, 0)
+            semantic_b = journey_ratings_by_uid.get(b.journey_uid, 0)
+            if semantic_a == semantic_b:
+                return 0
+            return -1 if semantic_a > semantic_b else 1
+
         comparison_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
