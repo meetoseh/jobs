@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+import time
 
+from itgs import Itgs
 from lib.journals.journal_chat_task import JournalChatTask
 from lib.journals.master_keys import GetJournalMasterKeyForEncryptionResultSuccess
 
@@ -44,9 +46,18 @@ class JournalChatJobContext:
     """The task to be performed. This is considered sensitive, so avoid logging it or
     sending it anywhere unencrypted
     """
+    last_checked_redis: float
+    """The last time we called ensure_redis_liveliness() on the underlying itgs instance"""
 
     def reserve_event_counter(self) -> int:
         """Increments self.next_event_counter and returns the previous value"""
         result = self.next_event_counter
         self.next_event_counter += 1
         return result
+
+    async def maybe_check_redis(self, itgs: Itgs) -> None:
+        """Checks that the redis connection is still alive, but only if it hasn't been
+        checked in the last 10 seconds"""
+        if time.time() - self.last_checked_redis > 10:
+            self.last_checked_redis = time.time()
+            await itgs.ensure_redis_liveliness()

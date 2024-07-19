@@ -91,7 +91,7 @@ async def zadd_exact_window(
     Raises:
         NoScriptError: If the script is not loaded into redis
     """
-    res = await redis.evalsha(ZADD_EXACT_WINDOW_LUA_SCRIPT_HASH, 1, key, counter_key, event_at)  # type: ignore
+    res = await redis.evalsha(ZADD_EXACT_WINDOW_LUA_SCRIPT_HASH, 1, key, counter_key, str(event_at).encode("ascii"))  # type: ignore
     if res is redis:
         return None
     assert res == "OK"

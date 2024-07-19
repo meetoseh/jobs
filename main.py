@@ -18,6 +18,7 @@ import os
 import perpetual_pub_sub
 import lib.transcripts.cache
 import lib.users.entitlements
+import lib.users.stripe_prices
 
 
 async def _main(gd: GracefulDeath):
@@ -60,6 +61,9 @@ async def _main(gd: GracefulDeath):
     )
     background_tasks.add(
         asyncio.create_task(lib.users.entitlements.purge_cache_loop_async())
+    )
+    background_tasks.add(
+        asyncio.create_task(lib.users.stripe_prices.subscribe_to_stripe_price_updates())
     )
 
     for t in threads:

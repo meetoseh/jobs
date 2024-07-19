@@ -143,7 +143,6 @@ async def reserve_openai_tokens(
         )
 
     request_at = int(time.time())
-    await itgs.ensure_redis_liveliness()
     result = await safe_reserve_openai(itgs, now=request_at, args=reservations)
     if result.type == "success":
         if result.wait_time <= 0:

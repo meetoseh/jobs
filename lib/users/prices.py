@@ -294,11 +294,11 @@ async def get_localized_price(
     """
     handler = get_localized_price_by_platform.get(platform)
     if handler is None:
-        importlib.import_module(f"users.lib.{platform}_prices")
+        importlib.import_module(f"lib.users.{platform}_prices")
         handler = get_localized_price_by_platform.get(platform)
         if handler is None:
             raise ValueError(
-                f"module users.lib.{platform}_prices did not define a handler for get_localized_price_by_platform['{platform}']"
+                f"module lib.users.{platform}_prices did not define a handler for get_localized_price_by_platform['{platform}']"
             )
 
     return await handler(itgs, user_sub, platform_product_identifier)

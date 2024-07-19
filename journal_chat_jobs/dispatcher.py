@@ -49,6 +49,7 @@ async def handle_journal_chat_job(
         journal_entry_uid=journal_entry_uid,
         next_event_counter=next_event_counter,
         task=task,
+        last_checked_redis=start_time,
     )
 
     if task.type == "greeting":

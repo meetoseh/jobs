@@ -864,6 +864,7 @@ async def reserve_tokens(
     are waiting
     """
 
+    await ctx.maybe_check_redis(itgs)
     reserve_result = await reserve_openai_tokens(
         itgs, category=category, count=2048, max_wait_seconds=120
     )

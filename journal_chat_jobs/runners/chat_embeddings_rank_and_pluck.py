@@ -106,14 +106,34 @@ async def _response_pipeline(
     text_user_message = chat_helper.extract_as_text(user_message)
 
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
-    try:
-        # using openai.AsyncOpenAI breaks redis somehow... if you try to ping
-        # redis after it, no matter what (even in a fresh connection), it will fail
-        # with asyncio.CancelledError
-        moderation_response = await asyncio.to_thread(
-            client.moderations.create, input=text_user_message
+    moderation_response_task = asyncio.create_task(
+        asyncio.to_thread(client.moderations.create, input=text_user_message)
+    )
+    pro_entitlement = await lib.users.entitlements.get_entitlement(
+        itgs, user_sub=ctx.user_sub, identifier="pro"
+    )
+    has_pro = pro_entitlement is not None and pro_entitlement.is_active
+    chat_response_task = None
+    if has_pro:
+        chat_response_task = asyncio.create_task(
+            _get_empathy_response(
+                itgs,
+                ctx=ctx,
+                text_greeting=text_greeting,
+                text_user_message=text_user_message,
+                client=client,
+            )
         )
+
+    try:
+        moderation_response = await moderation_response_task
     except Exception as e:
+        if chat_response_task is not None:
+            if chat_response_task.cancel():
+                try:
+                    await chat_response_task
+                except BaseException:
+                    ...
         stats.incr_system_chats_failed_net_unknown(
             unix_date=ctx.queued_at_unix_date_in_stats_tz,
             **TECHNIQUE_PARAMETERS,
@@ -130,6 +150,12 @@ async def _response_pipeline(
         return
 
     if moderation_response.results[0].categories.self_harm_intent:
+        if chat_response_task is not None:
+            if chat_response_task.cancel():
+                try:
+                    await chat_response_task
+                except BaseException:
+                    ...
         yield True, *chat_helper.get_message_from_paragraphs(
             [
                 "In a crisis?",
@@ -155,43 +181,22 @@ async def _response_pipeline(
         )
         return
 
-    pro_entitlement = await lib.users.entitlements.get_entitlement(
-        itgs, user_sub=ctx.user_sub, identifier="pro"
-    )
-    has_pro = pro_entitlement is not None and pro_entitlement.is_active
-
-    await chat_helper.publish_spinner(
-        itgs, ctx=ctx, message="Writing initial response..."
-    )
+    if chat_response_task is None:
+        await chat_helper.publish_spinner(
+            itgs, ctx=ctx, message="Writing initial response..."
+        )
+        chat_response_task = asyncio.create_task(
+            _get_empathy_response(
+                itgs,
+                ctx=ctx,
+                text_greeting=text_greeting,
+                text_user_message=text_user_message,
+                client=client,
+            )
+        )
 
     try:
-        await chat_helper.reserve_tokens(
-            itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
-        )
-        chat_response = await asyncio.to_thread(
-            client.chat.completions.create,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """
-Objective: Craft responses that acknowledge the user’s current feelings and
-validate their experience.
-
-Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic
-language to show understanding and support. Keep your response professional
-and forward-thinking; for example, do not apologize for negative emotions, but
-instead thank them for sharing.
-
-Do not conclude your messages. End responses on a strong semantically meaningful
-sentence. If they did not share a lot of information, use only two sentences.
-                        """.strip(),
-                },
-                {"role": "assistant", "content": text_greeting},
-                {"role": "user", "content": text_user_message},
-            ],
-            model=TECHNIQUE_PARAMETERS["model"],
-            max_tokens=2048,
-        )
+        chat_response = await chat_response_task
     except Exception as e:
         if os.environ["ENVIRONMENT"] == "dev":
             await handle_warning(
@@ -301,17 +306,16 @@ Here's a general description:
 
 {free_class.description}
 
-I need you to add 1-3 sentences to my response so far. Do not include my
+I need you to add 2 sentences to my response so far. Do not include my
 response in your message. There has been some time since I wrote my initial
 message, so start this one with a proper sentence (starting with an uppercase
 letter). Use emojis if appropriate for visual variety.
 
-Include specific information about the contents of the class, taking from either
-the description or the transcript. Try to suggest ways to get the most out of the
-class. Talk about why I picked this class for them, and try to make sure
-its clear how it relates to their original message. Do not use italics or bold.
-If necessary, use paragraph breaks (2 newlines).
+Suggest specific ways to get the most out of the class. Make sure its clear how
+it relates to their original message. Do not use italics or bold. Restrict your
+response to no more than 2 sentences and no more than 200 characters.
 
+---
 
 {empathy_message.content}
                     """
@@ -442,16 +446,18 @@ Here's a general description:
 
 {pro_class.description}
 
-I need you to add 1-3 sentences to my response so far. Do not include my
+I need you to add 2 sentences to my response so far. Do not include my
 response in your message. There has been some time since I wrote my initial
 message, so start this one with a proper sentence (starting with an uppercase
 letter). Use emojis if appropriate for visual variety.
 
-Include specific information about the contents of the class, taking from either
-the description or the transcript. Try to suggest ways to get the most out of the
-class. Talk about why I picked this class for them, and try to make sure
-its clear how it relates to their original message.  Do not use italics or bold.
-If necessary, use paragraph breaks (2 newlines).
+Focus exclusively on the class above. Make sure the response does not appear
+repetitive when compared with what I said about {free_class.title}. Use a
+connective word to tie your message in. Suggest specific ways to get the most
+out of the class. Make sure its clear how it relates to their original message.
+Do not use italics or bold. Restrict your response to no more than 2 sentences
+and no more than 250 characters. After these 2 sentences, I will link to
+{pro_class.title}, so you do not need to.
 
 ---
 
@@ -567,6 +573,44 @@ If necessary, use paragraph breaks (2 newlines).
             ],
         ),
         display_author="other",
+    )
+
+
+async def _get_empathy_response(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    text_greeting: str,
+    text_user_message: str,
+    client: openai.OpenAI,
+):
+    await chat_helper.reserve_tokens(
+        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
+    )
+    return await asyncio.to_thread(
+        client.chat.completions.create,
+        messages=[
+            {
+                "role": "system",
+                "content": """
+Objective: Craft responses that acknowledge the user’s current feelings and
+validate their experience.
+
+Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic
+language to show understanding and support. Keep your response professional
+and forward-thinking; for example, do not apologize for negative emotions, but
+instead thank them for sharing.
+
+Do not conclude your messages. End responses on a strong semantically meaningful
+sentence. If they did not share a lot of information, use only two sentences.
+                        """.strip(),
+            },
+            {"role": "assistant", "content": text_greeting},
+            {"role": "user", "content": text_user_message},
+        ],
+        model=TECHNIQUE_PARAMETERS["model"],
+        max_tokens=2048,
     )
 
 
