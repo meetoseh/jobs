@@ -52,9 +52,11 @@ OPENAI_RATELIMITS_BY_CATEGORY = {
         ],
         tokens=[
             OpenAIRatelimitBucket(160_000, 60, 160_000),  # actual limit
+            # top-4 requires 6 comparisons at 2048 tokens each; free+pro simultaneous
+            # is 12 comparisons or 24,576 burst tokens
             OpenAIRatelimitBucket(
-                16_000, 1, 4_000
-            ),  # don't burst more than 4k tok/s for 4s
+                28_000, 1, 4_000
+            ),  # don't burst more than 4k tok/s for 7s
         ],
     ),
 }
