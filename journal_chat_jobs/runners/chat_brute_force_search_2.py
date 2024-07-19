@@ -63,6 +63,8 @@ SMALL_MODEL = "gpt-4o-mini"
 
 BIG_RATELIMIT_CATEGORY = "gpt-4o"
 SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
+CONCURRENCY = 1  # This spends most of its time ratelimited anyway
+
 
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
@@ -600,7 +602,7 @@ transcript:
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
 
     running: Set[asyncio.Task] = set()
-    concurrency_limit = 10
+    concurrency_limit = CONCURRENCY
     next_index = 0
     finished = 0
     _pbar_task: Optional[asyncio.Task] = None
@@ -797,7 +799,7 @@ transcript:
     best_journey = await fast_top_1(
         eligible_journeys,
         compare=_compare_with_progress,
-        semaphore=asyncio.Semaphore(10),
+        semaphore=asyncio.Semaphore(CONCURRENCY),
     )
     if _spinner_task is not None:
         await _spinner_task

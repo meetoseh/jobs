@@ -69,6 +69,7 @@ async def _run_forever():
                     next_awake_from_time: Optional[float] = None
 
                     pubsub = redis.pubsub()
+                    del redis
                     try:
                         await pubsub.subscribe(b"ps:journal_chat_jobs:queued")
                         waken_message_task = asyncio.create_task(
@@ -78,6 +79,7 @@ async def _run_forever():
                         )
 
                         while not want_reset_itgs:
+                            await itgs.ensure_redis_liveliness()
                             if not awake:
                                 # good opportunity to sweep
                                 await sweep_running()
