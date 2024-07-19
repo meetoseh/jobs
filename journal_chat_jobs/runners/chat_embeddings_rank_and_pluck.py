@@ -1,7 +1,6 @@
 """
-Second version of chat brute force search: rank all the journeys on a 1-10
-scale using gpt4o-mini (released the same day this was written). Then, for
-those within 2 of the top score, compare them pairwise to find the best one
+Filters journeys using cosine similarity between the user message and the journey,
+then a few head-to-head comparisons with gpt-4o
 """
 
 import asyncio
@@ -10,18 +9,21 @@ import json
 import random
 from typing import (
     AsyncIterable,
+    Dict,
     List,
     Literal,
     Optional,
-    Set,
     Tuple,
     Union,
     cast,
 )
+import numpy as np
+
 from error_middleware import handle_warning
 from itgs import Itgs
 from journal_chat_jobs.lib.fast_top_1 import fast_top_1
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
+from journal_chat_jobs.lib.journey_embeddings import get_journey_embeddings
 from lib.image_files.image_file_ref import ImageFileRef
 from lib.journals.journal_chat_redis_packet import (
     EventBatchPacketDataItemDataError,
@@ -60,11 +62,12 @@ SMALL_MODEL = "gpt-4o-mini"
 
 BIG_RATELIMIT_CATEGORY = "gpt-4o"
 SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
-CONCURRENCY = 1  # This spends most of its time ratelimited anyway
+CONCURRENCY = 10
 
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
-    """The second iteration of chat brute force search; much faster and cheaper
+    """Uses cosine similarity of the user message as a first pass at filtering
+    journeys, then uses gpt-4o for some head-to-head comparisons
 
     When `replace_index` is None, this responds to the conversation of the the
     current point, where presumably the last message in the conversation is from
@@ -79,7 +82,7 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         ctx,
         technique_parameters=TECHNIQUE_PARAMETERS,
         response_pipeline=_response_pipeline,
-        prompt_identifier="chat_brute_force_search_2",
+        prompt_identifier="chat_brute_force_search",
     )
 
 
@@ -170,10 +173,11 @@ async def _response_pipeline(
                 {
                     "role": "system",
                     "content": """
-Objective: Craft responses that acknowledge the user’s current feelings, validate their experience, and leave room to later offer class suggestions to help them achieve their desired state.
+Objective: Craft responses that acknowledge the user’s current feelings and validate their experience.
 
 Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic language to show understanding and support.
-End your response such that it seems like you still have more to say.
+
+Do not conclude your messages. End responses on a strong semantically meaningful sentence. If they did not share a lot of information, use only two sentences.
                         """.strip(),
                 },
                 {"role": "assistant", "content": text_greeting},
@@ -315,12 +319,8 @@ but ensure the message is still interpretable even if the emojis are removed.
         )
         return
 
-    paragraphs1 = empathy_message.content.split("\n")
-    paragraphs1 = [p.strip() for p in paragraphs1]
-    paragraphs1 = [p for p in paragraphs1 if p]
-    paragraphs2 = free_class_message.content.split("\n")
-    paragraphs2 = [p.strip() for p in paragraphs2]
-    paragraphs2 = [p for p in paragraphs2 if p]
+    paragraphs1 = chat_helper.break_paragraphs(empathy_message.content)
+    paragraphs2 = chat_helper.break_paragraphs(free_class_message.content)
     paragraphs = paragraphs1 + paragraphs2
     yield True, JournalEntryItemData(
         type="chat",
@@ -502,164 +502,61 @@ WHERE
         of=len(possible_journeys),
     )
 
-    async def get_possible_journey_rating(
-        possible_journey: PossibleJourney,
-    ) -> Optional[Tuple[float, PossibleJourney]]:
-        transcript = await get_transcript(itgs, uid=possible_journey.transcript_uid)
-        if transcript is None:
-            return None
-
-        text_transcript = str(transcript.to_internal())
-        await chat_helper.reserve_tokens(
-            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
-        )
-        rating_response = await asyncio.to_thread(
-            client.chat.completions.create,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        """
-The user provides a message and a journey, and you rate how well
-the journey fits the message from 1 to 10, where 1 means the journey
-would be counterproductive (such as a sleep class when they want to feel awake),
-5 means the journey is unrelated (like a cooking class when they want to talk about their feelings),
-and 10 means the journey is exactly what they need (like a guide to calm when they are feeling anxious).
-                        """
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"""
-Rate how effectively the journey would help the user with their current
-feelings. Give a higher score if the journey uses similar language to the user's
-message or directly addresses their needs, and a lower score if the relationship
-is weak or abstract.
-                                        
-The message is:
-
-```txt
-{user_message_text}
-```
-
-The journey is:
-
-title: {possible_journey.journey_title}
-description: {possible_journey.journey_description}
-instructor: {possible_journey.instructor_name}
-transcript:
-
-```txt
-{text_transcript}
-```
-""",
-                },
-            ],
-            model=SMALL_MODEL,
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "rate_journey",
-                        "description": "Apply the given rating to the journey",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "rating": {
-                                    "type": "number",
-                                    "description": "The journeys rating from 1 (inclusive) to 10 (inclusive)",
-                                    "min": 1,
-                                    "max": 10,
-                                }
-                            },
-                            "required": ["rating"],
-                        },
-                    },
-                }
-            ],
-            tool_choice={"type": "function", "function": {"name": "rate_journey"}},
-            max_tokens=2048,
-        )
-
-        if not rating_response.choices:
-            return None
-
-        rating_message = rating_response.choices[0].message
-        if not rating_message.tool_calls or len(rating_message.tool_calls) != 1:
-            return None
-
-        rating_arguments_json = rating_message.tool_calls[0].function.arguments
-        try:
-            rating_arguments = json.loads(rating_arguments_json)
-        except Exception:
-            return None
-
-        if not isinstance(rating_arguments, dict):
-            return None
-
-        rating = rating_arguments.get("rating")
-        if not isinstance(rating, (int, float)) or rating < 1 or rating > 10:
-            return None
-
-        return rating, possible_journey
-
     user_message_text = chat_helper.extract_as_text(user_message)
-    rated_journeys: List[Tuple[float, PossibleJourney]] = []
+
+    await chat_helper.publish_spinner(
+        itgs,
+        ctx=ctx,
+        message="Rating journeys",
+        detail="Generating user message embedding",
+    )
+
+    embeddings = await get_journey_embeddings(itgs)
+    if embeddings.type != "success":
+        raise ValueError(f"Failed to get journey embeddings: {embeddings.type}")
+
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
-
-    running: Set[asyncio.Task] = set()
-    concurrency_limit = CONCURRENCY
-    next_index = 0
-    finished = 0
-    _pbar_task: Optional[asyncio.Task] = None
-
-    while running or (next_index < len(possible_journeys)):
-        while len(running) < concurrency_limit and next_index < len(possible_journeys):
-            running.add(
-                asyncio.create_task(
-                    get_possible_journey_rating(possible_journeys[next_index])
-                )
-            )
-            next_index += 1
-
-        done, running = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
-        for task in done:
-            result = task.result()
-            if result is not None:
-                rated_journeys.append(result)
-
-        finished += len(done)
-        if _pbar_task is not None and _pbar_task.done():
-            await _pbar_task
-            _pbar_task = None
-        if _pbar_task is None:
-            _pbar_task = asyncio.create_task(
-                chat_helper.publish_pbar(
-                    itgs,
-                    ctx=ctx,
-                    message=f"Rating {len(possible_journeys)} journeys...",
-                    at=finished,
-                    of=len(possible_journeys),
-                )
-            )
-
-    if _pbar_task is not None:
-        await _pbar_task
-    del _pbar_task
-
-    if not rated_journeys:
-        stats.incr_system_chats_failed_internal(
-            unix_date=ctx.queued_at_unix_date_in_stats_tz,
-            **TECHNIQUE_PARAMETERS,
-            prompt_identifier=f"select_class_{'' if pro else 'non_'}pro:no_rated_journeys",
-            category="internal",
+    try:
+        user_message_embedding = await asyncio.to_thread(
+            client.embeddings.create,
+            input=user_message_text,
+            model=embeddings.model,
+            encoding_format="float",
         )
-        raise ValueError(f"No rated journeys found for user {ctx.user_sub}")
+    except Exception as e:
+        await handle_warning(
+            f"{__name__}:embeddings",
+            f"Failed to create user message embedding",
+            exc=e,
+        )
+        raise ValueError("Failed to create user message embedding")
+
+    user_message_embedding_ndarray = np.array(
+        user_message_embedding.data[0].embedding, dtype=np.float64
+    )
+
+    similarities = np.dot(embeddings.journey_embeddings, user_message_embedding_ndarray)
+
+    possible_journey_by_uid: Dict[str, PossibleJourney] = dict(
+        (journey.journey_uid, journey) for journey in possible_journeys
+    )
+    rated_journeys: List[Tuple[float, PossibleJourney]] = []
+    for idx, journey_uid in enumerate(embeddings.journey_uids):
+        journey = possible_journey_by_uid.get(journey_uid)
+        if journey is None:
+            continue
+        rated_journeys.append((float(similarities[idx]), journey))
 
     best_rating = max(rated_journeys, key=lambda x: x[0])[0]
-    eligible_journeys = [
-        journey for rating, journey in rated_journeys if rating >= best_rating - 2
-    ]
+
+    eligible_journeys = [v[1] for v in sorted(rated_journeys, key=lambda x: -x[0])]
+    if len(eligible_journeys) > 10:
+        eligible_journeys = eligible_journeys[
+            : min(max(10, len(eligible_journeys) // 10), 100)
+        ]
+
+    if not eligible_journeys:
+        raise ValueError("No eligible journeys found")
 
     async def _compare(a: PossibleJourney, b: PossibleJourney) -> int:
         """Compares two possible journeys using the llm"""

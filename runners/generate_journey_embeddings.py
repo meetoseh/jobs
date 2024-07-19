@@ -294,8 +294,9 @@ FROM s3_files WHERE s3_files.uid = ?
                         uid=journey_embedding_uid,
                         s3_file_key=s3_file_key,
                         s3_file_bucket=s3_file_bucket,
-                        journal_uid_byte_length=journey_uid_length,
+                        journey_uid_byte_length=journey_uid_length,
                         embedding_byte_length=embedding_length_bytes,
+                        model=MODEL,
                         sha512=integrity,
                     )
                 ),

@@ -1,6 +1,6 @@
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
-from journal_chat_jobs.runners.chat_brute_force_search_2 import handle_chat
+from journal_chat_jobs.runners.chat_embeddings_rank_and_pluck import handle_chat
 from journal_chat_jobs.runners.greeting import handle_greeting
 from lib.journals.journal_chat_task import JournalChatTask
 from lib.journals.master_keys import GetJournalMasterKeyForEncryptionResultSuccess

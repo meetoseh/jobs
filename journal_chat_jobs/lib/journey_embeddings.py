@@ -33,6 +33,8 @@ class JourneyEmbeddingsResultSuccess:
     N is the embedding dimensionality. This must not be mutated as it may be shared
     across results
     """
+    model: str
+    """The model that generated these embeddings"""
 
 
 @dataclass
@@ -67,11 +69,15 @@ class JourneyEmbeddingMetadata(BaseModel):
     s3_file_bucket: str = Field(
         description="the s3 bucket where the embeddings are stored"
     )
-    journal_uid_byte_length: int = Field(
+    journey_uid_byte_length: int = Field(
         description="How many bytes are used for each journal uid"
     )
     embedding_byte_length: int = Field(
         description="How many bytes are used for each embedding (float64, big)"
+    )
+    model: str = Field(
+        "text-embedding-3-large",
+        description="The model that generated these embeddings",
     )
     sha512: str = Field(description="The hex sha512 digest of the s3 file")
 
@@ -173,7 +179,7 @@ async def _parse_journey_embeddings(
     embeddings_length = int.from_bytes(raw.read(8), "big")
 
     journey_byte_length = (
-        metadata.journal_uid_byte_length + metadata.embedding_byte_length
+        metadata.journey_uid_byte_length + metadata.embedding_byte_length
     )
     num_journeys = embeddings_length // journey_byte_length
     assert (
@@ -187,7 +193,7 @@ async def _parse_journey_embeddings(
     embeddings = np.ndarray((num_journeys, embedding_dimensionality), dtype=np.float64)
     journey_uids: List[str] = []
     for i in range(num_journeys):
-        journey_uid_bytes = raw.read(metadata.journal_uid_byte_length)
+        journey_uid_bytes = raw.read(metadata.journey_uid_byte_length)
         journey_uids.append(journey_uid_bytes.lstrip(b"\x00").decode("utf-8"))
 
         for j in range(embedding_dimensionality):
@@ -197,6 +203,7 @@ async def _parse_journey_embeddings(
         type="success",
         journey_uids=journey_uids,
         journey_embeddings=embeddings,
+        model=metadata.model,
     )
 
 

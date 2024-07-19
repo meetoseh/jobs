@@ -876,15 +876,16 @@ async def reserve_tokens(
             if sleep_remaining <= 0:
                 break
             sleep_done = now - started_at
-            await publish_pbar(
-                itgs,
-                ctx=ctx,
-                message=f"Waiting in {category} queue",
-                detail=f"Waited {int(sleep_done)}/{reserve_result.wait_seconds} seconds",
-                at=int(sleep_done),
-                of=reserve_result.wait_seconds,
-            )
-            await asyncio.sleep(min(sleep_remaining, 1))
+            if sleep_done > 10:
+                await publish_pbar(
+                    itgs,
+                    ctx=ctx,
+                    message=f"Waiting in {category} queue",
+                    detail=f"{int(sleep_done)}/{reserve_result.wait_seconds} seconds",
+                    at=int(sleep_done),
+                    of=reserve_result.wait_seconds,
+                )
+            await asyncio.sleep(min(sleep_remaining, 5))
     elif reserve_result.type == "fail":
         raise OpenAIRatelimitExcessivelyBehindException()
 

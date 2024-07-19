@@ -56,7 +56,8 @@ for i, v in ipairs(parsed) do
         local tokens_required = v.amt - tokens
         local refills_until_zero = math.ceil(tokens_required / v.refill)
         local time_until_zero = refills_until_zero * v.interval
-        longest_wait_for_zero = math.max(longest_wait_for_zero, time_until_zero)
+        local time_at_zero = last_refill_time + time_until_zero
+        longest_wait_for_zero = math.max(longest_wait_for_zero, time_at_zero - now)
     end
 
     local tokens_until_cap = v.cap - tokens
