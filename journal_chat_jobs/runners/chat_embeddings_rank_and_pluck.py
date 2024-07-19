@@ -227,15 +227,36 @@ Do not conclude your messages. End responses on a strong semantically meaningful
         itgs, ctx=ctx, message="Searching for free journey..."
     )
 
-    try:
-        free_class, free_class_transcript = await select_class(
+    allowing_free_progress_messages = asyncio.Event()
+    allowing_free_progress_messages.set()
+
+    allowing_pro_progress_messages = asyncio.Event()
+
+    free_class_selection_task = asyncio.create_task(
+        select_class(
             itgs,
             ctx=ctx,
             user_message=user_message,
             stats=stats,
             pro=False,
             has_pro=has_pro,
+            report_progress=allowing_free_progress_messages,
         )
+    )
+    pro_class_selection_task = asyncio.create_task(
+        select_class(
+            itgs,
+            ctx=ctx,
+            user_message=user_message,
+            stats=stats,
+            pro=True,
+            has_pro=has_pro,
+            report_progress=allowing_pro_progress_messages,
+        )
+    )
+
+    try:
+        free_class, free_class_transcript = await free_class_selection_task
     except ValueError as e:
         yield None, EventBatchPacketDataItemDataError(
             type="error",
@@ -284,7 +305,8 @@ Avoid emojis that are commonly associated with romantic or sexual contexts.
 
 Mention specific information about the contents of the class, taking from either the description
 or the transcript. To help keep your message short, use "this" or "this class" instead of mentioning
-the class by name. You rarely need to mention the instructor, but if you do, just use their first name.
+the class by name. For example, start with "Here's a class", "Try this class", or any variation thereof.
+You rarely need to mention the instructor, but if you do, just use their first name.
 
 Focus on talking about why you picked this class for them, and try to make sure its clear how it
 relates to their original message.
@@ -336,7 +358,7 @@ relates to their original message.
     paragraphs1 = chat_helper.break_paragraphs(empathy_message.content)
     paragraphs2 = chat_helper.break_paragraphs(free_class_message.content)
     paragraphs = paragraphs1 + paragraphs2
-    yield True, JournalEntryItemData(
+    yield False, JournalEntryItemData(
         type="chat",
         data=JournalEntryItemDataDataTextual(
             type="textual",
@@ -377,6 +399,179 @@ relates to their original message.
         display_author="other",
     )
 
+    allowing_pro_progress_messages.set()
+    try:
+        pro_class, pro_class_transcript = await pro_class_selection_task
+    except ValueError as e:
+        yield None, EventBatchPacketDataItemDataError(
+            type="error",
+            message="Failed to select pro journey",
+            detail=str(e),
+        )
+        return
+
+    try:
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
+        )
+        chat_response = await asyncio.to_thread(
+            client.chat.completions.create,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You should always suggest 1-2 sentences to complete their response. Do not attempt to rewrite their existing response, and do not repeat content from their existing response.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"""
+Finish my response to a user who wrote
+
+{user_message}
+
+I want to recommend them {pro_class.title} by {pro_class.instructor.name}. Here's
+the transcript of that class
+
+```txt
+{str(pro_class_transcript)}
+```
+
+Here's a general description:
+
+{pro_class.description}
+
+I need you to add 1-3 sentences to my response so far. Do not include my response in your
+message. There has been some time since I wrote my last message, so start this one with
+a proper sentence (starting with an uppercase letter). Use emojis if appropriate for clarity,
+but ensure the message is still interpretable even if the emojis are removed. Prefer to use
+emojis which are visualizations of terms you are using, and put them adjacent to the term,
+for example "🎨 art" or "🎶 music". Do not use emojis as a substitute for words or as a sign-off.
+Avoid emojis that are commonly associated with romantic or sexual contexts. Do not link the class.
+
+Mention specific information about the contents of the class, taking from either the description
+or the transcript. To help keep your message short, use "this" or "this class" instead of mentioning
+the class by name. For example, start with "Here's a class", "Try this class", or any variation thereof.
+You rarely need to mention the instructor, but if you do, just use their first name.
+
+Focus on talking about why you picked this class for them, and try to make sure its clear how it
+relates to their original message.
+
+---
+
+{empathy_message.content}
+
+{free_class_message.content}
+
+[{free_class.title}](journey:{chat_helper.make_id(free_class.title)})
+                    """
+                    ),
+                },
+            ],
+            model=TECHNIQUE_PARAMETERS["model"],
+            max_tokens=4096,
+        )
+    except Exception as e:
+        if os.environ["ENVIRONMENT"] == "dev":
+            await handle_warning(
+                f"{__name__}:llm", f"Failed to connect with LLM", exc=e
+            )
+        stats.incr_system_chats_failed_net_unknown(
+            unix_date=ctx.queued_at_unix_date_in_stats_tz,
+            **TECHNIQUE_PARAMETERS,
+            prompt_identifier="chat_pro_class",
+            category="net",
+            detail="unknown",
+            error_name=type(e).__name__,
+        )
+        yield None, EventBatchPacketDataItemDataError(
+            type="error",
+            message="Failed to connect with LLM",
+            detail="pro class suggestion error",
+        )
+        return
+
+    pro_class_message = chat_response.choices[0].message
+    if pro_class_message.content is None:
+        stats.incr_system_chats_failed_llm(
+            unix_date=ctx.queued_at_unix_date_in_stats_tz,
+            **TECHNIQUE_PARAMETERS,
+            prompt_identifier="chat_pro_class",
+            category="llm",
+            detail="no content",
+        )
+        yield None, EventBatchPacketDataItemDataError(
+            type="error",
+            message="Failed to create response",
+            detail="no content",
+        )
+        return
+
+    paragraphs3 = chat_helper.break_paragraphs(pro_class_message.content)
+    paragraphs = paragraphs1 + paragraphs2
+    yield True, JournalEntryItemData(
+        type="chat",
+        data=JournalEntryItemDataDataTextual(
+            type="textual",
+            parts=[
+                *[
+                    JournalEntryItemTextualPartParagraph(
+                        type="paragraph",
+                        value=p,
+                    )
+                    for p in paragraphs1 + paragraphs2
+                ],
+                JournalEntryItemTextualPartJourney(
+                    type="journey",
+                    uid=free_class.uid,
+                ),
+                *[
+                    JournalEntryItemTextualPartParagraph(
+                        type="paragraph",
+                        value=p,
+                    )
+                    for p in paragraphs3
+                ],
+                JournalEntryItemTextualPartJourney(
+                    type="journey",
+                    uid=pro_class.uid,
+                ),
+            ],
+        ),
+        display_author="other",
+    ), JournalEntryItemDataClient(
+        type="chat",
+        data=JournalEntryItemDataDataTextualClient(
+            type="textual",
+            parts=[
+                *[
+                    JournalEntryItemTextualPartParagraph(
+                        type="paragraph",
+                        value=p,
+                    )
+                    for p in paragraphs1 + paragraphs2
+                ],
+                JournalEntryItemTextualPartJourneyClient(
+                    details=free_class,
+                    type="journey",
+                    uid=free_class.uid,
+                ),
+                *[
+                    JournalEntryItemTextualPartParagraph(
+                        type="paragraph",
+                        value=p,
+                    )
+                    for p in paragraphs3
+                ],
+                JournalEntryItemTextualPartJourneyClient(
+                    details=pro_class,
+                    type="journey",
+                    uid=pro_class.uid,
+                ),
+            ],
+        ),
+        display_author="other",
+    )
+
 
 @dataclass
 class PossibleJourney:
@@ -397,6 +592,7 @@ async def select_class(
     stats: JournalStats,
     pro: bool,
     has_pro: bool,
+    report_progress: asyncio.Event,
 ) -> Tuple[JournalEntryItemTextualPartJourneyClientDetails, Transcript]:
     conn = await itgs.conn()
     cursor = conn.cursor("none")
@@ -508,22 +704,24 @@ WHERE
             )
         )
 
-    await chat_helper.publish_pbar(
-        itgs,
-        ctx=ctx,
-        message=f"Rating {len(possible_journeys)} journeys...",
-        at=0,
-        of=len(possible_journeys),
-    )
+    if report_progress.is_set():
+        await chat_helper.publish_pbar(
+            itgs,
+            ctx=ctx,
+            message=f"Rating {len(possible_journeys)} journeys...",
+            at=0,
+            of=len(possible_journeys),
+        )
 
     user_message_text = chat_helper.extract_as_text(user_message)
 
-    await chat_helper.publish_spinner(
-        itgs,
-        ctx=ctx,
-        message="Rating journeys",
-        detail="Generating user message embedding",
-    )
+    if report_progress.is_set():
+        await chat_helper.publish_spinner(
+            itgs,
+            ctx=ctx,
+            message="Rating journeys",
+            detail="Generating user message embedding",
+        )
 
     embeddings = await get_journey_embeddings(itgs)
     if embeddings.type != "success":
@@ -710,7 +908,7 @@ transcript:
         if _spinner_task is not None and _spinner_task.done():
             await _spinner_task
             _spinner_task = None
-        if _spinner_task is None:
+        if _spinner_task is None and report_progress.is_set():
             _spinner_task = asyncio.create_task(
                 chat_helper.publish_spinner(
                     itgs,
@@ -730,9 +928,12 @@ transcript:
         await _spinner_task
     del _spinner_task
 
-    await chat_helper.publish_spinner(
-        itgs, ctx=ctx, message=f"Finishing up (total comparisons: {num_comparisons})..."
-    )
+    if report_progress.is_set():
+        await chat_helper.publish_spinner(
+            itgs,
+            ctx=ctx,
+            message=f"Finishing up (total comparisons: {num_comparisons})...",
+        )
 
     response = await cursor.execute(
         """
