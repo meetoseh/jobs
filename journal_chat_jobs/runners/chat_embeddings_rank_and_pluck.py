@@ -1,12 +1,11 @@
 """
 Filters journeys using cosine similarity between the user message and the journey,
-then a few head-to-head comparisons with gpt-4o
+then a few head-to-head comparisons with gpt-4o-mini
 """
 
 import asyncio
 from dataclasses import dataclass
 import json
-import math
 import random
 from typing import (
     AsyncIterable,
@@ -69,7 +68,7 @@ CONCURRENCY = 10
 
 async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     """Uses cosine similarity of the user message as a first pass at filtering
-    journeys, then uses gpt-4o for some head-to-head comparisons
+    journeys, then uses gpt-4o-mini for some head-to-head comparisons
 
     When `replace_index` is None, this responds to the conversation of the the
     current point, where presumably the last message in the conversation is from
@@ -763,13 +762,8 @@ WHERE
 
     eligible_journeys = [v[1] for v in sorted(rated_journeys, key=lambda x: -x[0])]
 
-    min_amt = 3 if not has_pro else 10
-    if len(eligible_journeys) > min_amt:
-        max_cnt = 10 if not has_pro else 25
-        max_perc = 0.05 if not has_pro else 0.1
-        eligible_journeys = eligible_journeys[
-            : min(max(min_amt, math.ceil(len(eligible_journeys) * max_perc)), max_cnt)
-        ]
+    max_cnt = 2 if not has_pro else 4
+    eligible_journeys = eligible_journeys[:max_cnt]
 
     if not eligible_journeys:
         raise ValueError("No eligible journeys found")
@@ -799,7 +793,7 @@ WHERE
         reserve_result = await reserve_openai_tokens(
             itgs, category=SMALL_RATELIMIT_CATEGORY, count=2048, max_wait_seconds=0
         )
-        if reserve_result != "success":
+        if reserve_result.type != "immediate":
             semantic_a = journey_ratings_by_uid.get(a.journey_uid, 0)
             semantic_b = journey_ratings_by_uid.get(b.journey_uid, 0)
             if semantic_a == semantic_b:
