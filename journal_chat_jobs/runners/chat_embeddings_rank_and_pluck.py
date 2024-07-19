@@ -295,21 +295,16 @@ Here's a general description:
 
 {free_class.description}
 
-I need you to add 1-3 sentences to my response so far. Do not include my response in your
-message. There has been some time since I wrote my initial message, so start this one with
-a proper sentence (starting with an uppercase letter). Use emojis if appropriate for clarity,
-but ensure the message is still interpretable even if the emojis are removed. Prefer to use
-emojis which are visualizations of terms you are using, and put them adjacent to the term,
-for example "🎨 art" or "🎶 music". Do not use emojis as a substitute for words or as a sign-off.
-Avoid emojis that are commonly associated with romantic or sexual contexts.
+I need you to add 1-3 sentences to my response so far. Do not include my
+response in your message. There has been some time since I wrote my initial
+message, so start this one with a proper sentence (starting with an uppercase
+letter). Use emojis if appropriate for visual variety.
 
-Mention specific information about the contents of the class, taking from either the description
-or the transcript. To help keep your message short, use "this" or "this class" instead of mentioning
-the class by name. For example, start with "Here's a class", "Try this class", or any variation thereof.
-You rarely need to mention the instructor, but if you do, just use their first name.
+Include specific information about the contents of the class, taking from either
+the description or the transcript. Try to suggest ways to get the most out of the
+class. Talk about why I picked this class for them, and try to make sure
+its clear how it relates to their original message.
 
-Focus on talking about why you picked this class for them, and try to make sure its clear how it
-relates to their original message.
 
 {empathy_message.content}
                     """
@@ -429,7 +424,7 @@ Finish my response to a user who wrote
 
 {user_message}
 
-I want to recommend them {pro_class.title} by {pro_class.instructor.name}. Here's
+I am going to recommend them {pro_class.title} by {pro_class.instructor.name}. Here's
 the transcript of that class
 
 ```txt
@@ -440,21 +435,15 @@ Here's a general description:
 
 {pro_class.description}
 
-I need you to add 1-3 sentences to my response so far. Do not include my response in your
-message. There has been some time since I wrote my last message, so start this one with
-a proper sentence (starting with an uppercase letter). Use emojis if appropriate for clarity,
-but ensure the message is still interpretable even if the emojis are removed. Prefer to use
-emojis which are visualizations of terms you are using, and put them adjacent to the term,
-for example "🎨 art" or "🎶 music". Do not use emojis as a substitute for words or as a sign-off.
-Avoid emojis that are commonly associated with romantic or sexual contexts. Do not link the class.
+I need you to add 1-3 sentences to my response so far. Do not include my
+response in your message. There has been some time since I wrote my initial
+message, so start this one with a proper sentence (starting with an uppercase
+letter). Use emojis if appropriate for visual variety.
 
-Mention specific information about the contents of the class, taking from either the description
-or the transcript. To help keep your message short, use "this" or "this class" instead of mentioning
-the class by name. For example, start with "Here's a class", "Try this class", or any variation thereof.
-You rarely need to mention the instructor, but if you do, just use their first name.
-
-Focus on talking about why you picked this class for them, and try to make sure its clear how it
-relates to their original message.
+Include specific information about the contents of the class, taking from either
+the description or the transcript. Try to suggest ways to get the most out of the
+class. Talk about why I picked this class for them, and try to make sure
+its clear how it relates to their original message.
 
 ---
 
