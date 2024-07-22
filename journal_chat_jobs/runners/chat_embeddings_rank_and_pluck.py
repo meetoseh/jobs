@@ -9,6 +9,7 @@ import json
 import random
 from typing import (
     AsyncIterable,
+    Awaitable,
     Dict,
     List,
     Literal,
@@ -45,6 +46,7 @@ from lib.transcripts.cache import get_transcript
 from lib.transcripts.model import Transcript
 from lib.journals.journal_stats import JournalStats
 import openai
+import openai.types
 import os
 import lib.users.entitlements
 import lib.image_files.auth
@@ -60,6 +62,10 @@ TECHNIQUE_PARAMETERS = cast(
     },
 )
 SMALL_MODEL = "gpt-4o-mini"
+EXPECTED_EMBEDDING_MODEL = "text-embedding-3-large"
+"""We can speed up creating the embeddings (starting it before retrieving the journey
+embeddings) by assuming what model it uses
+"""
 
 BIG_RATELIMIT_CATEGORY = "gpt-4o"
 SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
@@ -114,6 +120,7 @@ async def _response_pipeline(
     )
     has_pro = pro_entitlement is not None and pro_entitlement.is_active
     chat_response_task = None
+    user_message_embedding_task = None
     if has_pro:
         chat_response_task = asyncio.create_task(
             _get_empathy_response(
@@ -122,6 +129,14 @@ async def _response_pipeline(
                 text_greeting=text_greeting,
                 text_user_message=text_user_message,
                 client=client,
+            )
+        )
+        user_message_embedding_task = asyncio.create_task(
+            asyncio.to_thread(
+                client.embeddings.create,
+                input=text_user_message,
+                model=EXPECTED_EMBEDDING_MODEL,
+                encoding_format="float",
             )
         )
 
@@ -195,6 +210,16 @@ async def _response_pipeline(
             )
         )
 
+    if user_message_embedding_task is None:
+        user_message_embedding_task = asyncio.create_task(
+            asyncio.to_thread(
+                client.embeddings.create,
+                input=text_user_message,
+                model=EXPECTED_EMBEDDING_MODEL,
+                encoding_format="float",
+            )
+        )
+
     try:
         chat_response = await chat_response_task
     except Exception as e:
@@ -252,6 +277,7 @@ async def _response_pipeline(
             pro=False,
             has_pro=has_pro,
             report_progress=allowing_free_progress_messages,
+            user_message_embedding_task=user_message_embedding_task
         )
     )
     pro_class_selection_task = asyncio.create_task(
@@ -263,6 +289,7 @@ async def _response_pipeline(
             pro=True,
             has_pro=has_pro,
             report_progress=allowing_pro_progress_messages,
+            user_message_embedding_task=user_message_embedding_task
         )
     )
 
@@ -634,6 +661,7 @@ async def select_class(
     pro: bool,
     has_pro: bool,
     report_progress: asyncio.Event,
+    user_message_embedding_task: Awaitable[openai.types.CreateEmbeddingResponse],
 ) -> Tuple[JournalEntryItemTextualPartJourneyClientDetails, Transcript]:
     conn = await itgs.conn()
     cursor = conn.cursor("none")
@@ -768,15 +796,13 @@ WHERE
     embeddings = await get_journey_embeddings(itgs)
     if embeddings.type != "success":
         raise ValueError(f"Failed to get journey embeddings: {embeddings.type}")
+    assert (
+        embeddings.model == EXPECTED_EMBEDDING_MODEL
+    ), f"{embeddings.model=} != {EXPECTED_EMBEDDING_MODEL=}"
 
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
     try:
-        user_message_embedding = await asyncio.to_thread(
-            client.embeddings.create,
-            input=user_message_text,
-            model=embeddings.model,
-            encoding_format="float",
-        )
+        user_message_embedding = await user_message_embedding_task
     except Exception as e:
         await handle_warning(
             f"{__name__}:embeddings",
