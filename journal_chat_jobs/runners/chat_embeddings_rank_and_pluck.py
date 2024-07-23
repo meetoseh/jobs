@@ -432,6 +432,7 @@ response to no more than 2 sentences and no more than 200 characters.
         display_author="other",
     )
 
+    await chat_helper.publish_spinner(itgs, ctx=ctx, message="Searching for pro journey...")
     allowing_pro_progress_messages.set()
     try:
         pro_class, pro_class_transcript = await pro_class_selection_task
