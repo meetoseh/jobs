@@ -95,7 +95,7 @@ RESOLUTIONS = list(
 
 TARGETS = make_standard_targets(RESOLUTIONS)
 for target in TARGETS:
-    if target.required and target.width > 1920:
+    if target.required and (target.width > 1920 or target.height > 2000):
         target.required = False
 
 LAST_TARGETS_CHANGED_AT = 1721250600
