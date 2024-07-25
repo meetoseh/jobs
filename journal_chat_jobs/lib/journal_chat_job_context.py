@@ -57,7 +57,7 @@ class JournalChatJobContext:
 
     async def maybe_check_redis(self, itgs: Itgs) -> None:
         """Checks that the redis connection is still alive, but only if it hasn't been
-        checked in the last 10 seconds"""
+        checked in the last second"""
         if time.time() - self.last_checked_redis > 1:
             self.last_checked_redis = time.time()
             await itgs.ensure_redis_liveliness()

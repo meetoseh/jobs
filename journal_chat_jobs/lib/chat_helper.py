@@ -12,11 +12,11 @@ from typing import (
     Tuple,
     TypedDict,
     Union,
-    cast,
 )
 
 import pytz
 
+from error_middleware import handle_warning
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.lib.openai_ratelimits import (
@@ -147,6 +147,7 @@ async def handle_chat_outer_loop(
                 category="internal",
             )
             event_at = time.time()
+            await ctx.maybe_check_redis(itgs)
             await safe_journal_chat_job_finish(
                 itgs,
                 journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -176,6 +177,7 @@ async def handle_chat_outer_loop(
                 category="internal",
             )
             event_at = time.time()
+            await ctx.maybe_check_redis(itgs)
             await safe_journal_chat_job_finish(
                 itgs,
                 journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -199,7 +201,6 @@ async def handle_chat_outer_loop(
                 f"Journal entry {ctx.journal_entry_uid} not found or not for {ctx.user_sub}"
             )
 
-        given_name = cast(Optional[str], responses[0].results[0][0])
         if ctx.task.replace_index is None:
             replace_journal_entry_uid = None
         else:
@@ -211,6 +212,7 @@ async def handle_chat_outer_loop(
                     category="internal",
                 )
                 event_at = time.time()
+                await ctx.maybe_check_redis(itgs)
                 await safe_journal_chat_job_finish(
                     itgs,
                     journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -238,16 +240,48 @@ async def handle_chat_outer_loop(
         greeting = ctx.task.conversation[-2]
         user_message = ctx.task.conversation[-1]
 
+        await ctx.maybe_check_redis(itgs)
         user_tz = await get_user_timezone(itgs, user_sub=ctx.user_sub)
 
         seen_final = False
-        async for item in response_pipeline(
-            itgs, ctx=ctx, greeting=greeting, user_message=user_message, stats=stats
-        ):
+        pipeline = aiter(
+            response_pipeline(
+                itgs, ctx=ctx, greeting=greeting, user_message=user_message, stats=stats
+            )
+        )
+        while True:
+            try:
+                item = await pipeline.__anext__()
+            except StopAsyncIteration:
+                break
+            except Exception as e:
+                await handle_warning(
+                    f"{__name__}:pipeline_error",
+                    f"Error in response pipeline (`{is_final=}`)",
+                    exc=e,
+                )
+                stats.incr_system_chats_failed_internal(
+                    unix_date=ctx.queued_at_unix_date_in_stats_tz,
+                    type="llm",
+                    platform="openai",
+                    model=technique_parameters["model"],
+                    prompt_identifier=prompt_identifier,
+                    category="internal",
+                )
+                if seen_final:
+                    break
+                else:
+                    item = None, EventBatchPacketDataItemDataError(
+                        type="error",
+                        message="Failed to get next part",
+                        detail="internal error in response pipeline",
+                    )
+
             assert not seen_final, "final message must be last"
             if item[0] is None:
                 message = item[1]
                 event_at = time.time()
+                await ctx.maybe_check_redis(itgs)
                 await safe_journal_chat_job_finish(
                     itgs,
                     journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -269,6 +303,7 @@ async def handle_chat_outer_loop(
             if is_final:
                 seen_final = True
 
+            await ctx.maybe_check_redis(itgs)
             replace_journal_entry_uid = await write_journal_entry_item(
                 itgs,
                 user_tz=user_tz,
@@ -298,12 +333,14 @@ async def handle_chat_outer_loop(
             if is_final:
                 continue
 
+            await ctx.maybe_check_redis(itgs)
             await publish_journal_chat_event(
                 itgs, journal_chat_uid=ctx.journal_chat_uid, event=event
             )
 
         assert seen_final, "final message must be last"
 
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -317,6 +354,7 @@ async def handle_chat_outer_loop(
             prompt_identifier=prompt_identifier,
         )
     finally:
+        await ctx.maybe_check_redis(itgs)
         await stats.stats.store(itgs)
 
 
@@ -398,6 +436,7 @@ async def publish_spinner(
     """Publishes a journal chat passthrough event which has the client display a spinner.
     This isn't stored in the journal entry.
     """
+    await ctx.maybe_check_redis(itgs)
     event_at = time.time()
     await publish_journal_chat_event(
         itgs,
@@ -429,6 +468,7 @@ async def publish_pbar(
     """Publishes a journal chat passthrough event which has the client display a progress bar.
     This isn't stored in the journal entry.
     """
+    await ctx.maybe_check_redis(itgs)
     event_at = time.time()
     await publish_journal_chat_event(
         itgs,
@@ -465,6 +505,7 @@ async def write_journal_entry_item(
     and raises an exception.
     """
     if replace_journal_entry_uid is None:
+        await ctx.maybe_check_redis(itgs)
         return await _insert_journal_entry_item(
             itgs,
             user_tz=user_tz,
@@ -473,6 +514,7 @@ async def write_journal_entry_item(
             stats=stats,
             technique_parameters=technique_parameters,
         )
+    await ctx.maybe_check_redis(itgs)
     await _replace_journal_entry_item(
         itgs,
         user_tz=user_tz,
@@ -565,6 +607,7 @@ AND user_journal_master_keys.uid = ?
             category="internal",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -596,6 +639,7 @@ AND user_journal_master_keys.uid = ?
             category="encryption",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -626,6 +670,7 @@ AND user_journal_master_keys.uid = ?
             category="internal",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -715,6 +760,7 @@ AND journal_entry_items.uid = ?
             category="internal",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -744,6 +790,7 @@ AND journal_entry_items.uid = ?
             category="encryption",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),
@@ -775,6 +822,7 @@ AND journal_entry_items.uid = ?
             category="internal",
         )
         event_at = time.time()
+        await ctx.maybe_check_redis(itgs)
         await safe_journal_chat_job_finish(
             itgs,
             journal_chat_uid=ctx.journal_chat_uid.encode("utf-8"),

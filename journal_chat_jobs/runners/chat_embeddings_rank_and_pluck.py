@@ -862,6 +862,7 @@ WHERE
         if a_id == b_id:
             return random.choice([-1, 1])
 
+        await ctx.maybe_check_redis(itgs)
         reserve_result = await reserve_openai_tokens(
             itgs, category=SMALL_RATELIMIT_CATEGORY, count=2048, max_wait_seconds=0
         )
