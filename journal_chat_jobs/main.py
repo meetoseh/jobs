@@ -215,7 +215,6 @@ async def _run_forever():
                             )
                             new_task = asyncio.create_task(
                                 handle_journal_chat_job(
-                                    itgs,
                                     journal_chat_uid=task_result.journal_chat_uid,
                                     journal_master_key=encryption_journal_master_key,
                                     starts=task_result.starts,
