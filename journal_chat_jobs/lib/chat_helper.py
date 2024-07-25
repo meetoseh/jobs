@@ -255,7 +255,7 @@ async def handle_chat_outer_loop(
             except Exception as e:
                 await handle_warning(
                     f"{__name__}:pipeline_error",
-                    f"Error in response pipeline (`{is_final=}`)",
+                    f"Error in response pipeline (`{is_final=}`, `{time.time() - ctx.last_checked_redis}s since last checked redis`)",
                     exc=e,
                 )
                 stats.incr_system_chats_failed_internal(
