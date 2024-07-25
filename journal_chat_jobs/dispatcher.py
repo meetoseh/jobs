@@ -12,8 +12,6 @@ stats_tz = pytz.timezone("America/Los_Angeles")
 
 
 async def handle_journal_chat_job(
-    itgs: Itgs,
-    /,
     *,
     journal_chat_uid: str,
     journal_master_key: GetJournalMasterKeyForEncryptionResultSuccess,
@@ -34,31 +32,32 @@ async def handle_journal_chat_job(
     and is canceled with standard asyncio cancellation, rather than assuming only
     one call per process and receiving a GracefulDeath to detect signals
     """
-    logging.info(f"{log_id=} starting job for {user_sub=}...")
-    await itgs.ensure_redis_liveliness()
-    ctx = JournalChatJobContext(
-        journal_chat_uid=journal_chat_uid,
-        journal_master_key=journal_master_key,
-        starts=starts,
-        start_time=start_time,
-        log_id=log_id,
-        queued_at=queued_at,
-        queued_at_unix_date_in_stats_tz=unix_dates.unix_timestamp_to_unix_date(
-            queued_at, tz=stats_tz
-        ),
-        user_sub=user_sub,
-        journal_entry_uid=journal_entry_uid,
-        next_event_counter=next_event_counter,
-        task=task,
-        last_checked_redis=start_time,
-    )
+    async with Itgs() as itgs:
+        logging.info(f"{log_id=} starting job for {user_sub=}...")
+        await itgs.ensure_redis_liveliness()
+        ctx = JournalChatJobContext(
+            journal_chat_uid=journal_chat_uid,
+            journal_master_key=journal_master_key,
+            starts=starts,
+            start_time=start_time,
+            log_id=log_id,
+            queued_at=queued_at,
+            queued_at_unix_date_in_stats_tz=unix_dates.unix_timestamp_to_unix_date(
+                queued_at, tz=stats_tz
+            ),
+            user_sub=user_sub,
+            journal_entry_uid=journal_entry_uid,
+            next_event_counter=next_event_counter,
+            task=task,
+            last_checked_redis=start_time,
+        )
 
-    if task.type == "greeting":
-        return await handle_greeting(itgs, ctx)
-    elif task.type == "chat":
-        return await handle_chat(itgs, ctx)
+        if task.type == "greeting":
+            return await handle_greeting(itgs, ctx)
+        elif task.type == "chat":
+            return await handle_chat(itgs, ctx)
 
-    raise ValueError(f"Unknown or unsupported task type: {task.type}")
+        raise ValueError(f"Unknown or unsupported task type: {task.type}")
 
 
 # WARN: be careful not to log `task` or any of its constituent parts
