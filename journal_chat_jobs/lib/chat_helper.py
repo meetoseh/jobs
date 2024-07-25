@@ -244,11 +244,9 @@ async def handle_chat_outer_loop(
         user_tz = await get_user_timezone(itgs, user_sub=ctx.user_sub)
 
         seen_final = False
-        pipeline = aiter(
-            response_pipeline(
-                itgs, ctx=ctx, greeting=greeting, user_message=user_message, stats=stats
-            )
-        )
+        pipeline = response_pipeline(
+            itgs, ctx=ctx, greeting=greeting, user_message=user_message, stats=stats
+        ).__aiter__()
         while True:
             try:
                 item = await pipeline.__anext__()
