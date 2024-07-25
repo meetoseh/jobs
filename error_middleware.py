@@ -81,6 +81,9 @@ async def handle_warning(
     """
 
     if exc is not None:
+        logger.warning(
+            f"{identifier}: full exception trace\n\n:{traceback.format_exc()}"
+        )
         text += (
             "\n\n```"
             + "\n".join(
