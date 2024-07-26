@@ -47,6 +47,7 @@ from lib.transcripts.model import Transcript
 from lib.journals.journal_stats import JournalStats
 import openai
 import openai.types
+import openai.types.chat
 import os
 import lib.users.entitlements
 import lib.image_files.auth
@@ -652,61 +653,77 @@ async def _get_user_message_embedding(
     text-embedding-3-large model to convert that into an embedding
     """
     await chat_helper.reserve_tokens(
-        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
+        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
     )
+    setup_messages: List[openai.types.chat.ChatCompletionMessageParam] = [
+        {
+            "role": "system",
+            "content": (
+                "You are an AI search assistant. Follow the user's requirements carefully and to the letter. "
+                "First, think step-by-step and describe your plan for what to look for, written out in great "
+                "detail. Then, output the correct search query in the function provided. Minimize any other prose.\n\n"
+                "You know that the best search queries are just phrases of related ideas, for example "
+                "'anxiety, stress management, calm down' would be a good search query to find classes "
+                "that help reduce anxiety. You might also point towards specific approaches, for example, "
+                "'poetic, self-expression, story-telling, inspirational'."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "I am interested in taking a class. I have a library of classes available to me that is too large to "
+                "browse through. I have access to a search engine that can find classes based on any text I provide, "
+                "by comparing the text to the content of the classes. This works best if the search text is semantically "
+                "similar to the content I want to receive, rather than writing questions that are answered by the "
+                "content. Can you write search query for me, "
+                "given how I am feeling?\n\n" + text_user_message
+            ),
+        },
+    ]
     chat_response = await asyncio.to_thread(
         client.chat.completions.create,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an AI search assistant. Follow the user's requirements carefully and to the letter. "
-                    "First, think step-by-step and describe your plan for what to look for, written out in great "
-                    "detail. Then, output the correct search query in the function provided. Minimize any other prose.\n\n"
-                    "You know that the best search queries are just phrases of related ideas, for example "
-                    "'anxiety, stress management, calm down' would be a good search query to find classes "
-                    "that help reduce anxiety. You might also point towards specific approaches, for example, "
-                    "'poetic, self-expression, story-telling, inspirational'."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "I am interested in taking a class. I have a library of classes available to me that is too large to "
-                    "browse through. I have access to a search engine that can find classes based on any text I provide, "
-                    "by comparing the text to the content of the classes. This works best if the search text is semantically "
-                    "similar to the content I want to receive, rather than writing questions that are answered by the "
-                    "content. Can you write search query for me, "
-                    "given how I am feeling?\n\n" + text_user_message
-                ),
-            },
-        ],
+        messages=setup_messages,
         model=TECHNIQUE_PARAMETERS["model"],
-        max_tokens=4096,
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "search",
-                    "description": "Searches for a class using the given search query.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query to use",
-                            }
-                        },
-                        "required": ["query"],
-                    },
-                },
-            }
-        ],
-        tool_choice={"type": "function", "function": {"name": "search"}},
+        max_tokens=2048,
     )
 
     search_query = text_user_message
-    if chat_response.choices and chat_response.choices[0].message is not None:
+    if chat_response.choices and chat_response.choices[0].message.content is not None:
+        chat_message_thinking_pass = chat_response.choices[0].message.content
+
+        await chat_helper.reserve_tokens(
+            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
+        )
+        chat_response = await asyncio.to_thread(
+            client.chat.completions.create,
+            messages=[
+                *setup_messages,
+                {"role": "assistant", "content": chat_message_thinking_pass},
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search",
+                        "description": "Searches for a class using the given search query.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The search query to use",
+                                }
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                }
+            ],
+            tool_choice={"type": "function", "function": {"name": "search"}},
+            model=SMALL_MODEL,
+            max_tokens=2048,
+        )
+
         chat_message = chat_response.choices[0].message
         if (
             chat_message.tool_calls
