@@ -91,6 +91,8 @@ async def handle_warning(
             )
             + "```"
         )
+    else:
+        logger.warning(f"{identifier}: full stack trace\n\n:{traceback.format_stack()}")
 
     logger.warning(f"{identifier}: {text}")
 

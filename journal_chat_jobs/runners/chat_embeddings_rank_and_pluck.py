@@ -132,11 +132,8 @@ async def _response_pipeline(
             )
         )
         user_message_embedding_task = asyncio.create_task(
-            asyncio.to_thread(
-                client.embeddings.create,
-                input=text_user_message,
-                model=EXPECTED_EMBEDDING_MODEL,
-                encoding_format="float",
+            _get_user_message_embedding(
+                itgs, ctx=ctx, text_user_message=text_user_message, client=client
             )
         )
 
@@ -212,11 +209,8 @@ async def _response_pipeline(
 
     if user_message_embedding_task is None:
         user_message_embedding_task = asyncio.create_task(
-            asyncio.to_thread(
-                client.embeddings.create,
-                input=text_user_message,
-                model=EXPECTED_EMBEDDING_MODEL,
-                encoding_format="float",
+            _get_user_message_embedding(
+                itgs, ctx=ctx, text_user_message=text_user_message, client=client
             )
         )
 
@@ -277,7 +271,7 @@ async def _response_pipeline(
             pro=False,
             has_pro=has_pro,
             report_progress=allowing_free_progress_messages,
-            user_message_embedding_task=user_message_embedding_task
+            user_message_embedding_task=user_message_embedding_task,
         )
     )
     pro_class_selection_task = asyncio.create_task(
@@ -289,7 +283,7 @@ async def _response_pipeline(
             pro=True,
             has_pro=has_pro,
             report_progress=allowing_pro_progress_messages,
-            user_message_embedding_task=user_message_embedding_task
+            user_message_embedding_task=user_message_embedding_task,
         )
     )
 
@@ -432,7 +426,9 @@ response to no more than 2 sentences and no more than 200 characters.
         display_author="other",
     )
 
-    await chat_helper.publish_spinner(itgs, ctx=ctx, message="Searching for pro journey...")
+    await chat_helper.publish_spinner(
+        itgs, ctx=ctx, message="Searching for pro journey..."
+    )
     allowing_pro_progress_messages.set()
     try:
         pro_class, pro_class_transcript = await pro_class_selection_task
@@ -639,6 +635,99 @@ sentence. If they did not share a lot of information, use only two sentences.
         ],
         model=TECHNIQUE_PARAMETERS["model"],
         max_tokens=2048,
+    )
+
+
+async def _get_user_message_embedding(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    text_user_message: str,
+    client: openai.OpenAI,
+) -> openai.types.CreateEmbeddingResponse:
+    """
+    Gets the embedding for the users message. Asks gpt-4o to convert the users
+    message into a high-value search string, then uses the
+    text-embedding-3-large model to convert that into an embedding
+    """
+    await chat_helper.reserve_tokens(
+        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
+    )
+    chat_response = await asyncio.to_thread(
+        client.chat.completions.create,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are an AI search assistant. Follow the user's requirements carefully and to the letter. "
+                    "First, think step-by-step and describe your plan for what to look for, written out in great "
+                    "detail. Then, output the correct search query in the function provided. Minimize any other prose.\n\n"
+                    "You know that the best search queries are just phrases of related ideas, for example "
+                    "'anxiety, stress management, calm down' would be a good search query to find classes "
+                    "that help reduce anxiety. You might also point towards specific approaches, for example, "
+                    "'poetic, self-expression, story-telling, inspirational'."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "I am interested in taking a class. I have a library of classes available to me that is too large to "
+                    "browse through. I have access to a search engine that can find classes based on any text I provide, "
+                    "by comparing the text to the content of the classes. This works best if the search text is semantically "
+                    "similar to the content I want to receive, rather than writing questions that are answered by the "
+                    "content. Can you write search query for me, "
+                    "given how I am feeling?\n\n" + text_user_message
+                ),
+            },
+        ],
+        model=TECHNIQUE_PARAMETERS["model"],
+        max_tokens=4096,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "description": "Searches for a class using the given search query.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query to use",
+                            }
+                        },
+                        "required": ["query"],
+                    },
+                },
+            }
+        ],
+        tool_choice={"type": "function", "function": {"name": "search"}},
+    )
+
+    search_query = text_user_message
+    if chat_response.choices and chat_response.choices[0].message is not None:
+        chat_message = chat_response.choices[0].message
+        if (
+            chat_message.tool_calls
+            and chat_message.tool_calls[0].function.name == "search"
+        ):
+            search_args_json = chat_message.tool_calls[0].function.arguments
+            try:
+                search_args = json.loads(search_args_json)
+                search_query = f"{search_args['query']}"
+            except Exception as e:
+                await handle_warning(
+                    f"{__name__}:embeddings",
+                    f"Failed to parse search query from chat response",
+                    exc=e,
+                )
+
+    return await asyncio.to_thread(
+        client.embeddings.create,
+        input=search_query,
+        model=EXPECTED_EMBEDDING_MODEL,
+        encoding_format="float",
     )
 
 
