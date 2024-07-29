@@ -4,6 +4,7 @@ rqlite, since that is done by the jobs repo.
 
 This is not an exhausitive list of callbacks: see also interactive_prompts/lib/stats.py
 """
+
 from itgs import Itgs
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists
 import pytz
@@ -57,7 +58,7 @@ async def on_user_created(itgs: Itgs, sub: str, created_at: float) -> None:
         await pipe.execute()
 
 
-async def on_interactive_prompt_session_started(
+async def on_user_is_active(
     itgs: Itgs, sub: str, *, user_created_at: float, started_at: float
 ) -> None:
     """Updates user-related statistics as a result of a user with the given
