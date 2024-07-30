@@ -985,6 +985,13 @@ JOBS: Tuple[Job, ...] = (
             pst, hours=(2,), minutes=(0,), seconds=(0,)
         ),
     ),
+    Job(
+        name="runners.sweep_stuck_journal_chat_jobs",
+        kwargs=tuple(),
+        interval=JobInterval(
+            pst, minutes=(0, 30), seconds=(0,)
+        ),
+    ),
 )
 """The jobs that should be run."""
 
