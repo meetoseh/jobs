@@ -866,6 +866,7 @@ SELECT
     COUNT(*)
 FROM user_journeys AS uj
 WHERE uj.user_id = (SELECT users.id FROM users WHERE users.sub=?)
+GROUP BY uj.journey_id
 )
 , user_journey_counts(journey_id, cnt) AS (
 SELECT
