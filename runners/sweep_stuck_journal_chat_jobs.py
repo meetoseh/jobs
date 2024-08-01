@@ -1,6 +1,8 @@
 """Checks for any journal chat jobs in purgatory too long"""
 
 from typing import Awaitable, Dict, List, Union, cast
+
+import pytz
 from error_middleware import handle_warning
 from itgs import Itgs
 from graceful_death import GracefulDeath
@@ -8,14 +10,21 @@ import logging
 from jobs import JobCategory
 import time
 
+from lib.journals.journal_chat_job_stats import JobType, JournalChatJobStats
 from lib.journals.journal_chat_redis_packet import (
     EventBatchPacketDataItemDataError,
     JournalChatRedisPacketPassthrough,
 )
-from lib.journals.master_keys import get_journal_master_key_for_encryption
+from lib.journals.journal_chat_task import JournalChatTask
+from lib.journals.master_keys import (
+    get_journal_master_key_for_decryption,
+    get_journal_master_key_for_encryption,
+)
 from lib.journals.serialize_journal_chat_event import serialize_journal_chat_event
+from lib.redis_stats_preparer import RedisStatsPreparer
 from lib.shared.redis_hash import RedisHash
 from redis_helpers.journal_chat_job_finish import safe_journal_chat_job_finish
+import unix_dates
 
 category = JobCategory.LOW_RESOURCE_COST
 
@@ -112,6 +121,38 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             f"{__name__}:job_purged",
             f"Purged stuck job for `{user_sub}`\n\n```\n{dict(hash_info.items_bytes())}\n```\n",
         )
+
+        journal_master_key_uid = hash_info.get_str(b"journal_master_key_uid")
+        user_sub = hash_info.get_str(b"user_sub")
+
+        journal_master_key = await get_journal_master_key_for_decryption(
+            itgs, user_sub=user_sub, journal_master_key_uid=journal_master_key_uid
+        )
+
+        encrypted_task = hash_info.get_bytes(b"encrypted_task")
+        queued_at = int(hash_info.get_str(b"queued_at"))
+        requested_at_unix_date = unix_dates.unix_timestamp_to_unix_date(
+            queued_at, tz=pytz.timezone("America/Los_Angeles")
+        )
+
+        stats = JournalChatJobStats(RedisStatsPreparer())
+        if journal_master_key.type != "success":
+            stats.incr_failed(
+                requested_at_unix_date=requested_at_unix_date,
+                type=b"unknown",
+                reason=b"timed_out",
+            )
+        else:
+            decrypted_task = journal_master_key.journal_master_key.decrypt(
+                encrypted_task, ttl=None
+            )
+            parsed_task = JournalChatTask.model_validate_json(decrypted_task)
+            stats.incr_failed(
+                requested_at_unix_date=requested_at_unix_date,
+                type=cast(JobType, parsed_task.type.encode("ascii")),
+                reason=b"timed_out",
+            )
+        await stats.stats.store(itgs)
 
 
 if __name__ == "__main__":

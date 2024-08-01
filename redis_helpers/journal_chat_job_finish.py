@@ -18,7 +18,8 @@ local data = redis.call(
     "HMGET",
     hash_key,
     "user_sub",
-    "log_id"
+    "log_id",
+    "journal_entry_uid"
 )
 
 if data[2] ~= log_id then
@@ -26,7 +27,9 @@ if data[2] ~= log_id then
 end
 
 local user_sub = data[1]
+local journal_entry_uid = data[3]
 
+redis.call("DEL", "journals:journal_entry_to_chat_job:" .. journal_entry_uid)
 redis.call("ZREM", "journals:journal_chat_jobs:purgatory", journal_chat_uid)
 redis.call("DEL", hash_key)
 local event_list_key = "journal_chats:" .. journal_chat_uid .. ":events"

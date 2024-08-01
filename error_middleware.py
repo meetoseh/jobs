@@ -67,7 +67,10 @@ MAX_WARNINGS_PER_INTERVAL = 5
 
 
 async def handle_warning(
-    identifier: str, text: str, exc: Optional[Exception] = None, is_urgent: bool = False
+    identifier: str,
+    text: str,
+    exc: Optional[BaseException] = None,
+    is_urgent: bool = False,
 ) -> None:
     """Sends a warning to slack, with basic ratelimiting
 
@@ -92,7 +95,8 @@ async def handle_warning(
             + "```"
         )
     else:
-        logger.warning(f"{identifier}: full stack trace\n\n:{traceback.format_stack()}")
+        full_stack = "\n".join(traceback.format_stack())
+        logger.warning(f"{identifier}: full stack trace\n\n:{full_stack}")
 
     logger.warning(f"{identifier}: {text}")
 

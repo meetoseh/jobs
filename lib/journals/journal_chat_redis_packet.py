@@ -13,7 +13,7 @@ class SegmentDataMutation(BaseModel):
 class JournalChatRedisPacketMutations(BaseModel):
     counter: int = Field()
     type: Literal["mutations"] = Field()
-    mutations: List[SegmentDataMutation] = Field(min_length=1)
+    mutations: List[SegmentDataMutation] = Field()
     more: bool = Field()
 
 

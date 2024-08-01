@@ -966,7 +966,7 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
-        name="runners.stats.daily_journal_stats",
+        name="runners.stats.daily_journal_chat_job_stats",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
@@ -975,22 +975,21 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(
             # dodging the profile picture job
-            pst, hours=(0, 1, 4, 5, 22, 23), minutes=(5, 20, 35, 50), seconds=(0,)
+            pst,
+            hours=(0, 1, 4, 5, 22, 23),
+            minutes=(5, 20, 35, 50),
+            seconds=(0,),
         ),
     ),
     Job(
         name="runners.ensure_journey_embeddings",
         kwargs=tuple(),
-        interval=JobInterval(
-            pst, hours=(2,), minutes=(0,), seconds=(0,)
-        ),
+        interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
     Job(
         name="runners.sweep_stuck_journal_chat_jobs",
         kwargs=tuple(),
-        interval=JobInterval(
-            pst, minutes=(0, 30), seconds=(0,)
-        ),
+        interval=JobInterval(pst, minutes=(0, 30), seconds=(0,)),
     ),
 )
 """The jobs that should be run."""

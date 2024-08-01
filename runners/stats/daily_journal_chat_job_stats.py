@@ -8,21 +8,16 @@ import lib.stats.rotate
 
 category = JobCategory.LOW_RESOURCE_COST
 
-REGULAR_EVENTS = ("greetings_requested", "reflection_questions_edited")
+REGULAR_EVENTS = tuple()
 """Which events aren't broken down by an additional dimension"""
 
 BREAKDOWN_EVENTS = (
-    "greetings_succeeded",
-    "greetings_failed",
-    "user_chats",
-    "system_chats_requested",
-    "system_chats_succeeded",
-    "system_chats_failed",
-    "user_chat_actions",
-    "reflection_questions_requested",
-    "reflection_questions_succeeded",
-    "reflection_questions_failed",
-    "reflection_responses",
+    "requested",
+    "failed_to_queue",
+    "queued",
+    "started",
+    "completed",
+    "failed",
 )
 """Which events are broken down by an additional dimension."""
 
@@ -41,8 +36,8 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         job_name=__name__,
         regular_events=REGULAR_EVENTS,
         breakdown_events=BREAKDOWN_EVENTS,
-        table_name="journal_stats",
-        earliest_key=b"stats:journals:daily:earliest",
+        table_name="journal_chat_job_stats",
+        earliest_key=b"stats:journal_chat_jobs:daily:earliest",
         tz=pytz.timezone("America/Los_Angeles"),
         key_for_date=key_for_date,
         key_for_date_and_event=key_for_date_and_event,
@@ -51,11 +46,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
 
 
 def key_for_date(unix_date: int) -> bytes:
-    return f"stats:journals:daily:{unix_date}".encode("ascii")
+    return f"stats:journal_chat_jobs:daily:{unix_date}".encode("ascii")
 
 
 def key_for_date_and_event(unix_date: int, event: str) -> bytes:
-    return f"stats:journals:daily:{unix_date}:extra:{event}".encode("ascii")
+    return f"stats:journal_chat_jobs:daily:{unix_date}:extra:{event}".encode("ascii")
 
 
 if __name__ == "__main__":
@@ -64,6 +59,6 @@ if __name__ == "__main__":
     async def main():
         async with Itgs() as itgs:
             jobs = await itgs.jobs()
-            await jobs.enqueue("runners.stats.daily_journal_stats")
+            await jobs.enqueue("runners.stats.daily_journal_chat_job_stats")
 
     asyncio.run(main())

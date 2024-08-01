@@ -1,22 +1,22 @@
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
-
-from lib.journals.journal_entry_item_data import JournalEntryItemData
 
 
 class JournalChatTask(BaseModel):
-    """Contains the conversation, which is sensitive, so should be encrypted"""
+    """Describes a task that needs to be performed."""
 
-    type: Literal["greeting", "chat", "reflection-question"] = Field(
+    type: Literal["greeting", "chat", "reflection-question", "sync"] = Field(
         description="The type of entry that should be produced"
     )
-    conversation: List[JournalEntryItemData] = Field(
-        description="The current state of the conversation"
+    include_previous_history: bool = Field(
+        description="True if the previous history needs to be posted, false otherwise. "
+        "False is mostly for backwards compatibility with clients before we standardized on "
+        "including the previous history"
     )
-    replace_index: Optional[int] = Field(
+    replace_entry_item_uid: Optional[str] = Field(
         description=(
             "None if the task is to add a new item at the end, otherwise, the "
-            "index of the item within the conversation to replace"
+            "uid of the journal entry item to replace"
         )
     )
 

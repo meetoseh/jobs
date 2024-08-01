@@ -14,3 +14,6 @@ the keys we store locally on backend instances via diskcache
   Formatted as (uint32, blob, uint64, blob), where the numbers are lengths,
   the first blob is the metadata from the corresponding redis key and the
   second blob is the contents of the referenced s3 object.
+
+- `journeys:external:{uid}` is the json-encoded ExternalJourney object for
+  the journey with the given uid.
