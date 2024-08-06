@@ -3,6 +3,7 @@ from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.runners.chat_embeddings_rank_and_pluck import handle_chat
 from journal_chat_jobs.runners.greeting import handle_greeting
+from journal_chat_jobs.runners.reflection_question import handle_reflection
 from journal_chat_jobs.runners.sync import handle_sync
 from lib.journals.journal_chat_job_stats import JobType, JournalChatJobStats
 from lib.journals.journal_chat_task import JournalChatTask
@@ -24,9 +25,7 @@ def get_stat_job_type_from_task_type(
     if task_type == "chat":
         return b"system_chat"
     if task_type == "reflection-question":
-        raise ValueError(
-            "relection-question currently unsupported for stats (update docs)"
-        )
+        return b"reflection_question"
     if task_type == "sync":
         return b"sync"
     raise ValueError(f"Unknown or unsupported task type: {task_type}")
@@ -91,6 +90,8 @@ async def handle_journal_chat_job(
                 return await handle_chat(itgs, ctx)
             elif task.type == "sync":
                 return await handle_sync(itgs, ctx)
+            elif task.type == "reflection-question":
+                return await handle_reflection(itgs, ctx)
         finally:
             _sanity_check_stats(stats, ctx)
             await stats.stats.store(itgs)

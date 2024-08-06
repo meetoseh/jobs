@@ -1,5 +1,5 @@
 from itgs import Itgs
-from journal_chat_jobs.lib.conversation_stream import JournalChatJobConversationStream
+from lib.journals.conversation_stream import JournalChatJobConversationStream
 from journal_chat_jobs.lib.data_to_client import data_to_client
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from lib.journals.journal_chat import JournalChat

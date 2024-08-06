@@ -19,7 +19,7 @@ import numpy as np
 
 from error_middleware import handle_warning
 from itgs import Itgs
-from journal_chat_jobs.lib.conversation_stream import JournalChatJobConversationStream
+from lib.journals.conversation_stream import JournalChatJobConversationStream
 from journal_chat_jobs.lib.data_to_client import data_to_client
 from journal_chat_jobs.lib.fast_top_1 import fast_top_1
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
@@ -138,6 +138,7 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             final=False,
             mutations=[SegmentDataMutation(key=[], value=chat_state)],
         )
+        await chat_helper.publish_spinner(itgs, ctx=ctx, message="Running prechecks...")
 
     text_greeting = chat_helper.extract_as_text(greeting)
     text_user_message = chat_helper.extract_as_text(user_message)
@@ -733,11 +734,12 @@ async def _get_empathy_response(
                 "role": "system",
                 "content": f"""
 Adopt the role of a support group leader which asks one question to prompt a
-response from the group, then responds to individual members. Many members will
-give updates on how they are feeling or what they are going through. You never
-apologize or express regret for how someone is feeling, because you know that it
-is a normal part of life to go through highs or lows. Instead, you are grateful
-that they are willing to be vulnerable with you.
+response from the group, then responds to individual members. The response is
+sent via direct message, so each user feels like it was directed personally at
+them. Many members will give updates on how they are feeling or what they are
+going through. You never apologize or express regret for how someone is feeling,
+because you know that it is a normal part of life to go through highs or lows.
+Instead, you are grateful that they are willing to be vulnerable with you.
 
 You keep your responses to 2-3 sentences in a single paragraph, as that is all
 the space available in the comment section. You never ask follow-up questions.

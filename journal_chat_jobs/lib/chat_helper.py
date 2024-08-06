@@ -49,24 +49,32 @@ def break_paragraphs(text: str) -> List[str]:
 
 
 def get_message_from_text(
-    text: str, /, *, display_author: Literal["self", "other"] = "other"
+    text: str,
+    /,
+    *,
+    type: Literal["chat", "reflection-question", "reflection-response"] = "chat",
+    display_author: Literal["self", "other"] = "other",
 ) -> Tuple[JournalEntryItemData, JournalEntryItemDataClient]:
     """Produces a journal entry item from the given text. Returns both the
     internal format and the client format.
     """
     return get_message_from_paragraphs(
-        break_paragraphs(text), display_author=display_author
+        break_paragraphs(text), type=type, display_author=display_author
     )
 
 
 def get_message_from_paragraphs(
-    paragraphs: List[str], /, *, display_author: Literal["self", "other"] = "other"
+    paragraphs: List[str],
+    /,
+    *,
+    type: Literal["chat", "reflection-question", "reflection-response"] = "chat",
+    display_author: Literal["self", "other"] = "other",
 ) -> Tuple[JournalEntryItemData, JournalEntryItemDataClient]:
     """Produces a journal entry item from the given paragraphs. Returns both the
     internal format and the client format.
     """
     return JournalEntryItemData(
-        type="chat",
+        type=type,
         data=JournalEntryItemDataDataTextual(
             type="textual",
             parts=[
@@ -77,9 +85,9 @@ def get_message_from_paragraphs(
                 for p in paragraphs
             ],
         ),
-        display_author="other",
+        display_author=display_author,
     ), JournalEntryItemDataClient(
-        type="chat",
+        type=type,
         data=JournalEntryItemDataDataTextualClient(
             type="textual",
             parts=[
@@ -90,7 +98,7 @@ def get_message_from_paragraphs(
                 for p in paragraphs
             ],
         ),
-        display_author="other",
+        display_author=display_author,
     )
 
 
@@ -107,6 +115,20 @@ def extract_as_text(
     assert all(p.type == "paragraph" for p in item.data.parts), "unknown item part type"
 
     return "\n\n".join(p.value for p in item.data.parts if p.type == "paragraph")
+
+
+def extract_as_journey_uid(
+    item: JournalEntryItemData,
+) -> str:
+    """Assuming that the given journal item contains only a ui entry to a journey,
+    returns the journey uid it points to
+    """
+    assert item.type == "ui", "unknown item type"
+    assert item.data.type == "ui", "unknown item data type"
+    assert (
+        item.data.conceptually.type == "user_journey"
+    ), "unknown item conceptually type"
+    return item.data.conceptually.journey_uid
 
 
 async def publish_packet(
