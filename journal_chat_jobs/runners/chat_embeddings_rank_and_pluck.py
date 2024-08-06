@@ -164,7 +164,11 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         user_message_embedding_task = asyncio.create_task(
             _get_user_message_embedding(
-                itgs, ctx=ctx, text_user_message=text_user_message, client=client
+                itgs,
+                ctx=ctx,
+                text_greeting=text_greeting,
+                text_user_message=text_user_message,
+                client=client,
             )
         )
 
@@ -263,7 +267,11 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     if user_message_embedding_task is None:
         user_message_embedding_task = asyncio.create_task(
             _get_user_message_embedding(
-                itgs, ctx=ctx, text_user_message=text_user_message, client=client
+                itgs,
+                ctx=ctx,
+                text_greeting=text_greeting,
+                text_user_message=text_user_message,
+                client=client,
             )
         )
 
@@ -354,6 +362,12 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         return
 
+    use_emojis = random.choice(
+        [
+            "Use emojis if appropriate for visual variety",
+            "Do not use emojis under any circumstance",
+        ]
+    )
     try:
         await chat_helper.reserve_tokens(
             itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
@@ -369,9 +383,17 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
                     "role": "user",
                     "content": (
                         f"""
-Finish my response to a user who wrote
+Finish my response to a user who responded to today's survey with
 
+Q:
+```txt
+{text_greeting}
+```
+
+A: 
+```txt
 {user_message}
+```
 
 I want to recommend them {free_class.title} by {free_class.instructor.name}. Here's
 the transcript of that class
@@ -387,7 +409,8 @@ Here's a general description:
 I need you to add 2 sentences to my response so far. Do not include my
 response in your message. There has been some time since I wrote my initial
 message, so start this one with a proper sentence (starting with an uppercase
-letter). Use emojis if appropriate for visual variety.
+letter), but do make sure my response flows nicely (i.e., don't greet them again).
+{use_emojis}
 
 Suggest specific ways to get the most out of the class. Make sure its clear how
 it relates to their original message. Do not use italics or bold. Restrict your
@@ -484,6 +507,24 @@ response to no more than 2 sentences and no more than 200 characters.
         )
         return
 
+    connective_option = random.choice(
+        [
+            "Alternatively",
+            "Another option would be to",
+            "You could instead",
+            "Another approach is to",
+            "You might instead",
+            "If you want a longer class, consider",
+            "For a more in-depth experience, try",
+            [
+                (
+                    "Since you have Oseh+, you can instead take"
+                    if has_pro
+                    else "You would need to get Oseh+, but another great class is"
+                )
+            ],
+        ]
+    )
     try:
         await chat_helper.reserve_tokens(
             itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
@@ -499,9 +540,17 @@ response to no more than 2 sentences and no more than 200 characters.
                     "role": "user",
                     "content": (
                         f"""
-Finish my response to a user who wrote
+Finish my response to a user who responded to today's survey with
 
+Q:
+```txt
+{text_greeting}
+```
+
+A: 
+```txt
 {user_message}
+```
 
 I am going to recommend them {pro_class.title} by {pro_class.instructor.name}. Here's
 the transcript of that class
@@ -521,11 +570,14 @@ letter). Use emojis if appropriate for visual variety.
 
 Focus exclusively on the class above. Make sure the response does not appear
 repetitive when compared with what I said about {free_class.title}. Use a
-connective word to tie your message in. Suggest specific ways to get the most
-out of the class. Make sure its clear how it relates to their original message.
-Do not use italics or bold. Restrict your response to no more than 2 sentences
-and no more than 250 characters. After these 2 sentences, I will link to
-{pro_class.title}, so you do not need to.
+connective word ({connective_option}) to tie your message in. Often,
+instructs will ask the user to do something (breath in a certain way, visualize something,
+etc), and the response should reiterate that (e.g., "if you haven't done breathwork before
+it might feel silly, but do your best to follow along: its surprisingly helpful!"). 
+Make sure its clear how it relates to their original message. Do not use italics
+or bold. Restrict your response to no more than 3 sentences and no more than 350
+characters. After your response, I will link to {pro_class.title}, so you do not
+need to.
 
 ---
 
@@ -679,20 +731,24 @@ async def _get_empathy_response(
         messages=[
             {
                 "role": "system",
-                "content": """
-Objective: Craft responses that acknowledge the user’s current feelings and
-validate their experience.
+                "content": f"""
+Adopt the role of a support group leader which asks one question to prompt a
+response from the group, then responds to individual members. Many members will
+give updates on how they are feeling or what they are going through. You never
+apologize or express regret for how someone is feeling, because you know that it
+is a normal part of life to go through highs or lows. Instead, you are grateful
+that they are willing to be vulnerable with you.
 
-Write 2-3 sentences acknowledging the user’s current feelings. Use empathetic
-language to show understanding and support. Keep your response professional
-and forward-thinking; for example, do not apologize for negative emotions, but
-instead thank them for sharing.
+You keep your responses to 2-3 sentences in a single paragraph, as that is all
+the space available in the comment section. You never ask follow-up questions.
+Since this is social media, do not include a greeting or a sign-off. There is
+not much space, so do not repeat yourself.
 
-Do not conclude your messages. End responses on a strong semantically meaningful
-sentence. If they did not share a lot of information, use only two sentences.
+Today, you asked:
+
+{text_greeting}
                         """.strip(),
             },
-            {"role": "assistant", "content": text_greeting},
             {"role": "user", "content": text_user_message},
         ],
         model=LARGE_MODEL,
@@ -705,6 +761,7 @@ async def _get_user_message_embedding(
     /,
     *,
     ctx: JournalChatJobContext,
+    text_greeting: str,
     text_user_message: str,
     client: openai.OpenAI,
 ) -> openai.types.CreateEmbeddingResponse:
@@ -736,8 +793,8 @@ async def _get_user_message_embedding(
                 "browse through. I have access to a search engine that can find classes based on any text I provide, "
                 "by comparing the text to the content of the classes. This works best if the search text is semantically "
                 "similar to the content I want to receive, rather than writing questions that are answered by the "
-                "content. Can you write search query for me, "
-                "given how I am feeling?\n\n" + text_user_message
+                "content. Can you write search query for me? Here were my responses to todays prompt:\n\n"
+                f"Q: {text_greeting}\n\nA: {text_user_message}"
             ),
         },
     ]
