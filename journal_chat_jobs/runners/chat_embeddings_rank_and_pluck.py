@@ -838,6 +838,7 @@ async def _get_user_message_embedding(
                                 }
                             },
                             "required": ["query"],
+                            "additionalProperties": False,
                         },
                     },
                 }
