@@ -572,9 +572,11 @@ letter). Use emojis if appropriate for visual variety.
 Focus exclusively on the class above. Make sure the response does not appear
 repetitive when compared with what I said about {free_class.title}. Use a
 connective word ({connective_option}) to tie your message in. Often,
-instructs will ask the user to do something (breath in a certain way, visualize something,
-etc), and the response should reiterate that (e.g., "if you haven't done breathwork before
-it might feel silly, but do your best to follow along: its surprisingly helpful!"). 
+instructors will ask the user to do something (breath in a certain way,
+visualize something, etc), and the response should reiterate that (e.g., "doing
+<thing> is worth it") or a heads up about that thing (e.g., "she will ask you to
+repeat after her"), or something else along those lines.
+
 Make sure its clear how it relates to their original message. Do not use italics
 or bold. Restrict your response to no more than 3 sentences and no more than 350
 characters. After your response, I will link to {pro_class.title}, so you do not
