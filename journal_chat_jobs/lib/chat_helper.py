@@ -14,6 +14,7 @@ from typing import (
 
 from error_middleware import handle_warning
 from itgs import Itgs
+from journal_chat_jobs.lib.data_to_client import get_journal_chat_job_journey_metadata
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.lib.openai_ratelimits import (
     OpenAICategory,
@@ -115,6 +116,41 @@ def extract_as_text(
     assert all(p.type == "paragraph" for p in item.data.parts), "unknown item part type"
 
     return "\n\n".join(p.value for p in item.data.parts if p.type == "paragraph")
+
+
+async def convert_textual_to_markdown(
+    itgs: Itgs,
+    *,
+    ctx: JournalChatJobContext,
+    item: JournalEntryItemDataDataTextual,
+    convert_links: bool = False,
+) -> str:
+    """Converts the given textual data to a markdown-adjacent format. Besides
+    explicitly convertable options (like paragraphs), you must opt-in to converting
+    additional types:
+
+    - `convert_links`: converts `journey` entries into the format
+      `[{title}}](journey:{title_to_id})`
+    """
+
+    result_parts = []
+    for part in item.parts:
+        if part.type == "paragraph":
+            result_parts.append(part.value)
+        elif convert_links and part.type == "journey":
+            metadata = await get_journal_chat_job_journey_metadata(
+                itgs, ctx=ctx, journey_uid=part.uid
+            )
+            if metadata is None:
+                result_parts.append("[journey](journey:unknown)")
+            else:
+                result_parts.append(
+                    f"[{metadata.title}](journey:{make_id(metadata.title)})"
+                )
+        else:
+            raise ValueError(f"unknown part type: {part.type}")
+
+    return "\n\n".join(result_parts)
 
 
 def extract_as_journey_uid(

@@ -29,8 +29,8 @@ SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
 
 
 async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
-    """Produces a reflection question by asking the large model to brainstorm internally,
-    then the small model to determine what the result of the brainstorming session was.
+    """Produces a reflection question by asking the large model to brainstorm some options
+    and select one
     """
     await chat_helper.publish_spinner(itgs, ctx=ctx, message="Decrypting history...")
     conversation_stream = JournalChatJobConversationStream(
@@ -108,6 +108,18 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     user_message = user_message_result.item.data
     system_message = system_message_result.item.data
 
+    if system_message.data.type != "textual":
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:invalid_system_message_type",
+            stat_id="system_message:invalid_type",
+            warning_message=f"Invalid system message type for `{ctx.user_sub}`",
+            client_message="Invalid system message type",
+            client_detail="system message must be textual",
+        )
+        return
+
     chat_state = JournalChat(
         uid=ctx.journal_chat_uid,
         integrity="",
@@ -134,7 +146,9 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
 
     text_greeting = chat_helper.extract_as_text(greeting)
     text_user_message = chat_helper.extract_as_text(user_message)
-    text_system_message = chat_helper.extract_as_text(system_message)
+    text_system_message = await chat_helper.convert_textual_to_markdown(
+        itgs, ctx=ctx, item=system_message.data, convert_links=True
+    )
     journey_uid = chat_helper.extract_as_journey_uid(ui_entry)
 
     journey_metadata, journey_transcript = await asyncio.gather(
@@ -159,7 +173,7 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
 
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
     try:
-        options_response_raw = await _get_options_response(
+        option = await _get_option_response(
             itgs,
             ctx=ctx,
             text_greeting=text_greeting,
@@ -168,28 +182,6 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             journey_metadata=journey_metadata,
             journey_transcript=journey_transcript,
             client=client,
-        )
-        options_response_text = options_response_raw.choices[0].message.content
-        if options_response_text is None:
-            raise ValueError("No response content")
-    except Exception as e:
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:options",
-            stat_id=f"options:llm:{type(e).__name__}",
-            warning_message=f"Failed to connect with LLM for brainstorming reflection questions for `{ctx.user_sub}`",
-            client_message="Failed to connect with LLM",
-            client_detail="failed to brainstorm reflection questions",
-            exc=e,
-        )
-        return
-
-    await chat_helper.publish_spinner(itgs, ctx=ctx, message="Selecting option...")
-
-    try:
-        option = await _try_select_option(
-            itgs, ctx=ctx, options_response=options_response_text, client=client
         )
         if option is None:
             raise ValueError("No response content")
@@ -271,7 +263,7 @@ ORDER BY content_file_transcripts.created_at DESC, content_file_transcripts.uid 
     return cached_transcript.to_internal()
 
 
-async def _get_options_response(
+async def _get_option_response(
     itgs: Itgs,
     /,
     *,
@@ -282,11 +274,11 @@ async def _get_options_response(
     journey_metadata: JourneyMemoryCachedData,
     journey_transcript: Transcript,
     client: openai.OpenAI,
-):
+) -> Optional[str]:
     await chat_helper.reserve_tokens(
         itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=8192
     )
-    return await asyncio.to_thread(
+    chat_response = await asyncio.to_thread(
         client.chat.completions.create,
         messages=[
             {"role": "assistant", "content": text_greeting},
@@ -319,92 +311,123 @@ Adopt the role of a life coach. You ask thoughtful questions that help people:
 
 You are very mindful that it is unhelpful to stew on negative emotions; you want
 people to move forward in a positive way. For that reason, while you may
-acknowledge that they feel anxious, you would never suggest they dwell on it. Instead, you might ask them to imagine being less anxious, or to
-write about when they didn't feel so anxious, or to write about which things are
-going on that are reducing their anxiety, etc, etc.
+acknowledge that they feel anxious, you would never suggest they dwell on it.
+Instead, you might ask them to imagine being less anxious, or to write about
+when they didn't feel so anxious, or to write about which things are going on
+that are reducing their anxiety, etc, etc.
 
 BAD QUESTION: "What are you anxious about?"
 BETTER QUESTION: "When was the last time you felt calm and in control?"
 
-Your next response is strictly internal. Brainstorm 3-8 questions that you could
-offer the user. Then, discuss the pros and cons of each question in order. Pros
-include matching the above instructions, being consistent with what the user said,
-and matching the themes from the class. Cons include being different from the
-above instructions, ignoring what the user said, or departing dramatically from
-the themes of the class. 
-
-Finally, decide which question seems the most appropriate to ask the user to reflect on.
+Step 1: Talk about what makes a good question in this context.
+Step 2: Brainstorm 3 questions that you could offer the user.
+Step 3: Discuss the pros and cons of each question in order.
+Step 4: Write a new set of 3 questions based on the discussion. You may reuse 
+  questions from the brainstorming session if they were good.
+Step 5: Compare and contrast the benefits and downsides of the new questions.
+Step 6: Determine the question that you would like to ask the user to reflect on.
                         """.strip(),
             },
         ],
         model=LARGE_MODEL,
         max_tokens=8192,
-    )
-
-
-async def _try_select_option(
-    itgs: Itgs,
-    /,
-    *,
-    ctx: JournalChatJobContext,
-    options_response: str,
-    client: openai.OpenAI,
-) -> Optional[str]:
-    await chat_helper.reserve_tokens(
-        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
-    )
-    chat_response = await asyncio.to_thread(
-        client.chat.completions.create,
-        messages=[
-            {
-                "role": "system",
-                "content": f"""
-Brainstorm questions that you could offer the user. Then, discuss the pros
-and cons of each question in order. Finally, decide which question seems the
-most appropriate to ask the user to reflect on.
-                        """.strip(),
-            },
-            {
-                "role": "assistant",
-                "content": options_response,
-            },
-        ],
-        model=SMALL_MODEL,
-        max_tokens=2048,
         tools=[
             {
                 "type": "function",
                 "function": {
-                    "name": "select_question",
-                    "description": "Selects the best question to present to the user",
+                    "name": "store_question_selection",
+                    "description": "Stores the reasoning and selection for the reflection question to present to the user",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "question": {
+                            "step_1": {
                                 "type": "string",
-                                "description": "The question to use",
-                            }
+                                "description": "What makes a good question in this context.",
+                            },
+                            "step_2a": {
+                                "type": "string",
+                                "description": "The first brainstorming question",
+                            },
+                            "step_2b": {
+                                "type": "string",
+                                "description": "The second brainstorming question",
+                            },
+                            "step_2c": {
+                                "type": "string",
+                                "description": "The third brainstorming question",
+                            },
+                            "step_3a": {
+                                "type": "string",
+                                "description": "The pros and cons of the first brainstorming question",
+                            },
+                            "step_3b": {
+                                "type": "string",
+                                "description": "The pros and cons of the second brainstorming question",
+                            },
+                            "step_3c": {
+                                "type": "string",
+                                "description": "The pros and cons of the third brainstorming question",
+                            },
+                            "step_4a": {
+                                "type": "string",
+                                "description": "The first revised question",
+                            },
+                            "step_4b": {
+                                "type": "string",
+                                "description": "The second revised question",
+                            },
+                            "step_4c": {
+                                "type": "string",
+                                "description": "The third revised question",
+                            },
+                            "step_5": {
+                                "type": "string",
+                                "description": "The benefits and downsides of the new questions, with the purpose of deduucing a winner",
+                            },
+                            "step_6": {
+                                "type": "string",
+                                "description": "The question that you would like to ask the user to reflect on",
+                            },
                         },
-                        "required": ["question"],
+                        "required": [
+                            "step_1",
+                            "step_2a",
+                            "step_2b",
+                            "step_2c",
+                            "step_3a",
+                            "step_3b",
+                            "step_3c",
+                            "step_4a",
+                            "step_4b",
+                            "step_4c",
+                            "step_5",
+                            "step_6",
+                        ],
                     },
                 },
             }
         ],
-        tool_choice={"type": "function", "function": {"name": "select_question"}},
+        tool_choice={
+            "type": "function",
+            "function": {"name": "store_question_selection"},
+        },
     )
 
     chat_message = chat_response.choices[0].message
     if (
         chat_message.tool_calls
-        and chat_message.tool_calls[0].function.name == "select_question"
+        and chat_message.tool_calls[0].function.name == "store_question_selection"
     ):
         args_json = chat_message.tool_calls[0].function.arguments
         try:
             args = json.loads(args_json)
-            return f"{args['question']}"
+            result = args["step_6"]
+            if isinstance(result, str):
+                return result
         except Exception as e:
             await handle_warning(
-                f"{__name__}:embeddings",
-                f"Failed to parse question from chat response",
+                f"{__name__}:options",
+                f"Failed to parse reflection question from chat response",
                 exc=e,
             )
+    return None

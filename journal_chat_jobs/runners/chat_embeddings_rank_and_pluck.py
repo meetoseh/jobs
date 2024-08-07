@@ -827,6 +827,7 @@ async def _get_user_message_embedding(
                     "type": "function",
                     "function": {
                         "name": "search",
+                        "strict": True,
                         "description": "Searches for a class using the given search query.",
                         "parameters": {
                             "type": "object",
