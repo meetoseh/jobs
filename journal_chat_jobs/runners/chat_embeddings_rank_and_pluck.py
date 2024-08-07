@@ -1102,11 +1102,15 @@ WHERE
                 {
                     "role": "user",
                     "content": f"""
-First, write a paragraph on the strongest link between the first journey and the users message.
+Step 1a: Repeat the id for {a.journey_title}
+Step 1b: Write a paragraph on the strongest link between the first journey and
+the users message.
 
-Then, write a paragraph on the strongest link between the second journey and the users message.
-                    
-Finally, choose select the journey for which your argument is more convincing. Prefer arguments
+Step 2a: Repeat the id for {b.journey_title}
+Step 2b: Write a paragraph on the strongest link between the second journey and
+the users message.
+      
+Step 3: Select the journey for which your argument is more convincing. Prefer arguments
 that are direct and specific, while avoiding abstract or tenuous relationships.
                     
 The message is:
@@ -1147,16 +1151,43 @@ transcript:
                     "type": "function",
                     "function": {
                         "name": "select_journey",
+                        "strict": True,
                         "description": "Select the given journey as the preferred journey",
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "id": {
+                                "step_1a_id": {
+                                    "type": "string",
+                                    "description": "The ID of the first journey",
+                                    "enum": [a_id],
+                                },
+                                "step_1b_argument": {
+                                    "type": "string",
+                                    "description": "The argument for the first journey",
+                                },
+                                "step_2a_id": {
+                                    "type": "string",
+                                    "description": "The ID of the second journey",
+                                    "enum": [b_id],
+                                },
+                                "step_2b_argument": {
+                                    "type": "string",
+                                    "description": "The argument for the second journey",
+                                },
+                                "step_3_id": {
                                     "type": "string",
                                     "description": "The ID of the journey which is preferred amongst the two",
-                                }
+                                    "enum": [a_id, b_id],
+                                },
                             },
-                            "required": ["id"],
+                            "required": [
+                                "step_1a_id",
+                                "step_1b_argument",
+                                "step_2a_id",
+                                "step_2b_argument",
+                                "step_3_id",
+                            ],
+                            "additionalProperties": False,
                         },
                     },
                 }
@@ -1181,7 +1212,7 @@ transcript:
         if not isinstance(comparison_arguments, dict):
             return random.choice([-1, 1])
 
-        selected_id = comparison_arguments.get("id")
+        selected_id = comparison_arguments.get("step_3_id")
         if not isinstance(selected_id, str):
             return random.choice([-1, 1])
 
