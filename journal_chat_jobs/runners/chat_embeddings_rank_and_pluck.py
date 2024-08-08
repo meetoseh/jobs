@@ -892,6 +892,7 @@ async def select_class(
     has_pro: bool,
     report_progress: asyncio.Event,
     user_message_embedding_task: Awaitable[openai.types.CreateEmbeddingResponse],
+    unrestricted: bool = False,
 ) -> Tuple[JournalEntryItemTextualPartJourneyClientDetails, Transcript]:
     conn = await itgs.conn()
     cursor = conn.cursor("none")
@@ -954,7 +955,12 @@ FROM
     transcripts
 WHERE
     user_journey_counts.journey_id = journeys.id
-    AND user_journey_counts.cnt = (SELECT MIN(cnt) FROM user_journey_counts)
+    AND (
+        (? = 1) 
+        OR (
+            user_journey_counts.cnt = (SELECT MIN(cnt) FROM user_journey_counts)
+        )
+    )
     AND content_files.id = journeys.audio_content_file_id
     AND content_file_transcripts.id = (
         SELECT cft.id FROM content_file_transcripts AS cft
@@ -968,6 +974,7 @@ WHERE
                     int(not pro),
                     int(pro),
                     ctx.user_sub,
+                    int(unrestricted)
                 ],
             ),
         )
@@ -1056,7 +1063,20 @@ WHERE
     eligible_journeys = eligible_journeys[:max_cnt]
 
     if not eligible_journeys:
-        raise ValueError("No eligible journeys found")
+        msg = f"No eligible journeys found; found {len(possible_journeys)=} possible journeys for {ctx.user_sub=} with {pro=}"
+        if not unrestricted:
+            await handle_warning(f"{__name__}:no_journeys", msg)
+            return await select_class(
+                itgs,
+                ctx=ctx,
+                user_message=user_message,
+                pro=pro,
+                has_pro=has_pro,
+                report_progress=report_progress,
+                user_message_embedding_task=user_message_embedding_task,
+                unrestricted=True,
+            )
+        raise ValueError(msg)
 
     async def _compare(a: PossibleJourney, b: PossibleJourney) -> int:
         """Compares two possible journeys using the llm"""
