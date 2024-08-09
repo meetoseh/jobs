@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, StringConstraints, TypeAdapter
-from typing import Annotated, Generic, Literal, Optional, TypeVar, Union
+from typing import Annotated, Generic, Literal, Optional, TypeVar, Union, cast
 
 
 class GenderByFirstNamePayload(BaseModel):
@@ -155,4 +155,4 @@ GenderSource = Union[
     GenderByFallbackSource,
 ]
 
-gender_source_adapter: TypeAdapter[GenderSource] = TypeAdapter(GenderSource)
+gender_source_adapter = cast(TypeAdapter[GenderSource], TypeAdapter(GenderSource))
