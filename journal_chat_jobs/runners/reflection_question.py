@@ -276,7 +276,7 @@ async def _get_option_response(
     client: openai.OpenAI,
 ) -> Optional[str]:
     await chat_helper.reserve_tokens(
-        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=8192
+        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
     )
     chat_response = await asyncio.to_thread(
         client.chat.completions.create,
@@ -330,7 +330,7 @@ Step 6: Determine the question that you would like to ask the user to reflect on
             },
         ],
         model=LARGE_MODEL,
-        max_tokens=8192,
+        max_tokens=4096,
         tools=[
             {
                 "type": "function",
