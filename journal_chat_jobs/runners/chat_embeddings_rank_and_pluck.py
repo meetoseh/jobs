@@ -770,57 +770,41 @@ async def _get_user_message_embedding(
     client: openai.OpenAI,
 ) -> openai.types.CreateEmbeddingResponse:
     """
-    Gets the embedding for the users message. Asks gpt-4o to convert the users
-    message into a high-value search string, then uses the
-    text-embedding-3-large model to convert that into an embedding
+    Gets the embedding for the users message. Asks gpt-4o-mini to convert the users
+    message into a high-value search string.
     """
-    await chat_helper.reserve_tokens(
-        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=2048
-    )
-    setup_messages: List[openai.types.chat.ChatCompletionMessageParam] = [
-        {
-            "role": "system",
-            "content": (
-                "You are an AI search assistant. Follow the user's requirements carefully and to the letter. "
-                "First, think step-by-step and describe your plan for what to look for, written out in great "
-                "detail. Then, output the correct search query in the function provided. Minimize any other prose.\n\n"
-                "You know that the best search queries are just phrases of related ideas, for example "
-                "'anxiety, stress management, calm down' would be a good search query to find classes "
-                "that help reduce anxiety. You might also point towards specific approaches, for example, "
-                "'poetic, self-expression, story-telling, inspirational'."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "I am interested in taking a class. I have a library of classes available to me that is too large to "
-                "browse through. I have access to a search engine that can find classes based on any text I provide, "
-                "by comparing the text to the content of the classes. This works best if the search text is semantically "
-                "similar to the content I want to receive, rather than writing questions that are answered by the "
-                "content. Can you write search query for me? Here were my responses to todays prompt:\n\n"
-                f"Q: {text_greeting}\n\nA: {text_user_message}"
-            ),
-        },
-    ]
-    chat_response = await asyncio.to_thread(
-        client.chat.completions.create,
-        messages=setup_messages,
-        model=LARGE_MODEL,
-        max_tokens=2048,
-    )
-
     search_query = text_user_message
-    if chat_response.choices and chat_response.choices[0].message.content is not None:
-        chat_message_thinking_pass = chat_response.choices[0].message.content
 
+    try:
         await chat_helper.reserve_tokens(
-            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=2048
+            itgs, ctx=ctx, category=SMALL_RATELIMIT_CATEGORY, tokens=4096
         )
         chat_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
-                *setup_messages,
-                {"role": "assistant", "content": chat_message_thinking_pass},
+                {"role": "assistant", "content": text_greeting},
+                {
+                    "role": "user",
+                    "content": text_user_message,
+                },
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an AI search assistant. You know that the best search queries for your "
+                        "engine consist of comma-separated lists of keywords that are likely to be in or "
+                        "relate to the content of the desired search results. Your search engine only returns "
+                        "brief audio classes that relate to an emotional state and are designed to help guide "
+                        "users.\n\n"
+                        "You are tasked with the following process:\n"
+                        "Step 1: Determine what emotions, concepts, or topics were brought up by the user.\n"
+                        "Step 2: Determine what emotional state the user implicitly wants to be in. For example, "
+                        "if they are anxious and it is implied they would want to be calm. Be careful with situations "
+                        "like sadness at the death of a loved one as that does not imply they want to be happy. Without "
+                        "such context, however, assume they want to be in a positive emotional state.\n"
+                        "Step 3: Use this information to generate a search query that will help the user find the "
+                        "class they should take"
+                    ),
+                },
             ],
             tools=[
                 {
@@ -828,16 +812,24 @@ async def _get_user_message_embedding(
                     "function": {
                         "name": "search",
                         "strict": True,
-                        "description": "Searches for a class using the given search query.",
+                        "description": "Stores the result of the search query generation process",
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "query": {
+                                "step_1": {
                                     "type": "string",
-                                    "description": "The search query to use",
-                                }
+                                    "description": "The emotions, concepts, or topics brought up by the user",
+                                },
+                                "step_2": {
+                                    "type": "string",
+                                    "description": "The emotional state the user implicitly wants to be in",
+                                },
+                                "step_3": {
+                                    "type": "string",
+                                    "description": "The search query that will help the user find the class they should take",
+                                },
                             },
-                            "required": ["query"],
+                            "required": ["step_1", "step_2", "step_3"],
                             "additionalProperties": False,
                         },
                     },
@@ -845,24 +837,23 @@ async def _get_user_message_embedding(
             ],
             tool_choice={"type": "function", "function": {"name": "search"}},
             model=SMALL_MODEL,
-            max_tokens=2048,
+            max_tokens=4096,
         )
-
         chat_message = chat_response.choices[0].message
         if (
             chat_message.tool_calls
             and chat_message.tool_calls[0].function.name == "search"
         ):
             search_args_json = chat_message.tool_calls[0].function.arguments
-            try:
-                search_args = json.loads(search_args_json)
-                search_query = f"{search_args['query']}"
-            except Exception as e:
-                await handle_warning(
-                    f"{__name__}:embeddings",
-                    f"Failed to parse search query from chat response",
-                    exc=e,
-                )
+            search_args = json.loads(search_args_json)
+            search_query = cast(str, search_args["step_3"])
+            assert isinstance(search_query, str)
+    except Exception as e:
+        await handle_warning(
+            f"{__name__}:embeddings",
+            f"Failed to generate better search query than raw user message",
+            exc=e,
+        )
 
     return await asyncio.to_thread(
         client.embeddings.create,
@@ -970,12 +961,7 @@ WHERE
     AND content_file_transcripts.transcript_id = transcripts.id
     AND instructors.id = journeys.instructor_id
                 """,
-                [
-                    int(not pro),
-                    int(pro),
-                    ctx.user_sub,
-                    int(unrestricted)
-                ],
+                [int(not pro), int(pro), ctx.user_sub, int(unrestricted)],
             ),
         )
     )
