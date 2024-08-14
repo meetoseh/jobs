@@ -52,6 +52,7 @@ import os
 import lib.users.entitlements
 import lib.image_files.auth
 import journal_chat_jobs.lib.chat_helper as chat_helper
+import logging
 
 
 LARGE_MODEL = "gpt-4o"
@@ -1111,7 +1112,7 @@ WHERE
 
     eligible_journeys = [v[1] for v in sorted(rated_journeys, key=lambda x: -x[0])]
 
-    max_cnt = 2 if not has_pro else 4
+    max_cnt = 1 #2 if not has_pro else 4 ; temporary speedup
     eligible_journeys = eligible_journeys[:max_cnt]
 
     if not eligible_journeys:
@@ -1163,6 +1164,7 @@ WHERE
                 return 0
             return -1 if semantic_a > semantic_b else 1
 
+        logging.debug(f"STARTING: llm comparison request for {a.journey_title} vs {b.journey_title}")
         comparison_response = await asyncio.to_thread(
             client.chat.completions.create,
             messages=[
@@ -1269,6 +1271,7 @@ transcript:
             tool_choice={"type": "function", "function": {"name": "select_journey"}},
             max_tokens=2048,
         )
+        logging.debug(f'DONE: llm comparison request for {a.journey_title} vs {b.journey_title}')
 
         if not comparison_response.choices:
             return random.choice([-1, 1])
@@ -1302,6 +1305,8 @@ transcript:
     async def _compare_with_progress(a: PossibleJourney, b: PossibleJourney) -> int:
         nonlocal num_comparisons, _spinner_task
 
+        logging.debug(f'STARTING: compare with progress for {a.journey_title} vs {b.journey_title}')
+
         result = await _compare(a, b)
         num_comparisons += 1
         if _spinner_task is not None and _spinner_task.done():
@@ -1316,6 +1321,7 @@ transcript:
                     detail=f"Comparisons so far: {num_comparisons}",
                 )
             )
+        logging.debug(f'DONE: compare with progress for {a.journey_title} vs {b.journey_title}')
         return result
 
     best_journey = await fast_top_1(
