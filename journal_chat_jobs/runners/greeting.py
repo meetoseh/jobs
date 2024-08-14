@@ -50,7 +50,7 @@ async def handle_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     else:
         message = f"Hi {given_name}, how are you feeling today? 😊"
 
-    data = chat_helper.get_message_from_text(message)
+    data = chat_helper.get_message_from_text(message, processing_block=None)
     if (
         await chat_helper.write_journal_entry_item_closing_out_on_failure(
             itgs,

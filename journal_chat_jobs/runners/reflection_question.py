@@ -34,7 +34,9 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     """
     await chat_helper.publish_spinner(itgs, ctx=ctx, message="Decrypting history...")
     conversation_stream = JournalChatJobConversationStream(
-        journal_entry_uid=ctx.journal_entry_uid, user_sub=ctx.user_sub
+        journal_entry_uid=ctx.journal_entry_uid,
+        user_sub=ctx.user_sub,
+        pending_moderation="resolve",
     )
     await conversation_stream.start()
     greeting_result = await conversation_stream.load_next_item(timeout=5)
@@ -50,6 +52,20 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             client_detail=greeting_result.type,
         )
         return
+
+    if greeting_result.item.data.processing_block is not None:
+        await conversation_stream.cancel()
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:processing_block",
+            stat_id="processing_block",
+            warning_message=f"Greeting for `{ctx.user_sub}` is blocked from processing",
+            client_message="Greeting blocked",
+            client_detail="processing block",
+        )
+        return
+
     user_message_result = await conversation_stream.load_next_item(timeout=5)
     if user_message_result.type != "item":
         await conversation_stream.cancel()
@@ -64,6 +80,19 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         return
 
+    if user_message_result.item.data.processing_block is not None:
+        await conversation_stream.cancel()
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:processing_block",
+            stat_id="processing_block",
+            warning_message=f"User message for `{ctx.user_sub}` is blocked from processing",
+            client_message="User message blocked",
+            client_detail="processing block",
+        )
+        return
+
     system_message_result = await conversation_stream.load_next_item(timeout=5)
     if system_message_result.type != "item":
         await conversation_stream.cancel()
@@ -75,6 +104,19 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             warning_message=f"Failed to retrieve the system message for `{ctx.user_sub}`",
             client_message="Failed to retrieve system message",
             client_detail=system_message_result.type,
+        )
+        return
+
+    if system_message_result.item.data.processing_block is not None:
+        await conversation_stream.cancel()
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:processing_block",
+            stat_id="processing_block",
+            warning_message=f"System message for `{ctx.user_sub}` is blocked from processing",
+            client_message="System message blocked",
+            client_detail="processing block",
         )
         return
 
@@ -198,7 +240,9 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         return
 
-    data = chat_helper.get_message_from_text(option, type="reflection-question")
+    data = chat_helper.get_message_from_text(
+        option, type="reflection-question", processing_block=None
+    )
     if (
         await chat_helper.write_journal_entry_item_closing_out_on_failure(
             itgs,
@@ -287,8 +331,7 @@ async def _get_option_response(
             {"role": "user", "content": f"Okay, I took {journey_metadata.title}"},
             {
                 "role": "system",
-                "content": f"""
-Here's what you know about {journey_metadata.title}:
+                "content": f"""Here's what you know about {journey_metadata.title}:
 
 TITLE: {journey_metadata.title}
 DESCRIPTION: {journey_metadata.description}
@@ -300,33 +343,100 @@ TRANSCRIPT:
 
 ---
 
-Adopt the role of a life coach. You ask thoughtful questions that help people:
+Adopt the role of a life coach. You ask simple questions that help people:
 
-1. consider what they just did
-2. reflect on their lives
-3. imagine how they would act if they felt differently
-4. think about what they want to do next
-5. understand themselves better
-6. work through their emotions
+1. reflect on their lives
+2. discuss something on their mind
+3. think about the future
+4. understand themselves better
 
 You are very mindful that it is unhelpful to stew on negative emotions; you want
-people to move forward in a positive way. For that reason, while you may
-acknowledge that they feel anxious, you would never suggest they dwell on it.
-Instead, you might ask them to imagine being less anxious, or to write about
-when they didn't feel so anxious, or to write about which things are going on
-that are reducing their anxiety, etc, etc.
+people to move forward in a positive way. You should also try to relate the question
+either to the greeting you gave, the users response, or the class they took.
+
+Suppose they took a class related to reducing anxiety. Then:
+
 
 BAD QUESTION: "What are you anxious about?"
-BETTER QUESTION: "When was the last time you felt calm and in control?"
+REASON: 
+- Pro: Relates to the class (anxious -> anxiety)
+- Con: Asks the respondant to focus on their anxiety, which can make them more anxious. 
+- Con: Very concrete
+
+BETTER QUESTION: "What does feeling calm mean to you?"
+REASON: 
+- Pro: Relates to the class (calm is the opposite of anxious)
+- Pro: Asks the respondant to focus on a positive emotion
+- Pro: Highly abstract
+
+BAD QUESTION: If you were an elephant, what would make you happy?
+- Pro: Focuses on a positive emotion
+- Pro: Very creative and open-ended.
+- Pro: Highly abstract
+- Con: Does not relate to the class (happiness is not the opposite of anxiety)
+
+Your questions should be abstract and open-ended. Your questions should not
+time-bound and do not require commitment. They very likely have something they
+already want to discuss, and the question should just be a fun way to invite
+them to do so.
+
+Suppose they took a class describing their inner child and how it helps them. Then:
+
+BAD QUESTION: "What is one action you can take today to nurture your inner child?"
+REASON:
+- Pro: Relates to the class (inner child)
+- Con: Asks the respondant to commit to a specific action, which is close-ended.
+- Con: Asks the respondant only to discuss today, which is close-ended.
+- Con: Very concrete
+
+BAD QUESTION: "How do you feel right now, after completing Inner Child?"
+REASON:
+- Pro: Relates to the class (inner child)
+- Con: Asks the respondant to only discuss their current feelings, which is close-ended.
+- Con: Very concrete
+
+BAD QUESTION: "How have you nurtured your inner child?"
+- Pro: Relates to the class (inner child)
+- Pro: They can talk about any time in the past, which is open-ended.
+- Con: They cannot reasonably answer this question by discussing an upcoming event, which is close-ended.
+
+BAD QUESTION: "How do you currently feel about your inner child?"
+REASON:
+- Pro: Relates to the class (inner child)
+- Con: Asks the respondant to only discuss their current feelings, which is close-ended.
+
+BETTER QUESTION: "How is your inner child?"
+REASON:
+- Pro: Relates to the class (inner child)
+- Pro: Highly abstract
+- Pro: They can talk about an action or a feeling, which is open-ended
+- Pro: They can relate it to what they've done or what they plan to do, which is open-ended
+- Pro: Although it superficially asks about their current feelings, in colloquial
+  English this question could be interpreted as asking about their inner child in general.
+
+BAD QUESTION: "In what ways do you embrace your inner child?"
+REASON:
+- Pro: Relates to the class (inner child)
+- Pro: They can talk about today, yesterday, the future, etc, which is open-ended.
+- Pro: There are multiple ways to interpret this question
+- Con: They may feel pressured to come up with a specific instance.
+  We can make this question more open-ended by switching to "In what ways can you embrace your inner child?"
+  Which they can still choose to answer with a specific instance, but does not pressure them to.
 
 Step 1: Talk about what makes a good question in this context.
-Step 2: Brainstorm 3 questions that you could offer the user.
+Step 2: Brainstorm 3 questions that you could offer the respondant.
 Step 3: Discuss the pros and cons of each question in order.
 Step 4: Write a new set of 3 questions based on the discussion. You may reuse 
   questions from the brainstorming session if they were good.
 Step 5: Compare and contrast the benefits and downsides of the new questions.
-Step 6: Determine the question that you would like to ask the user to reflect on.
-                        """.strip(),
+Step 6: Write the first pass at the final question based on the discussion in step 5.
+Step 7: Now that we have a good question, remind ourselves what the point of the final revision pass
+  is for.
+Step 8: Discuss one small change that could be made to the question. Do not actually make the
+  change yet. List out the pros and cons of that change.
+Step 9: Determine if that change is worth it. 
+Step 10: If the change is worth it, incorporate it into the question. If not,
+  keep the question the same.""",
             },
         ],
         model=LARGE_MODEL,
@@ -386,7 +496,36 @@ Step 6: Determine the question that you would like to ask the user to reflect on
                             },
                             "step_6": {
                                 "type": "string",
-                                "description": "The question that you would like to ask the user to reflect on",
+                                "description": "The first pass at the final question based on the discussion in step 5",
+                            },
+                            # inject tokens closer to the output.
+                            "step_7": {
+                                "type": "string",
+                                "description": "Remind ourselves what the point of the final revision pass is for",
+                                "enum": [
+                                    "We have now decided, at a strategic level, on a good question. We will now look "
+                                    "to see if there is one obvious small change that would make this question more "
+                                    "open-ended. Typically, we look to convert a question that only asks about what has "
+                                    "happened into one that invites them to respond EITHER with what has happened OR "
+                                    "what they want to happen. Sometimes, we can do this with a single word or phrase, "
+                                    "or adding a parenthetical. In step 8, we will try to brainstorm such a change and discuss "
+                                    "its pros, cons, and if it is redundant. Then, in step 9, we will decide if we actually  "
+                                    "want to keep the change (true) or should keep what we have in step 6 (false). Finally, "
+                                    "in step 10, we will incorporate the change if we decided to keep it, or copy the question "
+                                    "from step 6 if we decided not to keep the change.",
+                                ],
+                            },
+                            "step_8": {
+                                "type": "string",
+                                "description": "Suggest a change to the question. List the pros and the cons of that change. Discuss if the change is redundant.",
+                            },
+                            "step_9": {
+                                "type": "boolean",
+                                "description": "True if you found a change you want to make, false if you did not",
+                            },
+                            "step_10": {
+                                "type": "string",
+                                "description": "The final question. If 7b is false, this should be the same as step_6. Otherwise, it should incorporate the change from step_7a",
                             },
                         },
                         "required": [
@@ -402,6 +541,10 @@ Step 6: Determine the question that you would like to ask the user to reflect on
                             "step_4c",
                             "step_5",
                             "step_6",
+                            "step_7",
+                            "step_8",
+                            "step_9",
+                            "step_10",
                         ],
                     },
                 },
@@ -412,6 +555,7 @@ Step 6: Determine the question that you would like to ask the user to reflect on
             "function": {"name": "store_question_selection"},
         },
     )
+    print(f"chat_response={chat_response}")
 
     chat_message = chat_response.choices[0].message
     if (
@@ -421,7 +565,7 @@ Step 6: Determine the question that you would like to ask the user to reflect on
         args_json = chat_message.tool_calls[0].function.arguments
         try:
             args = json.loads(args_json)
-            result = args["step_6"]
+            result = args["step_10"]
             if isinstance(result, str):
                 return result
         except Exception as e:

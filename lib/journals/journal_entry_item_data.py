@@ -1,5 +1,5 @@
 import io
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, validator
 from typing import Literal, List, Optional, Union, cast
 
 from lib.image_files.image_file_ref import ImageFileRef
@@ -227,6 +227,31 @@ JournalEntryItemDataDataClient = Union[
 ]
 
 
+class JournalEntryItemProcessingBlockedReason(BaseModel):
+    """The object used to describe why we are blocking processing of a journal entry item"""
+
+    reasons: List[Literal["flagged", "unchecked"]] = Field(
+        description="The reasons why we are blocking processing of this item. Sorted, unique items, not empty",
+        min_length=1,
+    )
+
+    @validator("reasons")
+    def unique_sorted_reasons(cls, v):
+        if len(set(v)) != len(v):
+            raise ValueError("Reasons must be unique")
+        if v != sorted(v):
+            raise ValueError("Reasons must be sorted")
+        return v
+
+    def model_dump_for_integrity(self, out: io.BytesIO) -> None:
+        out.write(b'{"reasons": ["')
+        out.write(self.reasons[0].encode("ascii"))
+        for idx in range(1, len(self.reasons)):
+            out.write(b'", "')
+            out.write(self.reasons[idx].encode("ascii"))
+        out.write(b'"]}')
+
+
 class JournalEntryItemData(BaseModel):
     """The data for a journal entry item that we consider particularly sensitive.
     This should only ever be transferred encrypted with a journal master key
@@ -240,6 +265,11 @@ class JournalEntryItemData(BaseModel):
 
     display_author: Literal["self", "other"] = Field(
         description="who to display as the author of this item; self means the user, other means the system"
+    )
+
+    processing_block: Optional[JournalEntryItemProcessingBlockedReason] = Field(
+        None,
+        description="If this item is blocked from processing, the reasons why",
     )
 
     type: Literal["chat", "reflection-question", "reflection-response", "ui"] = Field(

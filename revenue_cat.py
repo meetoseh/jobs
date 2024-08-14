@@ -1,7 +1,7 @@
 """This module assists with working with entitlements from RevenueCat"""
 
 import os
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 from datetime import datetime
 from pydantic import BaseModel, Field, TypeAdapter
 import aiohttp
@@ -143,8 +143,9 @@ class NoOfferings(BaseModel):
     offerings: List[Literal[None]] = Field(max_length=0)
 
 
-list_offerings_result_validator: TypeAdapter[Union[Offerings, NoOfferings]] = (
-    TypeAdapter(Union[Offerings, NoOfferings])
+list_offerings_result_validator = cast(
+    TypeAdapter[Union[Offerings, NoOfferings]],
+    TypeAdapter(Union[Offerings, NoOfferings]),
 )
 
 

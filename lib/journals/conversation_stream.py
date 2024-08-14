@@ -1,15 +1,21 @@
 import asyncio
 import gzip
 import logging
-from typing import Dict, List, Literal, Optional, Union, cast
+import time
+from typing import Dict, List, Literal, Optional, Set, Union, cast
 
 from error_middleware import handle_error
 from itgs import Itgs
-from lib.journals.journal_entry_item_data import JournalEntryItemData
+from lib.journals.get_processing_block_for_text import get_processing_block_for_text
+from lib.journals.journal_entry_item_data import (
+    JournalEntryItemData,
+    JournalEntryItemProcessingBlockedReason,
+)
 from dataclasses import dataclass
 
 from lib.journals.master_keys import (
     GetJournalMasterKeyForEncryptionResultSuccess,
+    get_journal_master_key_for_encryption,
     get_journal_master_key_from_s3,
 )
 
@@ -84,13 +90,36 @@ class JournalChatJobConversationStream:
     the state in memory, but allows accessing it before it's all available
     """
 
-    def __init__(self, journal_entry_uid: str, user_sub: str) -> None:
+    def __init__(
+        self,
+        *,
+        journal_entry_uid: str,
+        user_sub: str,
+        pending_moderation: Literal["resolve", "error", "ignore"],
+    ) -> None:
         self.journal_entry_uid: str = journal_entry_uid
         """The journal entry that we are streaming"""
 
         self.user_sub: str = user_sub
         """The sub of the user the journal entry belongs to; we will ignore
         journal entries for other users as an additional sanity check
+        """
+
+        self.pending_moderation: Literal["resolve", "error", "ignore"] = (
+            pending_moderation
+        )
+        """How to handle journal entry items with a processing block that can be
+        automatically resolved into a more concrete state. Specifically, if there
+        is a processing block with the `unchecked` reason, we run the content through
+        OpenAI's moderation endpoint and remove the flag, potentially replacing it with
+        the `flagged` reason. 
+
+        Options:
+
+        - `resolve`: automatically move non-terminal processing blocks to a terminal
+          state (either no block or a terminal block)
+        - `error`: raise an error if we encounter a processing block in a non-terminal state
+        - `ignore`: ignore processing blocks in a non-terminal state, returning them as-is
         """
 
         self.loaded: List[JournalEntryItem] = []
@@ -321,6 +350,11 @@ class JournalChatJobConversationStream:
                 master_keys_by_uid: Dict[
                     str, GetJournalMasterKeyForEncryptionResultSuccess
                 ] = {}
+                master_key_for_encryption: Optional[
+                    GetJournalMasterKeyForEncryptionResultSuccess
+                ] = None
+                processing_block_handled_item_uids: Set[str] = set()
+                need_retry_loop = False
 
                 while True:
                     response = await cursor.execute(
@@ -397,8 +431,124 @@ LIMIT ?
                                 )
                             ),
                         )
+
+                        if item.data.processing_block is not None and "unchecked" in item.data.processing_block.reasons:
+                            if self.pending_moderation == "error":
+                                await queue.put(
+                                    Exception(
+                                        "journal entry item has a processing block in a non-terminal state"
+                                    )
+                                )
+                                return
+                            elif self.pending_moderation == "resolve":
+                                if item.data.data.type != "textual" or not all(
+                                    p.type == "paragraph"
+                                    for p in item.data.data.parts
+                                ):
+                                    await queue.put(
+                                        Exception(
+                                            "journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it"
+                                        )
+                                    )
+                                    return
+                                
+                                if item.uid in processing_block_handled_item_uids:
+                                    await queue.put(
+                                        Exception(
+                                            "journal entry item has a processing block in a non-terminal state we tried to resolve, raced, and its still in "
+                                            "a non-terminal state"
+                                        )
+                                    )
+                                    return
+                                
+                                processing_block_handled_item_uids.add(item.uid)
+
+                                item_as_text = "\n\n".join(
+                                    p.value
+                                    for p in item.data.data.parts
+                                    if p.type == "paragraph"
+                                )
+                                new_processing_block_task = asyncio.create_task(
+                                    get_processing_block_for_text(
+                                        itgs, item_as_text
+                                    )
+                                )
+                                if master_key_for_encryption is None:
+                                    _master_key_for_encryption = (
+                                        await get_journal_master_key_for_encryption(
+                                            itgs,
+                                            user_sub=self.user_sub,
+                                            now=time.time(),
+                                        )
+                                    )
+                                    if _master_key_for_encryption.type != "success":
+                                        if new_processing_block_task.cancel():
+                                            await new_processing_block_task
+                                        await queue.put(
+                                            Exception(
+                                                "failed to get journal master key for encryption"
+                                            )
+                                        )
+                                        return
+                                    master_key_for_encryption = (
+                                        _master_key_for_encryption
+                                    )
+                                    del _master_key_for_encryption
+
+                                new_flags_set = set(
+                                    item.data.processing_block.reasons
+                                )
+                                new_flags_set.remove("unchecked")
+                                new_processing_block = (
+                                    await new_processing_block_task
+                                )
+                                if new_processing_block is not None:
+                                    new_flags_set.update(
+                                        new_processing_block.reasons
+                                    )
+
+                                item.data.processing_block = (
+                                    None
+                                    if not new_flags_set
+                                    else JournalEntryItemProcessingBlockedReason(
+                                        reasons=sorted(new_flags_set)
+                                    )
+                                )
+
+                                new_row_master_encrypted_data_base64url = master_key_for_encryption.journal_master_key.encrypt(
+                                    gzip.compress(
+                                        item.data.__pydantic_serializer__.to_json(item.data),
+                                        mtime=0
+                                    )
+                                ).decode('ascii')
+
+                                response2 = await cursor.execute(
+                                    "UPDATE journal_entry_items SET master_encrypted_data = ? WHERE uid = ? AND master_encrypted_data = ?",
+                                    (
+                                        new_row_master_encrypted_data_base64url,
+                                        row_uid,
+                                        row_master_encrypted_data_base64url,
+                                    ),
+                                )
+                                if response2.rows_affected is None or response2.rows_affected == 0:
+                                    need_retry_loop = True
+                                    break
+
+                                assert response2.rows_affected == 1, response2.rows_affected
+
+                                row_master_encrypted_data_base64url = new_row_master_encrypted_data_base64url
+                                del new_row_master_encrypted_data_base64url
+                            else:
+                                assert (
+                                    self.pending_moderation == "ignore"
+                                ), self.pending_moderation
+
                         last_entry_counter = item.entry_counter
                         await queue.put(item)
+
+                    if need_retry_loop:
+                        need_retry_loop = False
+                        continue
 
                     if (
                         response.results is None

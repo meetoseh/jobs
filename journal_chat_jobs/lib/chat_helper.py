@@ -35,6 +35,7 @@ from lib.journals.journal_entry_item_data import (
     JournalEntryItemDataClient,
     JournalEntryItemDataDataTextual,
     JournalEntryItemDataDataTextualClient,
+    JournalEntryItemProcessingBlockedReason,
     JournalEntryItemTextualPartParagraph,
 )
 from lib.journals.publish_journal_chat_event import publish_journal_chat_event
@@ -55,12 +56,16 @@ def get_message_from_text(
     *,
     type: Literal["chat", "reflection-question", "reflection-response"] = "chat",
     display_author: Literal["self", "other"] = "other",
+    processing_block: Optional[JournalEntryItemProcessingBlockedReason],
 ) -> Tuple[JournalEntryItemData, JournalEntryItemDataClient]:
     """Produces a journal entry item from the given text. Returns both the
     internal format and the client format.
     """
     return get_message_from_paragraphs(
-        break_paragraphs(text), type=type, display_author=display_author
+        break_paragraphs(text),
+        type=type,
+        display_author=display_author,
+        processing_block=processing_block,
     )
 
 
@@ -70,6 +75,7 @@ def get_message_from_paragraphs(
     *,
     type: Literal["chat", "reflection-question", "reflection-response"] = "chat",
     display_author: Literal["self", "other"] = "other",
+    processing_block: Optional[JournalEntryItemProcessingBlockedReason],
 ) -> Tuple[JournalEntryItemData, JournalEntryItemDataClient]:
     """Produces a journal entry item from the given paragraphs. Returns both the
     internal format and the client format.
@@ -86,6 +92,7 @@ def get_message_from_paragraphs(
                 for p in paragraphs
             ],
         ),
+        processing_block=processing_block,
         display_author=display_author,
     ), JournalEntryItemDataClient(
         type=type,

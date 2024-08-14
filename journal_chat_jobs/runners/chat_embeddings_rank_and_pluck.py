@@ -35,6 +35,7 @@ from lib.journals.journal_entry_item_data import (
     JournalEntryItemDataClient,
     JournalEntryItemDataDataTextual,
     JournalEntryItemDataDataTextualClient,
+    JournalEntryItemProcessingBlockedReason,
     JournalEntryItemTextualPartJourney,
     JournalEntryItemTextualPartJourneyClient,
     JournalEntryItemTextualPartJourneyClientDetails,
@@ -71,7 +72,9 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     """
     await chat_helper.publish_spinner(itgs, ctx=ctx, message="Running prechecks...")
     conversation_stream = JournalChatJobConversationStream(
-        journal_entry_uid=ctx.journal_entry_uid, user_sub=ctx.user_sub
+        journal_entry_uid=ctx.journal_entry_uid,
+        user_sub=ctx.user_sub,
+        pending_moderation="ignore",
     )
     await conversation_stream.start()
     greeting_result = await conversation_stream.load_next_item(timeout=5)
@@ -87,6 +90,20 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             client_detail=greeting_result.type,
         )
         return
+
+    if greeting_result.item.data.processing_block is not None:
+        await conversation_stream.cancel()
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:processing_block",
+            stat_id="processing_block",
+            warning_message=f"Greeting for `{ctx.user_sub}` is blocked from processing",
+            client_message="Greeting blocked",
+            client_detail="processing block",
+        )
+        return
+
     user_message_result = await conversation_stream.load_next_item(timeout=5)
     if user_message_result.type != "item":
         await conversation_stream.cancel()
@@ -143,9 +160,28 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     text_greeting = chat_helper.extract_as_text(greeting)
     text_user_message = chat_helper.extract_as_text(user_message)
 
+    if (
+        user_message.processing_block is not None
+        and user_message.processing_block.reasons != ["unchecked"]
+    ):
+        await chat_helper.publish_error_and_close_out(
+            itgs,
+            ctx=ctx,
+            warning_id=f"{__name__}:processing_block",
+            stat_id="processing_block",
+            warning_message=f"User message for `{ctx.user_sub}` is blocked from processing",
+            client_message="User message blocked",
+            client_detail="processing block",
+        )
+        return
+
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
-    moderation_response_task = asyncio.create_task(
-        asyncio.to_thread(client.moderations.create, input=text_user_message)
+    moderation_response_task = (
+        asyncio.create_task(
+            asyncio.to_thread(client.moderations.create, input=text_user_message)
+        )
+        if user_message.processing_block is not None
+        else None
     )
     pro_entitlement = await lib.users.entitlements.get_entitlement(
         itgs, user_sub=ctx.user_sub, identifier="pro"
@@ -173,83 +209,110 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
             )
         )
 
-    try:
-        moderation_response = await moderation_response_task
-    except Exception as e:
-        if chat_response_task is not None:
-            if chat_response_task.cancel():
-                try:
-                    await chat_response_task
-                except BaseException:
-                    ...
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:moderation_error",
-            stat_id="moderation_error",
-            warning_message=f"Failed to connect with LLM for moderation for `{ctx.user_sub}`",
-            client_message="Failed to connect with LLM",
-            client_detail="moderation error",
-            exc=e,
-        )
-        return
-
-    if moderation_response.results[0].categories.self_harm_intent:
-        if chat_response_task is not None:
-            if chat_response_task.cancel():
-                try:
-                    await chat_response_task
-                except BaseException:
-                    ...
-
-        data = chat_helper.get_message_from_paragraphs(
-            [
-                "In a crisis?",
-                "Text HELLO to 741741 to connect with a volunteer Crisis Counselor",
-                "Free 24/7 support at your fingerprints.",
-                "*741741 is a registered trademark of Crisis Text Line, Inc.",
-            ]
-        )
-        if (
-            await chat_helper.write_journal_entry_item_closing_out_on_failure(
+    if moderation_response_task is not None:
+        assert user_message.processing_block is not None
+        try:
+            moderation_response = await moderation_response_task
+        except Exception as e:
+            if chat_response_task is not None:
+                if chat_response_task.cancel():
+                    try:
+                        await chat_response_task
+                    except BaseException:
+                        ...
+            await chat_helper.publish_error_and_close_out(
                 itgs,
                 ctx=ctx,
-                message=data[0],
-                replace_journal_entry_item_uid=ctx.task.replace_entry_item_uid,
+                warning_id=f"{__name__}:moderation_error",
+                stat_id="moderation_error",
+                warning_message=f"Failed to connect with LLM for moderation for `{ctx.user_sub}`",
+                client_message="Failed to connect with LLM",
+                client_detail="moderation error",
+                exc=e,
+            )
+            return
+
+        new_reasons_set = set(user_message.processing_block.reasons)
+        new_reasons_set.remove("unchecked")
+        if moderation_response.results[0].flagged:
+            new_reasons_set.add("flagged")
+
+        if new_reasons_set:
+            user_message.processing_block = JournalEntryItemProcessingBlockedReason(
+                reasons=sorted(new_reasons_set)
+            )
+        else:
+            user_message.processing_block = None
+
+        if (
+            chat_helper.write_journal_entry_item_closing_out_on_failure(
+                itgs,
+                ctx=ctx,
+                message=user_message,
+                replace_journal_entry_item_uid=user_message_result.item.uid,
             )
             is None
         ):
             return
 
-        chat_state.data.append(data[1])
-        chat_state.integrity = chat_state.compute_integrity()
-        await chat_helper.publish_mutations(
-            itgs,
-            ctx=ctx,
-            final=True,
-            mutations=[
-                SegmentDataMutation(key=["integrity"], value=chat_state.integrity),
-                SegmentDataMutation(
-                    key=["data", len(chat_state.data) - 1], value=data[1]
-                ),
-            ],
-        )
-        ctx.stats.incr_completed(
-            requested_at_unix_date=ctx.queued_at_unix_date_in_stats_tz, type=ctx.type
-        )
-        return
+        if moderation_response.results[0].categories.self_harm_intent:
+            if chat_response_task is not None:
+                if chat_response_task.cancel():
+                    try:
+                        await chat_response_task
+                    except BaseException:
+                        ...
 
-    if moderation_response.results[0].flagged:
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:flagged",
-            stat_id="flagged",
-            warning_message=f"Failed to create response for `{ctx.user_sub}` as their message was flagged",
-            client_message="Failed to create response",
-            client_detail="flagged",
-        )
-        return
+            data = chat_helper.get_message_from_paragraphs(
+                [
+                    "In a crisis?",
+                    "Text HELLO to 741741 to connect with a volunteer Crisis Counselor",
+                    "Free 24/7 support at your fingerprints.",
+                    "*741741 is a registered trademark of Crisis Text Line, Inc.",
+                ],
+                processing_block=None,
+            )
+            if (
+                await chat_helper.write_journal_entry_item_closing_out_on_failure(
+                    itgs,
+                    ctx=ctx,
+                    message=data[0],
+                    replace_journal_entry_item_uid=ctx.task.replace_entry_item_uid,
+                )
+                is None
+            ):
+                return
+
+            chat_state.data.append(data[1])
+            chat_state.integrity = chat_state.compute_integrity()
+            await chat_helper.publish_mutations(
+                itgs,
+                ctx=ctx,
+                final=True,
+                mutations=[
+                    SegmentDataMutation(key=["integrity"], value=chat_state.integrity),
+                    SegmentDataMutation(
+                        key=["data", len(chat_state.data) - 1], value=data[1]
+                    ),
+                ],
+            )
+            ctx.stats.incr_completed(
+                requested_at_unix_date=ctx.queued_at_unix_date_in_stats_tz,
+                type=ctx.type,
+            )
+            return
+
+        if moderation_response.results[0].flagged:
+            await chat_helper.publish_error_and_close_out(
+                itgs,
+                ctx=ctx,
+                warning_id=f"{__name__}:flagged",
+                stat_id="flagged",
+                warning_message=f"Failed to create response for `{ctx.user_sub}` as their message was flagged",
+                client_message="Failed to create response",
+                client_detail="flagged",
+            )
+            return
 
     if chat_response_task is None:
         await chat_helper.publish_spinner(
@@ -304,7 +367,9 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         return
 
-    data = chat_helper.get_message_from_text(empathy_message.content)
+    data = chat_helper.get_message_from_text(
+        empathy_message.content, processing_block=None
+    )
     chat_state.data.append(data[1])
     chat_state.integrity = chat_state.compute_integrity()
     await chat_helper.publish_mutations(
@@ -655,6 +720,7 @@ need to.
                 ],
             ),
             display_author="other",
+            processing_block=None,
         ),
         JournalEntryItemDataClient(
             type="chat",
