@@ -36,17 +36,8 @@ async def handle_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
 
     if given_name is None:
         message = "Hi! How are you feeling today? 😊"
-    elif unix_date_for_user == 19945:
-        if time_of_day_for_user == "evening":
-            message = (
-                f"What emotions did you experience today, and how did you manage them?"
-            )
-        else:
-            message = f"Happy {day_of_week_for_user} and good {time_of_day_for_user} {given_name}—what's on your mind?"
-    elif unix_date_for_user == 19946:
-        message = f"So happy to see you this {time_of_day_for_user}, {given_name}! How are you?\n\nAs an optional exercise, try to include a rhyme in your response. 😊"
-    elif unix_date_for_user == 19947:
-        message = f"Hi {given_name}! Is there something you can let go of today? 🎈"
+    elif unix_date_for_user == 19950:
+        message = f"Hi {given_name}! In the opening of William Wordsworth's (1770-1850) 'Ode on Intimations of Immortality from Recollections of Early Childhood', to highlight how change affected him, he wrote:\n\n'There was a time when meadow, grove, and stream,; The earth, and every common sight; To me did seem; Apparelled in celestial light,; The glory and the freshness of a dream.; It is not now as it hath been of yore;— Turn wheresoe’er I may,; By night or day,; The things which I have seen I now can see no more.'\n\n How would you compare how you're feeling today to when you were younger? 🌿"
     else:
         message = f"Hi {given_name}, how are you feeling today? 😊"
 
