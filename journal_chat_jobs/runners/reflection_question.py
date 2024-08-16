@@ -405,7 +405,7 @@ REASON:
 - Pro: Relates to the class (inner child)
 - Con: Asks the respondant to only discuss their current feelings, which is close-ended.
 
-BETTER QUESTION: "How is your inner child?"
+GOOD QUESTION: "How is your inner child?"
 REASON:
 - Pro: Relates to the class (inner child)
 - Pro: Highly abstract
@@ -422,6 +422,11 @@ REASON:
 - Con: They may feel pressured to come up with a specific instance.
   We can make this question more open-ended by switching to "In what ways can you embrace your inner child?"
   Which they can still choose to answer with a specific instance, but does not pressure them to.
+
+Often if the class is highly abstract, such as a sound bath, it can make more
+sense to focus on the original exchange that led to the class. For example, a
+question like "Now that some time has passed, would you change your original
+answer to the question '(repeat the original question)'?"
 
 Step 1: Talk about what makes a good question in this context.
 Step 2: Brainstorm 3 questions that you could offer the respondant.
