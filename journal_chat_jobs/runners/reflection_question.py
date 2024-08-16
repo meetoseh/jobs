@@ -560,7 +560,6 @@ Step 10: If the change is worth it, incorporate it into the question. If not,
             "function": {"name": "store_question_selection"},
         },
     )
-    print(f"chat_response={chat_response}")
 
     chat_message = chat_response.choices[0].message
     if (
