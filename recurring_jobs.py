@@ -653,13 +653,6 @@ JOBS: Tuple[Job, ...] = (
         interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
     ),
     Job(
-        name="runners.slack_stats.emotion_selections",
-        kwargs=tuple(),
-        interval=JobInterval(
-            pst, days_of_week=("fri",), hours=(9,), minutes=(0,), seconds=(0,)
-        ),
-    ),
-    Job(
         name="runners.stats.daily_push_receipt_stats",
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(0,), minutes=(15,), seconds=(0,)),
