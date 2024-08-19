@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 class JournalChatTask(BaseModel):
     """Describes a task that needs to be performed."""
 
-    type: Literal["greeting", "chat", "reflection-question", "sync"] = Field(
-        description="The type of entry that should be produced"
+    type: Literal["greeting", "chat", "reflection-question", "sync", "summarize"] = (
+        Field(description="The type of entry that should be produced")
     )
     include_previous_history: bool = Field(
         description="True if the previous history needs to be posted, false otherwise. "

@@ -432,7 +432,10 @@ LIMIT ?
                             ),
                         )
 
-                        if item.data.processing_block is not None and "unchecked" in item.data.processing_block.reasons:
+                        if (
+                            item.data.processing_block is not None
+                            and "unchecked" in item.data.processing_block.reasons
+                        ):
                             if self.pending_moderation == "error":
                                 await queue.put(
                                     Exception(
@@ -441,17 +444,7 @@ LIMIT ?
                                 )
                                 return
                             elif self.pending_moderation == "resolve":
-                                if item.data.data.type != "textual" or not all(
-                                    p.type == "paragraph"
-                                    for p in item.data.data.parts
-                                ):
-                                    await queue.put(
-                                        Exception(
-                                            "journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it"
-                                        )
-                                    )
-                                    return
-                                
+
                                 if item.uid in processing_block_handled_item_uids:
                                     await queue.put(
                                         Exception(
@@ -460,18 +453,17 @@ LIMIT ?
                                         )
                                     )
                                     return
-                                
+
                                 processing_block_handled_item_uids.add(item.uid)
 
-                                item_as_text = "\n\n".join(
-                                    p.value
-                                    for p in item.data.data.parts
-                                    if p.type == "paragraph"
-                                )
+                                try:
+                                    item_as_text = self._item_as_text(item)
+                                except Exception as e:
+                                    await queue.put(e)
+                                    return
+
                                 new_processing_block_task = asyncio.create_task(
-                                    get_processing_block_for_text(
-                                        itgs, item_as_text
-                                    )
+                                    get_processing_block_for_text(itgs, item_as_text)
                                 )
                                 if master_key_for_encryption is None:
                                     _master_key_for_encryption = (
@@ -495,17 +487,11 @@ LIMIT ?
                                     )
                                     del _master_key_for_encryption
 
-                                new_flags_set = set(
-                                    item.data.processing_block.reasons
-                                )
+                                new_flags_set = set(item.data.processing_block.reasons)
                                 new_flags_set.remove("unchecked")
-                                new_processing_block = (
-                                    await new_processing_block_task
-                                )
+                                new_processing_block = await new_processing_block_task
                                 if new_processing_block is not None:
-                                    new_flags_set.update(
-                                        new_processing_block.reasons
-                                    )
+                                    new_flags_set.update(new_processing_block.reasons)
 
                                 item.data.processing_block = (
                                     None
@@ -517,10 +503,14 @@ LIMIT ?
 
                                 new_row_master_encrypted_data_base64url = master_key_for_encryption.journal_master_key.encrypt(
                                     gzip.compress(
-                                        item.data.__pydantic_serializer__.to_json(item.data),
-                                        mtime=0
+                                        item.data.__pydantic_serializer__.to_json(
+                                            item.data
+                                        ),
+                                        mtime=0,
                                     )
-                                ).decode('ascii')
+                                ).decode(
+                                    "ascii"
+                                )
 
                                 response2 = await cursor.execute(
                                     "UPDATE journal_entry_items SET master_encrypted_data = ? WHERE uid = ? AND master_encrypted_data = ?",
@@ -530,13 +520,20 @@ LIMIT ?
                                         row_master_encrypted_data_base64url,
                                     ),
                                 )
-                                if response2.rows_affected is None or response2.rows_affected == 0:
+                                if (
+                                    response2.rows_affected is None
+                                    or response2.rows_affected == 0
+                                ):
                                     need_retry_loop = True
                                     break
 
-                                assert response2.rows_affected == 1, response2.rows_affected
+                                assert (
+                                    response2.rows_affected == 1
+                                ), response2.rows_affected
 
-                                row_master_encrypted_data_base64url = new_row_master_encrypted_data_base64url
+                                row_master_encrypted_data_base64url = (
+                                    new_row_master_encrypted_data_base64url
+                                )
                                 del new_row_master_encrypted_data_base64url
                             else:
                                 assert (
@@ -562,6 +559,20 @@ LIMIT ?
                 exc_info=e,
             )
             await queue.put(e)
+
+    def _item_as_text(self, item: JournalEntryItem) -> str:
+        if item.data.data.type == "summary" and item.data.data.version == "v1":
+            return f'{item.data.data.title}\n\n{", ".join(item.data.data.tags)}'
+
+        if item.data.data.type != "textual" or not all(
+            p.type == "paragraph" for p in item.data.data.parts
+        ):
+            raise Exception(
+                "journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it"
+            )
+        return "\n\n".join(
+            p.value for p in item.data.data.parts if p.type == "paragraph"
+        )
 
     async def cancel(self) -> None:
         """Forcibly cancels the loading of item, ensuring the load items task

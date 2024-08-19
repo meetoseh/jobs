@@ -3,7 +3,12 @@ from lib.redis_stats_preparer import RedisStatsPreparer
 
 
 JobType = Literal[
-    b"greeting", b"system_chat", b"sync", b"reflection_question", b"unknown"
+    b"greeting",
+    b"system_chat",
+    b"sync",
+    b"reflection_question",
+    b"summarize",
+    b"unknown",
 ]
 
 

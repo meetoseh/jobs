@@ -4,6 +4,7 @@ from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.runners.chat_embeddings_rank_and_pluck import handle_chat
 from journal_chat_jobs.runners.greeting import handle_greeting
 from journal_chat_jobs.runners.reflection_question import handle_reflection
+from journal_chat_jobs.runners.summarize import handle_summarize
 from journal_chat_jobs.runners.sync import handle_sync
 from lib.journals.journal_chat_job_stats import JobType, JournalChatJobStats
 from lib.journals.journal_chat_task import JournalChatTask
@@ -18,7 +19,7 @@ stats_tz = pytz.timezone("America/Los_Angeles")
 
 
 def get_stat_job_type_from_task_type(
-    task_type: Literal["greeting", "chat", "reflection-question", "sync"]
+    task_type: Literal["greeting", "chat", "reflection-question", "sync", "summarize"]
 ) -> JobType:
     if task_type == "greeting":
         return b"greeting"
@@ -28,6 +29,8 @@ def get_stat_job_type_from_task_type(
         return b"reflection_question"
     if task_type == "sync":
         return b"sync"
+    if task_type == "summarize":
+        return b"summarize"
     raise ValueError(f"Unknown or unsupported task type: {task_type}")
 
 
@@ -92,6 +95,8 @@ async def handle_journal_chat_job(
                 return await handle_sync(itgs, ctx)
             elif task.type == "reflection-question":
                 return await handle_reflection(itgs, ctx)
+            elif task.type == "summarize":
+                return await handle_summarize(itgs, ctx)
         finally:
             _sanity_check_stats(stats, ctx)
             await stats.stats.store(itgs)

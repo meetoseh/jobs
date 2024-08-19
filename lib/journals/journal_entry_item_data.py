@@ -218,12 +218,41 @@ class JournalEntryItemDataDataUI(BaseModel):
         out.write(b', "type": "ui"}')
 
 
+class JournalEntryItemDataDataSummaryV1(BaseModel):
+    tags: List[str] = Field(
+        description="The tags for the entry, where tags are generally formatted as an emoji "
+        "followed by the word, e.g., '😨 Anxious'"
+    )
+    title: str = Field(
+        description="A summary of the entry up to this point; very short (3-4 words)"
+    )
+    type: Literal["summary"] = Field(description="The type of data described")
+    version: Literal["v1"] = Field(description="The version of the summary data")
+
+    def model_dump_for_integrity(self, out: io.BytesIO) -> None:
+        out.write(b'{"tags": [')
+        if self.tags:
+            out.write(str_adapter.dump_json(self.tags[0]))
+            for idx in range(1, len(self.tags)):
+                out.write(b", ")
+                out.write(str_adapter.dump_json(self.tags[idx]))
+        out.write(b'], "title": ')
+        out.write(str_adapter.dump_json(self.title))
+        out.write(b', "type": "summary", "version": "v1"}')
+
+
+JournalEntryItemDataDataSummary = JournalEntryItemDataDataSummaryV1
+
 JournalEntryItemDataData = Union[
-    JournalEntryItemDataDataTextual, JournalEntryItemDataDataUI
+    JournalEntryItemDataDataTextual,
+    JournalEntryItemDataDataUI,
+    JournalEntryItemDataDataSummary,
 ]
 
 JournalEntryItemDataDataClient = Union[
-    JournalEntryItemDataDataTextualClient, JournalEntryItemDataDataUI
+    JournalEntryItemDataDataTextualClient,
+    JournalEntryItemDataDataUI,
+    JournalEntryItemDataDataSummary,
 ]
 
 
@@ -272,9 +301,9 @@ class JournalEntryItemData(BaseModel):
         description="If this item is blocked from processing, the reasons why",
     )
 
-    type: Literal["chat", "reflection-question", "reflection-response", "ui"] = Field(
-        description="The type of thing that occurred"
-    )
+    type: Literal[
+        "chat", "reflection-question", "reflection-response", "ui", "summary"
+    ] = Field(description="The type of thing that occurred")
 
     def __str__(self):
         return f"JournalEntryItemData(OMITTED FOR PRIVACY)"
@@ -298,9 +327,9 @@ class JournalEntryItemDataClient(BaseModel):
         description="who to display as the author of this item; self means the user, other means the system"
     )
 
-    type: Literal["chat", "reflection-question", "reflection-response", "ui"] = Field(
-        description="The type of thing that occurred"
-    )
+    type: Literal[
+        "chat", "reflection-question", "reflection-response", "ui", "summary"
+    ] = Field(description="The type of thing that occurred")
 
     def model_dump_for_integrity(self, out: io.BytesIO) -> None:
         out.write(b'{"data": ')

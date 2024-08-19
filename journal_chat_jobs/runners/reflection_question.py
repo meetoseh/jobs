@@ -19,6 +19,9 @@ from lib.journals.journal_chat import JournalChat
 from lib.journals.journal_chat_redis_packet import SegmentDataMutation
 from lib.transcripts.cache import get_transcript
 from lib.transcripts.model import Transcript
+from lib.users.time_of_day import get_time_of_day
+import unix_dates
+import random
 
 
 LARGE_MODEL = "gpt-4o"
@@ -26,6 +29,33 @@ SMALL_MODEL = "gpt-4o-mini"
 
 BIG_RATELIMIT_CATEGORY = "gpt-4o"
 SMALL_RATELIMIT_CATEGORY = "gpt-4o-mini"
+
+VARIETY = [
+    "what makes people happy",
+    "how people connect with each other",
+    "how people notice others are happy",
+    "how people can be more positive",
+    "what people are optimistic about",
+    "what people are grateful for",
+    "what people are looking forward to",
+    "what people are excited about",
+    "what things people did recently",
+    "what people are proud of",
+    "what people are hopeful about",
+    "what people are inspired by",
+    "what people are passionate about",
+    "what people are motivated by",
+    "what people see in the clouds",
+    "what they dreamt about recently",
+    "what they can do to make someone smile",
+    "what they did recently",
+    "what question they would want to ask their future self",
+    "what they would want to tell their past self",
+    "what their future self would probably have forgotten about this week",
+    "what they thought they would have forgotten about last week that they still remember",
+    'why they "should" be happy',
+    "why they feel like they do",
+]
 
 
 async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
@@ -319,130 +349,24 @@ async def _get_option_response(
     journey_transcript: Transcript,
     client: openai.OpenAI,
 ) -> Optional[str]:
+    datetime_user = unix_dates.unix_timestamp_to_datetime(ctx.queued_at, tz=ctx.user_tz)
+    time_of_day_user = get_time_of_day(ctx.queued_at, tz=ctx.user_tz)
+    variety = random.choice(VARIETY)
+
     await chat_helper.reserve_tokens(
         itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
     )
     chat_response = await asyncio.to_thread(
         client.chat.completions.create,
         messages=[
-            {"role": "assistant", "content": text_greeting},
-            {"role": "user", "content": text_user_message},
-            {"role": "assistant", "content": text_system_message},
-            {"role": "user", "content": f"Okay, I took {journey_metadata.title}"},
             {
                 "role": "system",
-                "content": f"""Here's what you know about {journey_metadata.title}:
+                "content": f"""Adopt the role of the perpetually positive peer who asks short, abstract, broad, forward-thinking questions.
 
-TITLE: {journey_metadata.title}
-DESCRIPTION: {journey_metadata.description}
-INSTRUCTOR: {journey_metadata.instructor.name}
-TRANSCRIPT:
-```vtt
-{str(journey_transcript)}
-```
-
----
-
-Adopt the role of a life coach. You ask simple questions that help people:
-
-1. reflect on their lives
-2. discuss something on their mind
-3. think about the future
-4. understand themselves better
-
-You are very mindful that it is unhelpful to stew on negative emotions; you want
-people to move forward in a positive way. You should also try to relate the question
-either to the greeting you gave, the users response, or the class they took.
-
-Suppose they took a class related to reducing anxiety. Then:
-
-
-BAD QUESTION: "What are you anxious about?"
-REASON: 
-- Pro: Relates to the class (anxious -> anxiety)
-- Con: Asks the respondant to focus on their anxiety, which can make them more anxious. 
-- Con: Very concrete
-
-BETTER QUESTION: "What does feeling calm mean to you?"
-REASON: 
-- Pro: Relates to the class (calm is the opposite of anxious)
-- Pro: Asks the respondant to focus on a positive emotion
-- Pro: Highly abstract
-
-BAD QUESTION: If you were an elephant, what would make you happy?
-- Pro: Focuses on a positive emotion
-- Pro: Very creative and open-ended.
-- Pro: Highly abstract
-- Con: Does not relate to the class (happiness is not the opposite of anxiety)
-
-Your questions should be abstract and open-ended. Your questions should not
-time-bound and do not require commitment. They very likely have something they
-already want to discuss, and the question should just be a fun way to invite
-them to do so.
-
-Suppose they took a class describing their inner child and how it helps them. Then:
-
-BAD QUESTION: "What is one action you can take today to nurture your inner child?"
-REASON:
-- Pro: Relates to the class (inner child)
-- Con: Asks the respondant to commit to a specific action, which is close-ended.
-- Con: Asks the respondant only to discuss today, which is close-ended.
-- Con: Very concrete
-
-BAD QUESTION: "How do you feel right now, after completing Inner Child?"
-REASON:
-- Pro: Relates to the class (inner child)
-- Con: Asks the respondant to only discuss their current feelings, which is close-ended.
-- Con: Very concrete
-
-BAD QUESTION: "How have you nurtured your inner child?"
-- Pro: Relates to the class (inner child)
-- Pro: They can talk about any time in the past, which is open-ended.
-- Con: They cannot reasonably answer this question by discussing an upcoming event, which is close-ended.
-
-BAD QUESTION: "How do you currently feel about your inner child?"
-REASON:
-- Pro: Relates to the class (inner child)
-- Con: Asks the respondant to only discuss their current feelings, which is close-ended.
-
-GOOD QUESTION: "How is your inner child?"
-REASON:
-- Pro: Relates to the class (inner child)
-- Pro: Highly abstract
-- Pro: They can talk about an action or a feeling, which is open-ended
-- Pro: They can relate it to what they've done or what they plan to do, which is open-ended
-- Pro: Although it superficially asks about their current feelings, in colloquial
-  English this question could be interpreted as asking about their inner child in general.
-
-BAD QUESTION: "In what ways do you embrace your inner child?"
-REASON:
-- Pro: Relates to the class (inner child)
-- Pro: They can talk about today, yesterday, the future, etc, which is open-ended.
-- Pro: There are multiple ways to interpret this question
-- Con: They may feel pressured to come up with a specific instance.
-  We can make this question more open-ended by switching to "In what ways can you embrace your inner child?"
-  Which they can still choose to answer with a specific instance, but does not pressure them to.
-
-Often if the class is highly abstract, such as a sound bath, it can make more
-sense to focus on the original exchange that led to the class. For example, a
-question like "Now that some time has passed, would you change your original
-answer to the question '(repeat the original question)'?"
-
-Step 1: Talk about what makes a good question in this context.
-Step 2: Brainstorm 3 questions that you could offer the respondant.
-Step 3: Discuss the pros and cons of each question in order.
-Step 4: Write a new set of 3 questions based on the discussion. You may reuse 
-  questions from the brainstorming session if they were good.
-Step 5: Compare and contrast the benefits and downsides of the new questions.
-Step 6: Write the first pass at the final question based on the discussion in step 5.
-Step 7: Now that we have a good question, remind ourselves what the point of the final revision pass
-  is for.
-Step 8: Discuss one small change that could be made to the question. Do not actually make the
-  change yet. List out the pros and cons of that change.
-Step 9: Determine if that change is worth it. 
-Step 10: If the change is worth it, incorporate it into the question. If not,
-  keep the question the same.""",
+This {time_of_day_user}, {datetime_user.strftime('%A, %B %d, %Y')}, you are thinking about {variety}.""",
             },
+            {"role": "assistant", "content": text_greeting},
+            {"role": "user", "content": text_user_message},
         ],
         model=LARGE_MODEL,
         max_tokens=4096,
@@ -450,126 +374,38 @@ Step 10: If the change is worth it, incorporate it into the question. If not,
             {
                 "type": "function",
                 "function": {
-                    "name": "store_question_selection",
-                    "description": "Stores the reasoning and selection for the reflection question to present to the user",
+                    "name": "present_question",
+                    "description": "Presents the given question to present to the user",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "step_1": {
+                            "question": {
                                 "type": "string",
-                                "description": "What makes a good question in this context.",
-                            },
-                            "step_2a": {
-                                "type": "string",
-                                "description": "The first brainstorming question",
-                            },
-                            "step_2b": {
-                                "type": "string",
-                                "description": "The second brainstorming question",
-                            },
-                            "step_2c": {
-                                "type": "string",
-                                "description": "The third brainstorming question",
-                            },
-                            "step_3a": {
-                                "type": "string",
-                                "description": "The pros and cons of the first brainstorming question",
-                            },
-                            "step_3b": {
-                                "type": "string",
-                                "description": "The pros and cons of the second brainstorming question",
-                            },
-                            "step_3c": {
-                                "type": "string",
-                                "description": "The pros and cons of the third brainstorming question",
-                            },
-                            "step_4a": {
-                                "type": "string",
-                                "description": "The first revised question",
-                            },
-                            "step_4b": {
-                                "type": "string",
-                                "description": "The second revised question",
-                            },
-                            "step_4c": {
-                                "type": "string",
-                                "description": "The third revised question",
-                            },
-                            "step_5": {
-                                "type": "string",
-                                "description": "The benefits and downsides of the new questions, with the purpose of deduucing a winner",
-                            },
-                            "step_6": {
-                                "type": "string",
-                                "description": "The first pass at the final question based on the discussion in step 5",
-                            },
-                            # inject tokens closer to the output.
-                            "step_7": {
-                                "type": "string",
-                                "description": "Remind ourselves what the point of the final revision pass is for",
-                                "enum": [
-                                    "We have now decided, at a strategic level, on a good question. We will now look "
-                                    "to see if there is one obvious small change that would make this question more "
-                                    "open-ended. Typically, we look to convert a question that only asks about what has "
-                                    "happened into one that invites them to respond EITHER with what has happened OR "
-                                    "what they want to happen. Sometimes, we can do this with a single word or phrase, "
-                                    "or adding a parenthetical. In step 8, we will try to brainstorm such a change and discuss "
-                                    "its pros, cons, and if it is redundant. Then, in step 9, we will decide if we actually  "
-                                    "want to keep the change (true) or should keep what we have in step 6 (false). Finally, "
-                                    "in step 10, we will incorporate the change if we decided to keep it, or copy the question "
-                                    "from step 6 if we decided not to keep the change.",
-                                ],
-                            },
-                            "step_8": {
-                                "type": "string",
-                                "description": "Suggest a change to the question. List the pros and the cons of that change. Discuss if the change is redundant.",
-                            },
-                            "step_9": {
-                                "type": "boolean",
-                                "description": "True if you found a change you want to make, false if you did not",
-                            },
-                            "step_10": {
-                                "type": "string",
-                                "description": "The final question. If 7b is false, this should be the same as step_6. Otherwise, it should incorporate the change from step_7a",
+                                "description": "The question to present",
                             },
                         },
-                        "required": [
-                            "step_1",
-                            "step_2a",
-                            "step_2b",
-                            "step_2c",
-                            "step_3a",
-                            "step_3b",
-                            "step_3c",
-                            "step_4a",
-                            "step_4b",
-                            "step_4c",
-                            "step_5",
-                            "step_6",
-                            "step_7",
-                            "step_8",
-                            "step_9",
-                            "step_10",
-                        ],
+                        "required": ["question"],
+                        "additionalProperties": False,
                     },
+                    "strict": True,
                 },
             }
         ],
         tool_choice={
             "type": "function",
-            "function": {"name": "store_question_selection"},
+            "function": {"name": "present_question"},
         },
     )
 
     chat_message = chat_response.choices[0].message
     if (
         chat_message.tool_calls
-        and chat_message.tool_calls[0].function.name == "store_question_selection"
+        and chat_message.tool_calls[0].function.name == "present_question"
     ):
         args_json = chat_message.tool_calls[0].function.arguments
         try:
             args = json.loads(args_json)
-            result = args["step_10"]
+            result = args["question"]
             if isinstance(result, str):
                 return result
         except Exception as e:

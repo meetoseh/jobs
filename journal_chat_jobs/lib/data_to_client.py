@@ -12,6 +12,7 @@ from lib.journals.journal_entry_item_data import (
     JournalEntryItemDataClient,
     JournalEntryItemDataData,
     JournalEntryItemDataDataClient,
+    JournalEntryItemDataDataSummary,
     JournalEntryItemDataDataTextual,
     JournalEntryItemDataDataTextualClient,
     JournalEntryItemDataDataUI,
@@ -53,6 +54,8 @@ async def _data_data_to_client(
         return await _data_data_textual_to_client(itgs, ctx=ctx, data=data)
     if data.type == "ui":
         return await _data_data_ui_to_client(itgs, ctx=ctx, data=data)
+    if data.type == "summary":
+        return await _data_data_summary_to_client(itgs, ctx=ctx, data=data)
     raise ValueError(f"Unknown data type: {data}")
 
 
@@ -278,4 +281,10 @@ async def _textual_part_paragraph_to_client(
 async def _data_data_ui_to_client(
     itgs: Itgs, /, *, ctx: JournalChatJobContext, data: JournalEntryItemDataDataUI
 ) -> JournalEntryItemDataDataUI:
+    return data
+
+
+async def _data_data_summary_to_client(
+    itgs: Itgs, /, *, ctx: JournalChatJobContext, data: JournalEntryItemDataDataSummary
+) -> JournalEntryItemDataDataSummary:
     return data
