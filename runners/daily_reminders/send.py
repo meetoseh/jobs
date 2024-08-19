@@ -89,11 +89,11 @@ class DailyRemindersSwap:
 
 
 CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(Optional[DailyRemindersSwap], DailyRemindersSwap(
-    touch_point_event_slug="oneoff_links_fixed",
-    start_unix_date=19851,
-    end_unix_date=19857,
-    slug="oneoff_links_fixed",
-    max_created_at=1715190954,
+    touch_point_event_slug="very_demure_very_mindful",
+    start_unix_date=19955,
+    end_unix_date=19955,
+    slug="very_demure_very_mindful",
+    max_created_at=None,
 ))
 
 
