@@ -1,22 +1,27 @@
 import asyncio
 import json
 import os
-from typing import Literal, Optional, cast
+from typing import List, Literal, Optional, cast
 import openai
 from error_middleware import handle_warning
 from itgs import Itgs
-from lib.journals.conversation_stream import JournalChatJobConversationStream
+from lib.journals.conversation_stream import (
+    JournalChatJobConversationStream,
+    JournalEntryItem,
+)
 from journal_chat_jobs.lib.data_to_client import (
+    DataToClientInspectResult,
+    bulk_prepare_data_to_client,
     data_to_client,
-    get_journal_chat_job_journey_metadata,
+    inspect_data_to_client,
 )
 from journal_chat_jobs.lib.journal_chat_job_context import (
     JournalChatJobContext,
-    JourneyMemoryCachedData,
 )
 import journal_chat_jobs.lib.chat_helper as chat_helper
 from lib.journals.journal_chat import JournalChat
 from lib.journals.journal_chat_redis_packet import SegmentDataMutation
+from lib.journals.journal_entry_item_data import JournalEntryItemDataClient
 from lib.transcripts.cache import get_transcript
 from lib.transcripts.model import Transcript
 from lib.users.time_of_day import get_time_of_day
@@ -55,6 +60,10 @@ VARIETY = [
     "what they thought they would have forgotten about last week that they still remember",
     'why they "should" be happy',
     "why they feel like they do",
+    "what they didn't say to themself that they wanted to",
+    "what they didn't say to someone else that they wanted to",
+    "how they were daring recently",
+    "what had them scared recently (if anything), and if they were able to overcome it",
 ]
 
 
@@ -69,192 +78,106 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         pending_moderation="resolve",
     )
     await conversation_stream.start()
-    greeting_result = await conversation_stream.load_next_item(timeout=5)
-    if greeting_result.type != "item":
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:failed_to_load_greeting:{greeting_result.type}",
-            stat_id=f"greeting:{greeting_result.type}",
-            warning_message=f"Failed to retrieve the greeting for `{ctx.user_sub}`",
-            client_message="Failed to retrieve greeting",
-            client_detail=greeting_result.type,
-        )
-        return
 
-    if greeting_result.item.data.processing_block is not None:
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:processing_block",
-            stat_id="processing_block",
-            warning_message=f"Greeting for `{ctx.user_sub}` is blocked from processing",
-            client_message="Greeting blocked",
-            client_detail="processing block",
-        )
-        return
+    greeting_entry: Optional[JournalEntryItem] = None
+    user_message_entry: Optional[JournalEntryItem] = None
 
-    user_message_result = await conversation_stream.load_next_item(timeout=5)
-    if user_message_result.type != "item":
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:failed_to_load_user_message:{user_message_result.type}",
-            stat_id=f"user_message:{user_message_result.type}",
-            warning_message=f"Failed to retrieve the user message for `{ctx.user_sub}`",
-            client_message="Failed to retrieve user message",
-            client_detail=user_message_result.type,
-        )
-        return
-
-    if user_message_result.item.data.processing_block is not None:
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:processing_block",
-            stat_id="processing_block",
-            warning_message=f"User message for `{ctx.user_sub}` is blocked from processing",
-            client_message="User message blocked",
-            client_detail="processing block",
-        )
-        return
-
-    system_message_result = await conversation_stream.load_next_item(timeout=5)
-    if system_message_result.type != "item":
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:failed_to_load_system_message:{system_message_result.type}",
-            stat_id=f"system_message:{system_message_result.type}",
-            warning_message=f"Failed to retrieve the system message for `{ctx.user_sub}`",
-            client_message="Failed to retrieve system message",
-            client_detail=system_message_result.type,
-        )
-        return
-
-    if system_message_result.item.data.processing_block is not None:
-        await conversation_stream.cancel()
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:processing_block",
-            stat_id="processing_block",
-            warning_message=f"System message for `{ctx.user_sub}` is blocked from processing",
-            client_message="System message blocked",
-            client_detail="processing block",
-        )
-        return
+    server_items: List[JournalEntryItem] = []
+    reflection_question_index: Optional[int] = None
 
     while True:
-        ui_entry_result = await conversation_stream.load_next_item(timeout=5)
-        if ui_entry_result.type != "item":
+        next_item_result = await conversation_stream.load_next_item(timeout=5)
+        if next_item_result.type == "finished":
+            break
+
+        if next_item_result.type != "item":
             await chat_helper.publish_error_and_close_out(
                 itgs,
                 ctx=ctx,
-                warning_id=f"{__name__}:failed_to_load_ui_entry:{ui_entry_result.type}",
-                stat_id=f"ui_entry:{ui_entry_result.type}",
+                warning_id=f"{__name__}:failed_to_load_ui_entry:{next_item_result.type}",
+                stat_id=f"ui_entry:{next_item_result.type}",
                 warning_message=f"Failed to retrieve the user journey ui entry for `{ctx.user_sub}`",
                 client_message="Failed to retrieve user journey ui entry",
-                client_detail=ui_entry_result.type,
+                client_detail=next_item_result.type,
             )
             await conversation_stream.cancel()
             return
 
+        server_items.append(next_item_result.item)
+
         if (
-            ui_entry_result.item.data.data.type == "ui"
-            and ui_entry_result.item.data.data.conceptually.type == "user_journey"
+            ctx.task.replace_entry_item_uid is not None
+            and ctx.task.replace_entry_item_uid == next_item_result.item.uid
         ):
-            ui_entry = ui_entry_result.item.data
-            break
+            assert reflection_question_index is None
+            reflection_question_index = len(server_items) - 1
 
-    # they may have taken additional classes since then; we will not use them
-    # for generating the reflection question
-    await conversation_stream.cancel()
+        if reflection_question_index is None:
+            if (
+                greeting_entry is None
+                and user_message_entry is None
+                and next_item_result.item.data.type == "chat"
+                and next_item_result.item.data.display_author == "other"
+            ):
+                greeting_entry = next_item_result.item
+                continue
 
-    greeting = greeting_result.item.data
-    user_message = user_message_result.item.data
-    system_message = system_message_result.item.data
+            if (
+                user_message_entry is None
+                and next_item_result.item.data.type == "chat"
+                and next_item_result.item.data.display_author == "self"
+            ):
+                user_message_entry = next_item_result.item
+                continue
 
-    if system_message.data.type != "textual":
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:invalid_system_message_type",
-            stat_id="system_message:invalid_type",
-            warning_message=f"Invalid system message type for `{ctx.user_sub}`",
-            client_message="Invalid system message type",
-            client_detail="system message must be textual",
-        )
-        return
+    inspect_result = DataToClientInspectResult(pro=False, journeys=set())
+    for item in server_items:
+        inspect_data_to_client(item.data, out=inspect_result)
+    await bulk_prepare_data_to_client(itgs, ctx=ctx, inspect=inspect_result)
+
+    client_items: List[JournalEntryItemDataClient] = [
+        await data_to_client(itgs, ctx=ctx, item=item.data) for item in server_items
+    ]
 
     chat_state = JournalChat(
         uid=ctx.journal_chat_uid,
         integrity="",
-        data=(
-            [
-                await data_to_client(itgs, ctx=ctx, item=greeting),
-                await data_to_client(itgs, ctx=ctx, item=user_message),
-                await data_to_client(itgs, ctx=ctx, item=system_message),
-                await data_to_client(itgs, ctx=ctx, item=ui_entry),
-            ]
-            if ctx.task.include_previous_history
-            else []
-        ),
+        data=client_items,
     )
-    if chat_state.data:
-        chat_state.integrity = chat_state.compute_integrity()
-        await chat_helper.publish_mutations(
-            itgs,
-            ctx=ctx,
-            final=False,
-            mutations=[SegmentDataMutation(key=[], value=chat_state)],
-        )
+    chat_state.integrity = chat_state.compute_integrity()
+    await chat_helper.publish_mutations(
+        itgs,
+        ctx=ctx,
+        final=False,
+        mutations=[SegmentDataMutation(key=[], value=chat_state)],
+    )
     await chat_helper.publish_spinner(itgs, ctx=ctx, message="Brainstorming options...")
 
-    text_greeting = chat_helper.extract_as_text(greeting)
-    text_user_message = chat_helper.extract_as_text(user_message)
-    text_system_message = await chat_helper.convert_textual_to_markdown(
-        itgs, ctx=ctx, item=system_message.data, convert_links=True
+    text_greeting = (
+        chat_helper.extract_as_text(greeting_entry.data)
+        if greeting_entry is not None
+        else None
     )
-    journey_uid = chat_helper.extract_as_journey_uid(ui_entry)
-
-    journey_metadata, journey_transcript = await asyncio.gather(
-        get_journal_chat_job_journey_metadata(itgs, ctx=ctx, journey_uid=journey_uid),
-        _get_journey_transcript(
-            itgs,
-            ctx=ctx,
-            journey_uid=journey_uid,
-        ),
+    text_user_message = (
+        chat_helper.extract_as_text(user_message_entry.data)
+        if user_message_entry is not None
+        else None
     )
-    if journey_metadata is None or journey_transcript is None:
-        await chat_helper.publish_error_and_close_out(
-            itgs,
-            ctx=ctx,
-            warning_id=f"{__name__}:failed_to_retrieve_journey_metadata",
-            stat_id="journey_metadata:missing",
-            warning_message=f"Failed to retrieve journey metadata for `{journey_uid}`",
-            client_message="Failed to retrieve journey metadata",
-            client_detail="the journey may have been deleted",
-        )
-        return
 
     client = openai.OpenAI(api_key=os.environ["OSEH_OPENAI_API_KEY"])
     try:
-        option = await _get_option_response(
-            itgs,
-            ctx=ctx,
-            text_greeting=text_greeting,
-            text_user_message=text_user_message,
-            text_system_message=text_system_message,
-            journey_metadata=journey_metadata,
-            journey_transcript=journey_transcript,
-            client=client,
-        )
+        if text_greeting is not None and text_user_message is not None:
+            option = await _get_option_response_with_context(
+                itgs,
+                ctx=ctx,
+                text_greeting=text_greeting,
+                text_user_message=text_user_message,
+                client=client,
+            )
+        else:
+            option = await _get_option_response_without_context(
+                itgs, ctx=ctx, client=client
+            )
         if option is None:
             raise ValueError("No response content")
     except Exception as e:
@@ -284,7 +207,12 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     ):
         return
 
-    chat_state.data.append(data[1])
+    if reflection_question_index is not None:
+        chat_state.data[reflection_question_index] = data[1]
+    else:
+        chat_state.data.append(data[1])
+        reflection_question_index = len(chat_state.data) - 1
+
     chat_state.integrity = chat_state.compute_integrity()
     await chat_helper.publish_mutations(
         itgs,
@@ -292,7 +220,7 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         final=True,
         mutations=[
             SegmentDataMutation(key=["integrity"], value=chat_state.integrity),
-            SegmentDataMutation(key=["data", len(chat_state.data) - 1], value=data[1]),
+            SegmentDataMutation(key=["data", reflection_question_index], value=data[1]),
         ],
     )
     ctx.stats.incr_completed(
@@ -337,16 +265,13 @@ ORDER BY content_file_transcripts.created_at DESC, content_file_transcripts.uid 
     return cached_transcript.to_internal()
 
 
-async def _get_option_response(
+async def _get_option_response_with_context(
     itgs: Itgs,
     /,
     *,
     ctx: JournalChatJobContext,
     text_greeting: str,
     text_user_message: str,
-    text_system_message: str,
-    journey_metadata: JourneyMemoryCachedData,
-    journey_transcript: Transcript,
     client: openai.OpenAI,
 ) -> Optional[str]:
     datetime_user = unix_dates.unix_timestamp_to_datetime(ctx.queued_at, tz=ctx.user_tz)
@@ -367,6 +292,79 @@ This {time_of_day_user}, {datetime_user.strftime('%A, %B %d, %Y')}, you are thin
             },
             {"role": "assistant", "content": text_greeting},
             {"role": "user", "content": text_user_message},
+        ],
+        model=LARGE_MODEL,
+        max_tokens=4096,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "present_question",
+                    "description": "Presents the given question to present to the user",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "description": "The question to present",
+                            },
+                        },
+                        "required": ["question"],
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                },
+            }
+        ],
+        tool_choice={
+            "type": "function",
+            "function": {"name": "present_question"},
+        },
+    )
+
+    chat_message = chat_response.choices[0].message
+    if (
+        chat_message.tool_calls
+        and chat_message.tool_calls[0].function.name == "present_question"
+    ):
+        args_json = chat_message.tool_calls[0].function.arguments
+        try:
+            args = json.loads(args_json)
+            result = args["question"]
+            if isinstance(result, str):
+                return result
+        except Exception as e:
+            await handle_warning(
+                f"{__name__}:options",
+                f"Failed to parse reflection question from chat response",
+                exc=e,
+            )
+    return None
+
+
+async def _get_option_response_without_context(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    client: openai.OpenAI,
+) -> Optional[str]:
+    datetime_user = unix_dates.unix_timestamp_to_datetime(ctx.queued_at, tz=ctx.user_tz)
+    time_of_day_user = get_time_of_day(ctx.queued_at, tz=ctx.user_tz)
+    variety = random.choice(VARIETY)
+
+    await chat_helper.reserve_tokens(
+        itgs, ctx=ctx, category=BIG_RATELIMIT_CATEGORY, tokens=4096
+    )
+    chat_response = await asyncio.to_thread(
+        client.chat.completions.create,
+        messages=[
+            {
+                "role": "system",
+                "content": f"""Adopt the role of the perpetually positive peer who asks short, abstract, broad, forward-thinking questions.
+
+This {time_of_day_user}, {datetime_user.strftime('%A, %B %d, %Y')}, you are thinking about {variety}.""",
+            },
         ],
         model=LARGE_MODEL,
         max_tokens=4096,

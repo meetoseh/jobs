@@ -191,6 +191,7 @@ async def _get_summary_from_llm(
                 "function": {
                     "name": "store_summary",
                     "description": "Stores the summary information",
+                    "strict": True,
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -200,7 +201,7 @@ async def _get_summary_from_llm(
                             },
                             "tag1": {
                                 "type": "object",
-                                "required": ["emoji", "emotion"],
+                                "required": ["emoji", "text"],
                                 "additionalProperties": False,
                                 "properties": {
                                     "emoji": {
@@ -215,7 +216,7 @@ async def _get_summary_from_llm(
                             },
                             "tag2": {
                                 "type": "object",
-                                "required": ["emoji", "emotion"],
+                                "required": ["emoji", "text"],
                                 "additionalProperties": False,
                                 "properties": {
                                     "emoji": {
