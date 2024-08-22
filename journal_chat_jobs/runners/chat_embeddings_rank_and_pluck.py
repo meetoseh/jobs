@@ -988,7 +988,9 @@ SELECT
     uj.journey_id,
     COUNT(*)
 FROM user_journeys AS uj
-WHERE uj.user_id = (SELECT users.id FROM users WHERE users.sub=?)
+WHERE 
+    uj.user_id = (SELECT users.id FROM users WHERE users.sub=?)
+    AND uj.created_at > ?
 GROUP BY uj.journey_id
 )
 , user_journey_counts(journey_id, cnt) AS (
@@ -1029,7 +1031,13 @@ WHERE
     AND content_file_transcripts.transcript_id = transcripts.id
     AND instructors.id = journeys.instructor_id
                 """,
-                [int(not pro), int(pro), ctx.user_sub, int(unrestricted)],
+                [
+                    int(not pro),
+                    int(pro),
+                    ctx.user_sub,
+                    int(ctx.queued_at) - 60 * 60 * 24 * 60,
+                    int(unrestricted),
+                ],
             ),
         )
     )
