@@ -6,6 +6,7 @@ H264_PROFILE_NAMES_TO_IDC_HEX_AND_CONSTRAINTS_HEX = {
     "Baseline": ("42", "00"),
     "Main": ("4D", "00"),
     "High": ("64", "00"),
+    "High 10": ("6E", "00"),
 }
 
 
