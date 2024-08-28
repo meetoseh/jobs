@@ -3,6 +3,7 @@
 from fractions import Fraction
 import math
 import secrets
+import socket
 import time
 from typing import List, Optional, Tuple
 from file_uploads import StitchFileAbortedException, stitch_file_upload
@@ -147,6 +148,10 @@ async def process_large_interstitial_image(
 
     is_alpha = await peek_if_alpha_required(
         stitched_path, itgs=itgs, gd=gd, job_progress_uid=job_progress_uid, **sanity
+    )
+    slack = await itgs.slack()
+    await slack.send_ops_message(
+        f"{socket.gethostname()} processing `{job_progress_uid=}` with `{is_alpha=}`"
     )
     targets = ALPHA_TARGETS if is_alpha else NO_ALPHA_TARGETS
     image = await process_image(
