@@ -1,8 +1,16 @@
-from typing import List, Literal, Set, TypedDict, Union
+from dataclasses import dataclass
+from typing import Dict, List, Literal, Set, Tuple, TypedDict, Union
+
+H264Profile = Literal["Baseline", "Main", "High", "High 10", "High 4:2:2"]
+
+H264_EXOTIC_PROFILES: Set[H264Profile] = {"High 10", "High 4:2:2"}
+"""h264 profiles without broad support"""
 
 # https://www.iana.org/assignments/media-types/video/H264-SVC
 # https://developer.mozilla.org/en-US/docs/Web/Media/Formats/codecs_parameter#avc_profiles
-H264_PROFILE_NAMES_TO_IDC_HEX_AND_CONSTRAINTS_HEX = {
+H264_PROFILE_NAMES_TO_IDC_HEX_AND_CONSTRAINTS_HEX: Dict[
+    H264Profile, Tuple[str, str]
+] = {
     "Baseline": ("42", "00"),
     "Main": ("4D", "00"),
     "High": ("64", "00"),
@@ -14,7 +22,7 @@ H264_PROFILE_NAMES_TO_IDC_HEX_AND_CONSTRAINTS_HEX = {
 class FFProbeVideoStreamForCodecs(TypedDict):
     codec_type: Literal["video"]
     codec_name: Literal["h264"]
-    profile: Literal["Baseline", "Main", "High"]
+    profile: H264Profile
     level: int
 
 
@@ -25,6 +33,20 @@ class FFProbeAudioStreamForCodecs(TypedDict):
 
 class FFProbeInfoForCodecs(TypedDict):
     streams: List[Union[FFProbeVideoStreamForCodecs, FFProbeAudioStreamForCodecs]]
+
+
+@dataclass
+class H264ProfileForEncoding:
+    """Describes an h264 profile with enough details to tell ffmpeg to use it"""
+
+    profile: H264Profile
+    """The standard name for the profile"""
+    profile_ffmpeg_name: str
+    """The name ffmpeg uses for the profile"""
+
+
+FALLBACK_H264_PROFILE = H264ProfileForEncoding("High", "high")
+"""The profile to include additionally if an exotic profile is detected"""
 
 
 def determine_codecs_from_probe(info: FFProbeInfoForCodecs) -> List[str]:
@@ -39,6 +61,23 @@ def determine_codecs_from_probe(info: FFProbeInfoForCodecs) -> List[str]:
         elif stream["codec_type"] == "video":
             result.add(_determine_video_codec_for_stream(stream))
     return list(result)
+
+
+def is_video_profile_exotic(codecs: List[str]):
+    """Determines if the given video profile is exotic; exotic profiles need
+    non-exotic backup options (typically main or high)
+    """
+    for codec in codecs:
+        if codec.startswith("avc1."):
+            profile_hex = codec[5:7]
+            if profile_hex not in ("42", "4D", "64"):
+                return True
+
+            constraints_hex = codec[7:9]
+            if constraints_hex != "00":
+                return True
+
+    return False
 
 
 def _determine_audio_codec_for_stream(stream: FFProbeAudioStreamForCodecs) -> str:

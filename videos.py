@@ -3,6 +3,7 @@ from fractions import Fraction
 import json
 import math
 import random
+import socket
 import subprocess
 import time
 from typing import List, Optional, Sequence, Tuple, cast
@@ -14,10 +15,16 @@ from content import (
     get_content_file,
     hash_content_sync,
 )
+from error_middleware import handle_warning
 from graceful_death import GracefulDeath
 from images import determine_crop
 from itgs import Itgs
-from lib.codecs import determine_codecs_from_probe
+from lib.codecs import (
+    FALLBACK_H264_PROFILE,
+    H264ProfileForEncoding,
+    determine_codecs_from_probe,
+    is_video_profile_exotic,
+)
 from lib.progressutils.progress_helper import ProgressHelper
 from m3u8 import M3UPlaylist, M3UVod, M3UVodReference, parse_m3u_vod
 from temp_files import temp_dir
@@ -330,7 +337,9 @@ async def process_video_into(
     hls_folder = os.path.join(temp_folder, "hls")
     os.makedirs(hls_folder, exist_ok=True)
 
-    await prog.push_progress(f"analyzing {name}", indicator={"type": "spinner"})
+    await prog.push_progress(
+        f"counting frames and size of {name}", indicator={"type": "spinner"}
+    )
     video_info = get_video_generic_info(local_filepath)
 
     if video_info.width < min_width or video_info.height < min_height:
@@ -356,6 +365,7 @@ async def process_video_into(
         for q in exports
     ]
     estimated_total_work = sum(estimated_work_per_export) * 2  # 2 for mp4 and hls
+    estimation_includes_exotic = False
     work_so_far = 0
 
     mp4s: List[Tuple[str, BasicContentFilePartInfo, VideoQuality]] = []
@@ -377,10 +387,18 @@ async def process_video_into(
             f"encoding {name} to an mp4 at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
             indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
         )
+        mp4_auto_profile_video_info = _encode_video(
+            local_filepath,
+            dest=mp4_path,
+            quality=export,
+            profile=None,
+            ffmpeg=ffmpeg,
+            ffprobe=ffprobe,
+        )
         mp4s.append(
             (
                 mp4_path,
-                _encode_video(local_filepath, mp4_path, export, ffmpeg, ffprobe),
+                mp4_auto_profile_video_info,
                 export,
             )
         )
@@ -394,6 +412,72 @@ async def process_video_into(
         export_hls_m3u8 = os.path.join(export_hls_folder, "playlist.m3u8")
         await prog.push_progress(
             f"encoding {name} to an hls vod at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
+            indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
+        )
+        _encode_hls_video(mp4_path, export_hls_m3u8, ffmpeg, ffprobe)
+        if gd.received_term_signal:
+            raise ProcessVideoAbortedException()
+
+        hls_vod = await parse_m3u_vod(export_hls_m3u8)
+        if gd.received_term_signal:
+            raise ProcessVideoAbortedException()
+
+        hls.append((export_hls_m3u8, hls_vod, export))
+        work_so_far += work
+
+        if not is_video_profile_exotic(mp4_auto_profile_video_info.codecs):
+            if estimation_includes_exotic:
+                work_so_far += work * 2
+            continue
+
+        if not estimation_includes_exotic:
+            slack = await itgs.slack()
+            await slack.send_ops_message(
+                f"{socket.gethostname()} processing {name} detected exotic profile at {export.width}x{export.height} (codecs: {mp4_auto_profile_video_info.codecs}); re-encoding with forced "
+                "profile (roughly doubles total work). Will not send this message again for this job."
+            )
+            estimated_total_work += estimated_total_work
+            estimation_includes_exotic = True
+
+        mp4_path = os.path.join(mp4_folder, f"{iden}-fallback.mp4")
+        await prog.push_progress(
+            f"encoding {name} to an mp4 at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio using fallback profile",
+            indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
+        )
+        mp4_fallback_profile_video_info = _encode_video(
+            local_filepath,
+            dest=mp4_path,
+            quality=export,
+            profile=FALLBACK_H264_PROFILE,
+            ffmpeg=ffmpeg,
+            ffprobe=ffprobe,
+        )
+        if is_video_profile_exotic(mp4_fallback_profile_video_info.codecs):
+            await handle_warning(
+                f"{__name__}:exotic_profile",
+                f"Exotic profile detected after fallback for {name} at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio",
+            )
+            work_so_far += work * 2
+            continue
+
+        mp4s.append(
+            (
+                mp4_path,
+                mp4_fallback_profile_video_info,
+                export,
+            )
+        )
+
+        if gd.received_term_signal:
+            raise ProcessVideoAbortedException()
+
+        work_so_far += work
+
+        export_hls_folder = os.path.join(hls_folder, f"{iden}-fallback")
+        os.makedirs(export_hls_folder, exist_ok=True)
+        export_hls_m3u8 = os.path.join(export_hls_folder, "playlist.m3u8")
+        await prog.push_progress(
+            f"encoding {name} to an hls vod at {export.width}x{export.height} with {export.video_bitrate}kbps video and {export.audio_bitrate}kbps audio using fallback profile",
             indicator={"type": "bar", "at": work_so_far, "of": estimated_total_work},
         )
         _encode_hls_video(mp4_path, export_hls_m3u8, ffmpeg, ffprobe)
@@ -575,6 +659,11 @@ async def _check_if_export_already_exists(
                     AND json_extract(content_file_exports.format_parameters, '$.height') = ?
                     AND json_extract(content_file_exports.quality_parameters, '$.target_audio_bitrate_kbps') = ?
                     AND json_extract(content_file_exports.quality_parameters, '$.target_video_bitrate_kbps') = ?
+                    AND (
+                        content_file_exports.codecs LIKE '%avc1.4200%'
+                        OR content_file_exports.codecs LIKE '%avc1.4D00%'
+                        OR content_file_exports.codecs LIKE '%avc1.6400%'
+                    )
             )
             AND EXISTS (
                 SELECT 1 FROM content_file_exports
@@ -585,6 +674,11 @@ async def _check_if_export_already_exists(
                     AND json_extract(content_file_exports.format_parameters, '$.height') = ?
                     AND json_extract(content_file_exports.quality_parameters, '$.target_audio_bitrate_kbps') = ?
                     AND json_extract(content_file_exports.quality_parameters, '$.target_video_bitrate_kbps') = ?
+                    AND (
+                        content_file_exports.codecs LIKE '%avc1.4200%'
+                        OR content_file_exports.codecs LIKE '%avc1.4D00%'
+                        OR content_file_exports.codecs LIKE '%avc1.6400%'
+                    )
             )
         """,
         (
@@ -663,7 +757,14 @@ def _determine_video_filters_for_sizing(
 
 
 def _encode_video(
-    src: str, dest: str, quality: VideoQuality, ffmpeg: str, ffprobe: str
+    src: str,
+    /,
+    *,
+    dest: str,
+    quality: VideoQuality,
+    profile: Optional[H264ProfileForEncoding],
+    ffmpeg: str,
+    ffprobe: str,
 ) -> BasicContentFilePartInfo:
     """Encodes the video at the given source path to the given destination path
     using the given quality settings, fetching the resulting video info using
@@ -673,6 +774,8 @@ def _encode_video(
         src (str): The source path.
         dest (str): The destination path.
         quality (VideoQuality): The quality settings to encode at.
+        profile (H264Profile or None): If specified, forces the profile used to encode
+            the video, otherwise, the profile is determined by the encoder.
         ffmpeg (str): The path to the ffmpeg executable.
         ffprobe (str): The path to the ffprobe executable.
 
@@ -682,6 +785,9 @@ def _encode_video(
     video_filters = _determine_video_filters_for_sizing(
         src, quality.width, quality.height, ffprobe
     )
+
+    if profile is not None:
+        video_filters.append("format=yuv420p")
 
     cmd = [
         ffmpeg,
@@ -693,6 +799,7 @@ def _encode_video(
         src,
         "-codec:v",
         "h264",
+        *(["-profile:v", profile.profile_ffmpeg_name] if profile is not None else []),
         "-codec:a",
         "aac",
         "-b:v",
