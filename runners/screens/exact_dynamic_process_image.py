@@ -2,7 +2,7 @@
 
 import asyncio
 import base64
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import io
 import json
@@ -55,6 +55,8 @@ from PIL import Image
 import cairosvg
 
 category = JobCategory.HIGH_RESOURCE_COST
+
+SVG_UNITS = ["px", "pt", "pc", "cm", "mm", "in"]
 
 
 class DynamicSize(TypedDict):
@@ -125,7 +127,7 @@ async def execute(
                     uploaded_by_user_sub=uploaded_by_user_sub,
                     job_progress_uid=job_progress_uid,
                     dynamic_size=dynamic_size,
-                    pedantic=True
+                    pedantic=True,
                 )
             except ProcessImageAbortedException:
                 await bounce()
@@ -145,7 +147,7 @@ async def process_exact_dynamic_image(
     uploaded_by_user_sub: Optional[str],
     job_progress_uid: Optional[str],
     dynamic_size: DynamicSize,
-    pedantic: bool = False
+    pedantic: bool = False,
 ) -> None:
     """Processes the image at the given filepath via a dynamic input size. This
     never needs to crop, and the resizing always exactly maintains the aspect
@@ -173,7 +175,7 @@ async def process_exact_dynamic_image(
         job_progress_uid=job_progress_uid,
         **sanity,
         dynamic_size=dynamic_size,
-        pedantic=pedantic
+        pedantic=pedantic,
     )
     if targets is None:
         return
@@ -338,8 +340,16 @@ async def get_targets(
     if svg_natural_aspect_ratio is not None:
 
         try:
-            svg_width = Decimal(svg_natural_aspect_ratio.width_exact)
-            svg_height = Decimal(svg_natural_aspect_ratio.height_exact)
+            width_exact_str = svg_natural_aspect_ratio.width_exact
+            for unit in SVG_UNITS:
+                if width_exact_str.endswith(unit):
+                    width_exact_str = width_exact_str[: -len(unit)]
+            height_exact_str = svg_natural_aspect_ratio.height_exact
+            for unit in SVG_UNITS:
+                if height_exact_str.endswith(unit):
+                    height_exact_str = height_exact_str[: -len(unit)]
+            svg_width = Decimal(width_exact_str)
+            svg_height = Decimal(height_exact_str)
             exact_svg_integer_width = int(svg_width)
             exact_svg_integer_height = int(svg_height)
             if svg_width != exact_svg_integer_width:
@@ -350,7 +360,7 @@ async def get_targets(
                 raise CustomFailureReasonException(
                     f"SVG lists viewbox height as {svg_natural_aspect_ratio.height_exact}, which cannot be interpreted exactly as an integer"
                 )
-        except ValueError:
+        except (ValueError, InvalidOperation):
             raise CustomFailureReasonException(
                 f"SVG lists viewbox width or height as {svg_natural_aspect_ratio.width_exact} or {svg_natural_aspect_ratio.height_exact}, which cannot be interpreted as a number"
             )
@@ -394,7 +404,9 @@ async def get_targets(
         )
 
     requires_alpha = mode == "RGBA"
-    targets = get_raster_sizes(dynamic_size, Size(width=width, height=height), pedantic=pedantic)
+    targets = get_raster_sizes(
+        dynamic_size, Size(width=width, height=height), pedantic=pedantic
+    )
     return RasterRenderStrategy(
         type="raster_resize",
         raster_path=local_filepath,
@@ -404,7 +416,9 @@ async def get_targets(
     )
 
 
-def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size, *, pedantic: bool = False) -> List[Size]:
+def get_raster_sizes(
+    dynamic_size: DynamicSize, source_size: Size, *, pedantic: bool = False
+) -> List[Size]:
     """Raises CustomFailureReasonException if the dynamic size can not be produced
     from a source image at the given size
     """
@@ -420,7 +434,9 @@ def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size, *, pedantic: 
         output_width = target_width * pixel_ratio
         output_height = target_height * pixel_ratio
 
-        if pedantic and (output_width.denominator != 1 or output_height.denominator != 1):
+        if pedantic and (
+            output_width.denominator != 1 or output_height.denominator != 1
+        ):
             raise CustomFailureReasonException(
                 f"Cannot produce a target width of {target_width}px width by {target_height}px height, as at "
                 f"a pixel ratio of {pixel_ratio}, this would be a fractional size ({output_width}px width by {output_height}px height)"
@@ -443,7 +459,9 @@ def get_raster_sizes(dynamic_size: DynamicSize, source_size: Size, *, pedantic: 
 
         if pedantic:
             ratio_input_to_output_width = Fraction(source_size.width, output_int_width)
-            ratio_input_to_output_height = Fraction(source_size.height, output_int_height)
+            ratio_input_to_output_height = Fraction(
+                source_size.height, output_int_height
+            )
             if ratio_input_to_output_width != ratio_input_to_output_height:
                 raise CustomFailureReasonException(
                     f"Cannot produce a target width of {target_width}px width by {target_height}px height using "
