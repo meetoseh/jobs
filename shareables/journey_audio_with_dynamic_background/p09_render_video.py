@@ -1,4 +1,5 @@
 """Renders the final video"""
+
 import io
 from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
@@ -88,6 +89,9 @@ def render_video(
                 # pmaw doesn't expect less than 3 cpus, so we're using the default but ensuring
                 # it uses at least 1 worker
                 num_workers=max(psutil.cpu_count(logical=False) // 3, 1),
+                ooo_balance=10,
+                ooo_cap=50,
+                ooo_error=500,
             ),
         )
 
