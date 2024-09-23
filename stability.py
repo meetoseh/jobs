@@ -55,6 +55,10 @@ async def _run_forever(stop_event: threading.Event, stopping_event: threading.Ev
             if not post_memory_usage_timeout.cancel():
                 logging.info(f"memory usage: {_memory_usage_information()}")
 
+        if asyncio_stopping_event.is_set():
+            print("stability stopped on stopping event, waiting for real stop")
+            await asyncio.wait_for(asyncio_event.wait(), timeout=300)
+
         stop_task.cancel()
         stopping_task.cancel()
     except Exception as e:

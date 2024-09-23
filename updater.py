@@ -1,4 +1,5 @@
 """Handles updating when the repository is updated"""
+
 from itgs import Itgs
 from error_middleware import handle_warning
 import asyncio
@@ -23,6 +24,7 @@ async def _listen_forever(stopping_event: threading.Event):
             slack = await itgs.slack()
             await slack.send_ops_message(f"jobs {socket.gethostname()} ready")
 
+    print("updater loop starting")
     msg = None
     while True:
         try:
@@ -125,7 +127,9 @@ async def listen_forever(stop_event: threading.Event, stopping_event: threading.
     over new recurring jobs being added/removed during an update.
     """
     if os.path.exists("updater.lock"):
+        print("updater lock already exists, updater not starting")
         return
+
     with open("updater.lock", "w") as f:
         f.write(str(os.getpid()))
 
