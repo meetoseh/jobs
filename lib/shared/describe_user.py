@@ -79,11 +79,11 @@ class DescribedUser(BaseModel):
     attribution: Optional[Attribution] = Field(
         description="If attribution data is available, where the user came from"
     )
-    identity_providers: List[Literal["Google", "SignInWithApple", "Direct", "Dev"]] = (
-        Field(
-            description="The providers of the identities associated with the user",
-            max_length=4,
-        )
+    identity_providers: List[
+        Literal["Google", "SignInWithApple", "Direct", "Silent", "Passkey", "Dev"]
+    ] = Field(
+        description="The providers of the identities associated with the user",
+        max_length=4,
     )
     timezone: Optional[str] = Field(
         description="The users timezone as an IANA timezone string, if set"
@@ -173,8 +173,9 @@ class DescribedUser(BaseModel):
         try:
             tz = pytz.timezone(self.timezone)
             their_time = (
-                datetime.datetime.fromtimestamp(self.created_at, tz=pytz.utc)
-                .astimezone(tz)
+                datetime.datetime.fromtimestamp(
+                    self.created_at, tz=pytz.utc
+                ).astimezone(tz)
             ).strftime("%a, %I:%M%p")
             return f"{our_time} ({their_time} their time)"
         except:
@@ -465,9 +466,9 @@ async def _describe_user_from_source(
         (sub,),
     )
 
-    identity_providers: List[Literal["Google", "SignInWithApple", "Direct", "Dev"]] = [
-        provider for provider, in (response.results or [])
-    ]
+    identity_providers: List[
+        Literal["Google", "SignInWithApple", "Direct", "Silent", "Passkey", "Dev"]
+    ] = [provider for provider, in (response.results or [])]
 
     return DescribedUser(
         sub=sub,
