@@ -20,6 +20,7 @@ import lib.transcripts.cache
 import lib.users.entitlements
 import lib.users.stripe_prices
 import lib.journeys.read_one_external
+import stability
 
 
 async def _main(gd: GracefulDeath):
@@ -48,6 +49,13 @@ async def _main(gd: GracefulDeath):
     threads.append(
         threading.Thread(
             target=journal_chat_jobs.main.run_forever_sync,
+            args=[stop_event, stopping_event],
+            daemon=True,
+        )
+    )
+    threads.append(
+        threading.Thread(
+            target=stability.run_forever_sync,
             args=[stop_event, stopping_event],
             daemon=True,
         )
