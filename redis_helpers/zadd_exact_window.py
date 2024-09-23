@@ -8,8 +8,8 @@ from redis_helpers.run_with_prep import run_with_prep
 
 ZADD_EXACT_WINDOW_LUA_SCRIPT = """
 local key = KEYS[1]
-local counter_key = KEYS[2]
-local event_at = tonumber(ARGV[1])
+local counter_key = ARGV[1]
+local event_at = tonumber(ARGV[2])
 
 local next_identifier = redis.call("INCR", counter_key)
 if next_identifier >= 9007199254740991 then

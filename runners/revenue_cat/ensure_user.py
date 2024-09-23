@@ -1,4 +1,5 @@
 """Ensures a users revenue cat customer actually exists"""
+
 import json
 from typing import Any, Dict, Optional, cast
 from error_middleware import handle_warning
@@ -116,11 +117,6 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, user_sub: str):
     }
     if email is not None:
         expected_attributes["$email"] = email
-    else:
-        await handle_warning(
-            f"{__name__}:no_email",
-            f"User with sub `{user_sub}` has no email address, not setting $email attribute",
-        )
 
     rcat = await itgs.revenue_cat()
 
