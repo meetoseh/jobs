@@ -608,7 +608,7 @@ class StabilityAIImageGenerator(ImageGenerator):
             },
         )
         if not response.ok:
-            logging.warn(
+            logging.warning(
                 f"Stability AI returned {response.status_code}: {response.text}"
             )
             response.raise_for_status()
@@ -724,7 +724,7 @@ class DummyGenerator(ImageGenerator):
         self.height = height
         self.frame = frame
 
-    async def generate(self, prompt: str, folder: str) -> Frame:
+    async def generate(self, itgs: Itgs, prompt: str, folder: str) -> Frame:
         return self.frame
 
 
@@ -898,18 +898,18 @@ class BlurredBackgroundImageResizer(TransformationImageGenerator):
         self.height = height
         """The height of the images to generate"""
 
-    def transform_image(self, core: Image.Image) -> Image.Image:
-        if core.width == self.width and core.height == self.height:
-            return core
+    def transform_image(self, res: Image.Image) -> Image.Image:
+        if res.width == self.width and res.height == self.height:
+            return res
 
-        out = core.resize((self.width, self.height), Image.NEAREST)
+        out = res.resize((self.width, self.height), Image.NEAREST)
         out = out.filter(ImageFilter.GaussianBlur(15))
 
         out.paste(
-            core,
+            res,
             (
-                (self.width - core.width) // 2,
-                (self.height - core.height) // 2,
+                (self.width - res.width) // 2,
+                (self.height - res.height) // 2,
             ),
         )
         return out
@@ -932,16 +932,16 @@ class CropImageGenerator(TransformationImageGenerator):
         self.height = height
         """The height of the images to generate"""
 
-    def transform_image(self, core: Image.Image) -> Image.Image:
-        if core.width == self.width and core.height == self.height:
-            return core
+    def transform_image(self, res: Image.Image) -> Image.Image:
+        if res.width == self.width and res.height == self.height:
+            return res
 
-        return core.crop(
+        return res.crop(
             (
-                (core.width - self.width) // 2,
-                (core.height - self.height) // 2,
-                (core.width + self.width) // 2,
-                (core.height + self.height) // 2,
+                (res.width - self.width) // 2,
+                (res.height - self.height) // 2,
+                (res.width + self.width) // 2,
+                (res.height + self.height) // 2,
             )
         )
 

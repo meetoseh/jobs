@@ -3,7 +3,7 @@
 import logging
 import logging.config
 import math
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import yaml
 from content import (
@@ -46,7 +46,7 @@ class ProcessAudioAbortedException(Exception):
     pass
 
 
-AUDIO_BITRATES = (32, 64, 90, 128, 256, 512, 1028, 1411)
+STANDARD_HQ_AUDIO_BITRATES = (32, 64, 90, 128, 256, 512, 1028, 1411)
 """The bitrates we try to encode at"""
 
 
@@ -184,6 +184,7 @@ async def process_audio(
     max_file_size: int,
     name_hint: str,
     job_progress_uid: Optional[str] = None,
+    audio_bitrates: Sequence[int] = STANDARD_HQ_AUDIO_BITRATES,
 ) -> ContentFile:
     """Processes the audio file at the given local filepath into the standard exports,
     then returns the content file that contains the exports.
@@ -200,6 +201,9 @@ async def process_audio(
         max_file_size (int): The maximum size of the content file, in bytes.
         name_hint (str): A hint for the name of the content file.
         job_progress_uid (Optional[str]): The uid of the job progress to update
+        audio_bitrates (List[int]): The bitrates to encode the audio at. The
+            higher the bitrate, the better the quality, but the larger the file
+            size. Defaults to STANDARD_HQ_AUDIO_BITRATES.
 
     Raises:
         ProcessAudioAbortedException: if the process was aborted due to a term signal.
@@ -230,6 +234,7 @@ async def process_audio(
             name=name,
             ffmpeg=ffmpeg,
             job_progress_uid=job_progress_uid,
+            audio_bitrates=audio_bitrates,
         )
     finally:
         await prog.push_progress(
@@ -248,6 +253,7 @@ async def process_audio_into(
     name: str,
     ffmpeg: str,
     job_progress_uid: Optional[str],
+    audio_bitrates: Sequence[int]
 ) -> ContentFile:
     """Processes the audio file at the given local filepath into the standard
     exports, using the specified temporary folder. The produced content file is
@@ -279,7 +285,7 @@ async def process_audio_into(
         original_sha512_task = asyncio.create_task(
             hash_content_using_pool(local_filepath, pool=pool)
         )
-        for bitrate in AUDIO_BITRATES:
+        for bitrate in audio_bitrates:
             if gd.received_term_signal:
                 raise ProcessAudioAbortedException()
 
@@ -304,7 +310,7 @@ async def process_audio_into(
 
         os.makedirs(os.path.join(temp_folder, "hls"), exist_ok=True)
         await prog.push_progress(
-            f"producing {len(AUDIO_BITRATES)} hls vods for {name} concurrently",
+            f"producing {len(audio_bitrates)} hls vods for {name} concurrently",
             indicator={"type": "spinner"},
         )
         hls_master_file_path = await produce_m3u8_async(
@@ -313,6 +319,7 @@ async def process_audio_into(
             ffmpeg=ffmpeg,
             pool=pool,
             job_progress_uid=job_progress_uid,
+            audio_bitrates=audio_bitrates,
         )
         if gd.received_term_signal:
             raise ProcessAudioAbortedException()
@@ -340,7 +347,7 @@ async def process_audio_into(
         ),
         original_sha512=original_sha512,
         name=name,
-        duration_seconds=mp4_bitrates_to_info[AUDIO_BITRATES[0]].duration,
+        duration_seconds=mp4_bitrates_to_info[audio_bitrates[0]].duration,
         created_at=now,
         mp4s=[
             PreparedMP4(
@@ -385,7 +392,7 @@ async def process_audio_into(
                     bandwidth=vod.bandwidth,
                     codecs=vod.codecs,
                     target_duration=vod.vod.target_duration,
-                    quality_parameters={"audio_bitrate_kbps": AUDIO_BITRATES[vod_idx]},
+                    quality_parameters={"audio_bitrate_kbps": audio_bitrates[vod_idx]},
                     created_at=now,
                     parts=[
                         PreparedM3UVodExportPart(
@@ -1024,6 +1031,7 @@ def produce_m3u8(
     target_folder: str,
     *,
     ffmpeg: str,
+    audio_bitrates: Sequence[int]
 ) -> str:
     """Attempts to produce an m3u8 file from the given audio file. An exception
     is raised if the process fails. This produces multiple files; additional
@@ -1044,8 +1052,6 @@ def produce_m3u8(
         logging_config = yaml.safe_load(f)
 
     logging.config.dictConfig(logging_config)
-
-    audio_bitrates = AUDIO_BITRATES
 
     cmd = [
         ffmpeg,
@@ -1099,6 +1105,7 @@ async def produce_m3u8_async(
     ffmpeg: str,
     pool: multiprocessing.pool.Pool,
     job_progress_uid: Optional[str],
+    audio_bitrates: Sequence[int]
 ) -> str:
     """Async version of produce_m3u8, using the given multiprocessing pool to
     produce the m3u8 file.
@@ -1115,7 +1122,7 @@ async def produce_m3u8_async(
     pool.apply_async(
         produce_m3u8,
         args=(local_filepath, target_folder),
-        kwds={"ffmpeg": ffmpeg},
+        kwds={"ffmpeg": ffmpeg, "audio_bitrates": audio_bitrates},
         callback=_on_done,
         error_callback=_on_error,
     )
@@ -1128,7 +1135,7 @@ if __name__ == "__main__":
         ffmpeg_loc = shutil.which("ffmpeg")
         assert ffmpeg_loc is not None
         os.makedirs(os.path.join("tmp", "audio_test", "out"), exist_ok=True)
-        for bitrate in AUDIO_BITRATES:
+        for bitrate in STANDARD_HQ_AUDIO_BITRATES:
             produce_mp4(
                 os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
                 os.path.join("tmp", "audio_test", "out", f"out_{bitrate}.mp4"),
@@ -1140,6 +1147,7 @@ if __name__ == "__main__":
                 os.path.join("tmp", "audio_test", "file_example_WAV_10MG.wav"),
                 os.path.join("tmp", "audio_test", "out"),
                 ffmpeg=ffmpeg_loc,
+                audio_bitrates=STANDARD_HQ_AUDIO_BITRATES,
             )
         )
 

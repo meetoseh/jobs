@@ -278,7 +278,7 @@ class MyFrameGenerator(fg.FrameGenerator):
     def generate_at(self, time_ms):
         return fg.img_to_bytes(self.generate_at_pil(time_ms))
 
-    def generate_at_pil(self, time_ms: float) -> Image.Image:
+    def generate_at_pil(self, time_ms: float) -> Image.Image:  # type: ignore
         assert self.background_image is not None
         assert self.fonts is not None
         assert self.audio_visualization is not None

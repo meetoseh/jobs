@@ -62,6 +62,10 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
                 SELECT 1 FROM client_flow_content_files
                 WHERE client_flow_content_files.content_file_id = content_files.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM voice_notes
+                WHERE voice_notes.audio_content_file_id = content_files.id
+            )
         """,
         (uid,),
     )

@@ -984,6 +984,11 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, minutes=(0, 30), seconds=(0,)),
     ),
+    Job(
+        name="runners.voice_notes.sweep",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 30), seconds=(0,)),
+    ),
 )
 """The jobs that should be run."""
 

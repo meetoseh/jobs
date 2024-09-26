@@ -150,8 +150,8 @@ async def _bulk_load_journeys(
         candidate_uids_for_user.append(uid)
         metadata_uids_for_user.append(raw)
 
-    del uid
-    del raw
+    del uid  # type: ignore
+    del raw  # type: ignore
 
     if not candidate_uids_for_user:
         return

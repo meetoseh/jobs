@@ -226,7 +226,7 @@ class MyFrameGenerator(fg.FrameGenerator):
     def generate_at(self, time_ms):
         return fg.img_to_bytes(self.generate_at_pil(time_ms))
 
-    def generate_at_pil(
+    def generate_at_pil(  # type: ignore
         self, time_ms: float, *, suppress_outro: bool = False
     ) -> Image.Image:
         assert self.image_time_offsets is not None

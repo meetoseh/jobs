@@ -55,12 +55,13 @@ def check_oas_30_schema(
         (schema, [], _State(allow_enum_discriminator=True, no_default=True))
     ]
     while stack:
+        subschema, path, state = stack.pop()
+        
         if "$ref" in schema:
             raise jsonschema.exceptions.ValidationError(
                 f"at {pretty_path(path)}: cannot have '$ref'"
             )
 
-        subschema, path, state = stack.pop()
         new_state = state
         if require_example:
             if "example" not in subschema:

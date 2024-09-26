@@ -1,4 +1,5 @@
 """Checks the health of the database, pinging slack if it's not fully available"""
+
 import logging
 import os
 from typing import Dict, List, Tuple
@@ -87,7 +88,7 @@ async def verify_all_nodes_responsive_and_agree_on_leader(itgs: Itgs) -> None:
                 f"node {node} failed to respond to weak select:\n\n```{joined_exception}```"
             )
 
-        logging.warn(
+        logging.warning(
             f"multiple nodes failed to respond to weak select:\n\n"
             + "\n\n".join(pretty_errors)
         )
@@ -178,7 +179,7 @@ async def verify_nodes_agree_on_cluster(itgs: Itgs) -> None:
                 f"node {node} failed to get cluster:\n\n```{joined_exception}```"
             )
 
-        logging.warn(
+        logging.warning(
             f"multiple nodes failed to get cluster:\n\n" + "\n\n".join(pretty_errors)
         )
         raise Exception(f"multiple nodes failed to get cluster: {failing_nodes}")

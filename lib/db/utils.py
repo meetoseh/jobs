@@ -1,10 +1,11 @@
 """Utils for generating parameterized queries which are slightly complicated
 but not enough to warrant pypika.
 """
+
 from dataclasses import dataclass
 from pypika.terms import Criterion, Term, ComplexCriterion, ValueWrapper
 from pypika.enums import Comparator
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 
 def question_mark_list(num: int) -> str:
@@ -233,7 +234,7 @@ class ShieldFields(Criterion):
 
     def negate(self):
         self.container = self.container.negate()
-        return self
+        return cast(Any, self)
 
     def _fields(self):
         return []
