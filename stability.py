@@ -24,6 +24,27 @@ def _make_bytes_human_readable(size: float) -> str:
     return f"{size:.2f} {unit}"
 
 
+def is_probably_class_instance_like(o) -> bool:
+    try:
+        is_openai_beta_proxy = hasattr(o, "__get_proxied__")
+        if is_openai_beta_proxy:
+            return True
+    except BaseException:
+        ...
+
+    try:
+        is_six_lazy_module = hasattr(o, "_resolve")
+        if is_six_lazy_module:
+            return True
+    except BaseException:
+        ...
+
+    try:
+        return hasattr(o, "__class__")
+    except BaseException:
+        return True
+
+
 async def _run_forever(stop_event: threading.Event, stopping_event: threading.Event):
     asyncio_event = adapt_threading_event_to_asyncio(stop_event)
     asyncio_stopping_event = adapt_threading_event_to_asyncio(stopping_event)
@@ -75,28 +96,21 @@ async def _run_forever(stop_event: threading.Event, stopping_event: threading.Ev
                             break
 
                     out_filename = f"leak-{best_n}.pickle"
+                    lookup_by_type = dict()
+                    logging.warning("iterating gc objects")
+                    for obj in gc.get_objects():
+                        size = sys.getsizeof(obj, 0)
+                        type_name = f"{type(obj)!r}"
+                        type_info = lookup_by_type.get(type_name)
+                        if type_info is None:
+                            type_info = {"count": 0, "total_size": 0, "largest_size": 0}
+                            lookup_by_type[type_name] = type_info
+                        type_info["count"] += 1
+                        type_info["total_size"] += size
+                        type_info["largest_size"] = max(type_info["largest_size"], size)
                     logging.warning(f"writing memory information to {out_filename}")
                     with open(out_filename, "wb") as f:
-                        xs = []
-                        for obj in gc.get_objects():
-                            i = id(obj)
-                            size = sys.getsizeof(obj, 0)
-                            referents = [
-                                id(o)
-                                for o in gc.get_referents(obj)
-                                if hasattr(o, "__class__")
-                            ]
-                            if hasattr(obj, "__class__"):
-                                cls = str(obj.__class__)
-                                xs.append(
-                                    {
-                                        "id": i,
-                                        "class": cls,
-                                        "size": size,
-                                        "referents": referents,
-                                    }
-                                )
-                        pickle.dump(xs, f)
+                        pickle.dump(lookup_by_type, f)
 
                     if resident_set_size > 1024 * 1024 * 1024 * 7:
                         logging.warning("about to OOM, exiting")
