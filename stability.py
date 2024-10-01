@@ -1,3 +1,6 @@
+import gc
+import os
+import sys
 import threading
 import asyncio
 import logging
@@ -8,6 +11,7 @@ import psutil
 
 from error_middleware import handle_error
 from mp_helper import adapt_threading_event_to_asyncio
+import pickle
 
 
 def _make_bytes_human_readable(size: float) -> str:
@@ -18,16 +22,6 @@ def _make_bytes_human_readable(size: float) -> str:
             break
         size /= 1024.0
     return f"{size:.2f} {unit}"
-
-
-def _memory_usage_information() -> str:
-    process = psutil.Process()
-    info = process.memory_info()
-
-    resident_set_size = info.rss
-    virtual_memory_size = info.vms
-
-    return f"allocated space in ram (RSS): {_make_bytes_human_readable(resident_set_size)}, allocated space, total (VMS): {_make_bytes_human_readable(virtual_memory_size)}"
 
 
 async def _run_forever(stop_event: threading.Event, stopping_event: threading.Event):
@@ -53,7 +47,64 @@ async def _run_forever(stop_event: threading.Event, stopping_event: threading.Ev
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if not post_memory_usage_timeout.cancel():
-                logging.info(f"memory usage: {_memory_usage_information()}")
+                process = psutil.Process()
+                info = process.memory_info()
+
+                resident_set_size = info.rss
+                virtual_memory_size = info.vms
+
+                if resident_set_size > 1024 * 1024 * 1024 * 4:
+                    # this threshold was chosen 10/1/2024 as an amount that always indicates we are
+                    # leaking memory
+                    logging.warning(
+                        f"DETECTED MEMORY LEAK: {_make_bytes_human_readable(resident_set_size)} allocated space in ram (RSS)"
+                    )
+
+                    # looks through leak-{n}.pickle 1-10 and replaces the oldest or the first to not exist
+                    best_n = 1
+                    best_timestamp = float("inf")
+                    for n in range(1, 11):
+                        try:
+                            # get when the file exists
+                            file_info = os.stat(f"leak-{n}.pickle")
+                            if file_info.st_mtime < best_timestamp:
+                                best_timestamp = file_info.st_mtime
+                                best_n = n
+                        except FileNotFoundError:
+                            best_n = n
+                            break
+
+                    out_filename = f"leak-{best_n}.pickle"
+                    logging.warning(f"writing memory information to {out_filename}")
+                    with open(out_filename, "wb") as f:
+                        xs = []
+                        for obj in gc.get_objects():
+                            i = id(obj)
+                            size = sys.getsizeof(obj, 0)
+                            referents = [
+                                id(o)
+                                for o in gc.get_referents(obj)
+                                if hasattr(o, "__class__")
+                            ]
+                            if hasattr(obj, "__class__"):
+                                cls = str(obj.__class__)
+                                xs.append(
+                                    {
+                                        "id": i,
+                                        "class": cls,
+                                        "size": size,
+                                        "referents": referents,
+                                    }
+                                )
+                        pickle.dump(xs, f)
+
+                    if resident_set_size > 1024 * 1024 * 1024 * 7:
+                        logging.warning("about to OOM, exiting")
+                        raise Exception("about to run out of memory")
+
+                logging.info(
+                    f"allocated space in ram (RSS): {_make_bytes_human_readable(resident_set_size)}, allocated space, total (VMS): {_make_bytes_human_readable(virtual_memory_size)}"
+                )
 
         if asyncio_stopping_event.is_set():
             print("stability stopped on stopping event, waiting for real stop")
