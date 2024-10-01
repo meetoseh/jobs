@@ -155,7 +155,8 @@ async def run_pipeline(
         logging.debug("Removing old video_only.mp4")
         os.remove(video_only_path)
 
-    render_video(
+    await asyncio.to_thread(
+        render_video,
         background_image_path=background_image_path,
         title=title,
         instructor_name=instructor,
