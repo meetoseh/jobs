@@ -9,3 +9,4 @@ updater.lock
 sd-venv
 test.webp
 /update_deps.py
+/leak-*.pickle

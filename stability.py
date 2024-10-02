@@ -110,7 +110,14 @@ async def _run_forever(stop_event: threading.Event, stopping_event: threading.Ev
                         type_info["largest_size"] = max(type_info["largest_size"], size)
                     logging.warning(f"writing memory information to {out_filename}")
                     with open(out_filename, "wb") as f:
-                        pickle.dump(lookup_by_type, f)
+                        pickle.dump(
+                            {
+                                "by_type": lookup_by_type,
+                                "rss": resident_set_size,
+                                "vms": virtual_memory_size,
+                            },
+                            f,
+                        )
 
                     if resident_set_size > 1024 * 1024 * 1024 * 7:
                         logging.warning("about to OOM, exiting")

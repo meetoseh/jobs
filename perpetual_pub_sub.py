@@ -154,224 +154,241 @@ class PerpetualPubSub:
                         logger.info("Connecting to redis")
                         redis = await itgs.redis()
                         pubsub = redis.pubsub()
-
-                        if subscriptions_by_channel:
-                            logger.debug(
-                                "Resubscribing to {channels}".format(
-                                    channels=", ".join(subscriptions_by_channel),
-                                )
-                            )
-                            await pubsub.subscribe(
-                                *[c.encode("utf-8") for c in subscriptions_by_channel]
-                            )
-
-                        message_task = (
-                            asyncio.create_task(
-                                pubsub.get_message(
-                                    ignore_subscribe_messages=True, timeout=1
-                                )
-                            )
-                            if subscriptions_by_channel
-                            else None
-                        )
-
-                        exit_event_wait_task = asyncio.create_task(
-                            exit_event_async.wait()
-                        )
-
-                        while not exit_event_wait_task.done():
-                            while True:
-                                try:
-                                    (
-                                        uid,
-                                        channel,
-                                        send_pipe,
-                                    ) = self.subscribe_queue.get_nowait()
-                                except queue.Empty:
-                                    break
-
+                        try:
+                            if subscriptions_by_channel:
                                 logger.debug(
-                                    f"PerpetualPubSub received subscribe request for {uid} on {channel}",
+                                    "Resubscribing to {channels}".format(
+                                        channels=", ".join(subscriptions_by_channel),
+                                    )
                                 )
-                                idx_in_failed_unsubscribes = next(
-                                    (
-                                        i
-                                        for i, (failed_uid, _) in enumerate(
-                                            failed_unsubscribes
+                                await pubsub.subscribe(
+                                    *[
+                                        c.encode("utf-8")
+                                        for c in subscriptions_by_channel
+                                    ]
+                                )
+
+                            message_task = (
+                                asyncio.create_task(
+                                    pubsub.get_message(
+                                        ignore_subscribe_messages=True, timeout=1
+                                    )
+                                )
+                                if subscriptions_by_channel
+                                else None
+                            )
+
+                            exit_event_wait_task = asyncio.create_task(
+                                exit_event_async.wait()
+                            )
+
+                            while not exit_event_wait_task.done():
+                                while True:
+                                    try:
+                                        (
+                                            uid,
+                                            channel,
+                                            send_pipe,
+                                        ) = self.subscribe_queue.get_nowait()
+                                    except queue.Empty:
+                                        break
+
+                                    logger.debug(
+                                        f"PerpetualPubSub received subscribe request for {uid} on {channel}",
+                                    )
+                                    idx_in_failed_unsubscribes = next(
+                                        (
+                                            i
+                                            for i, (failed_uid, _) in enumerate(
+                                                failed_unsubscribes
+                                            )
+                                            if failed_uid == uid
+                                        ),
+                                        None,
+                                    )
+                                    if idx_in_failed_unsubscribes is not None:
+                                        logger.info(
+                                            f"Found matching subscribe message for failed unsubscribe: {uid}",
                                         )
-                                        if failed_uid == uid
-                                    ),
-                                    None,
-                                )
-                                if idx_in_failed_unsubscribes is not None:
-                                    logger.info(
-                                        f"Found matching subscribe message for failed unsubscribe: {uid}",
-                                    )
-                                    failed_unsubscribes.pop(idx_in_failed_unsubscribes)
-                                    continue
+                                        failed_unsubscribes.pop(
+                                            idx_in_failed_unsubscribes
+                                        )
+                                        continue
 
-                                try:
-                                    send_pipe.send_bytes(b"ready")
-                                except BrokenPipeError:
-                                    logger.info(
-                                        f"Pipe broken before subscription confirmed: {uid}",
-                                    )
-                                    continue
-
-                                logger.debug(
-                                    f"Successfully sent ready message to {uid}"
-                                )
-
-                                # in case subscribing fails, make sure we're internally up-to-date first
-                                need_subscribe = False
-                                if channel not in subscriptions_by_channel:
-                                    subscriptions_by_channel[channel] = dict()
-                                    need_subscribe = True
-
-                                subscriptions_by_channel[channel][uid] = send_pipe
-
-                                if need_subscribe:
-                                    logger.debug(
-                                        f"PerpetualPubSub subscribing to {channel}",
-                                    )
-                                    await pubsub.subscribe(channel.encode("utf-8"))
-
-                            while True:
-                                try:
-                                    uid, channel = self.unsubscribe_queue.get_nowait()
-                                except queue.Empty:
-                                    break
-
-                                logger.debug(
-                                    f"PerpetualPubSub received unsubscribe request for {uid} on {channel}",
-                                )
-
-                                if (
-                                    channel not in subscriptions_by_channel
-                                    or uid not in subscriptions_by_channel[channel]
-                                ) and any(
-                                    uid == failed_uid
-                                    for failed_uid, _ in recently_broken_subscribes
-                                ):
-                                    logger.warning(
-                                        "PerpetualPubSub received unsubscribe request for {uid} on {channel}, but that pipe "
-                                        "was already broken so there was no need for the message. Ignoring.",
-                                    )
-                                    continue
-
-                                if channel not in subscriptions_by_channel:
-                                    logger.info(
-                                        f"PerpetualPubSub received unsubscribe request for {uid} on {channel}, but we don't have any subscriptions for that channel",
-                                    )
-                                    failed_unsubscribes.append((uid, time.time()))
-                                    continue
-
-                                if uid not in subscriptions_by_channel[channel]:
-                                    logger.info(
-                                        f"PerpetualPubSub received unsubscribe request for {uid} on {channel}, but we don't have a subscription for that uid",
-                                    )
-                                    failed_unsubscribes.append((uid, time.time()))
-                                    continue
-
-                                old_send_pipe = subscriptions_by_channel[channel][uid]
-                                del subscriptions_by_channel[channel][uid]
-
-                                if not subscriptions_by_channel[channel]:
-                                    del subscriptions_by_channel[channel]
+                                    try:
+                                        send_pipe.send_bytes(b"ready")
+                                    except BrokenPipeError:
+                                        logger.info(
+                                            f"Pipe broken before subscription confirmed: {uid}",
+                                        )
+                                        continue
 
                                     logger.debug(
-                                        f"PerpetualPubSub unsubscribing from {channel}",
+                                        f"Successfully sent ready message to {uid}"
                                     )
-                                    await pubsub.unsubscribe(channel.encode("utf-8"))
 
-                                try:
-                                    old_send_pipe.send_bytes(b"closed")
-                                except BrokenPipeError:
+                                    # in case subscribing fails, make sure we're internally up-to-date first
+                                    need_subscribe = False
+                                    if channel not in subscriptions_by_channel:
+                                        subscriptions_by_channel[channel] = dict()
+                                        need_subscribe = True
+
+                                    subscriptions_by_channel[channel][uid] = send_pipe
+
+                                    if need_subscribe:
+                                        logger.debug(
+                                            f"PerpetualPubSub subscribing to {channel}",
+                                        )
+                                        await pubsub.subscribe(channel.encode("utf-8"))
+
+                                while True:
+                                    try:
+                                        uid, channel = (
+                                            self.unsubscribe_queue.get_nowait()
+                                        )
+                                    except queue.Empty:
+                                        break
+
                                     logger.debug(
-                                        f"PerpetualPubSub detected broken pipe for {uid} on {channel} when sending closed message",
+                                        f"PerpetualPubSub received unsubscribe request for {uid} on {channel}",
                                     )
 
-                            now = time.time()
-                            permanently_failed_unsubscribes = [
-                                uid for uid, t in failed_unsubscribes if t < now - 60
-                            ]
-                            if permanently_failed_unsubscribes:
-                                failed_unsubscribes = failed_unsubscribes[
-                                    len(permanently_failed_unsubscribes) :
-                                ]
+                                    if (
+                                        channel not in subscriptions_by_channel
+                                        or uid not in subscriptions_by_channel[channel]
+                                    ) and any(
+                                        uid == failed_uid
+                                        for failed_uid, _ in recently_broken_subscribes
+                                    ):
+                                        logger.warning(
+                                            "PerpetualPubSub received unsubscribe request for {uid} on {channel}, but that pipe "
+                                            "was already broken so there was no need for the message. Ignoring.",
+                                        )
+                                        continue
 
-                                slack = await itgs.slack()
-                                await slack.send_web_error_message(
-                                    "PerpetualPubSub received unsubscribe requests for uids that we don't have subscriptions for. Uids: {}".format(
-                                        permanently_failed_unsubscribes
-                                    )
-                                )
+                                    if channel not in subscriptions_by_channel:
+                                        logger.info(
+                                            f"PerpetualPubSub received unsubscribe request for {uid} on {channel}, but we don't have any subscriptions for that channel",
+                                        )
+                                        failed_unsubscribes.append((uid, time.time()))
+                                        continue
 
-                            recently_broken_subscribes = [
-                                (uid, t)
-                                for uid, t in recently_broken_subscribes
-                                if t > now - 60
-                            ]
+                                    if uid not in subscriptions_by_channel[channel]:
+                                        logger.info(
+                                            f"PerpetualPubSub received unsubscribe request for {uid} on {channel}, but we don't have a subscription for that uid",
+                                        )
+                                        failed_unsubscribes.append((uid, time.time()))
+                                        continue
 
-                            if message_task is None:
-                                if not subscriptions_by_channel:
-                                    await asyncio.sleep(1)
-                                    continue
-                                message_task = asyncio.create_task(
-                                    pubsub.get_message(timeout=1)
-                                )
-
-                            await asyncio.wait(
-                                [message_task, exit_event_wait_task],
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
-                            if exit_event_wait_task.done():
-                                message_task.cancel()
-                                break
-                            message = await message_task
-                            message_task = None
-                            if message is None:
-                                continue
-
-                            if message["type"] != "message":
-                                continue
-
-                            channel = message["channel"].decode("utf-8")
-                            if channel not in subscriptions_by_channel:
-                                continue
-
-                            raw_message = message["data"]
-                            broken_uids: List[str] = []
-                            for uid, send_pipe in subscriptions_by_channel[
-                                channel
-                            ].items():
-                                try:
-                                    send_pipe.send_bytes(raw_message)
-                                except BrokenPipeError:
-                                    broken_uids.append(uid)
-
-                            if broken_uids:
-                                logger.info(
-                                    f"PerpetualPubSub found broken pipes for uids {broken_uids} on channel {channel}. Unsubscribing.",
-                                )
-                                for uid in broken_uids:
-                                    recently_broken_subscribes.append(
-                                        (uid, time.time())
-                                    )
+                                    old_send_pipe = subscriptions_by_channel[channel][
+                                        uid
+                                    ]
                                     del subscriptions_by_channel[channel][uid]
 
-                                if not subscriptions_by_channel[channel]:
-                                    del subscriptions_by_channel[channel]
+                                    if not subscriptions_by_channel[channel]:
+                                        del subscriptions_by_channel[channel]
 
-                                    logger.debug(
-                                        f"PerpetualPubSub unsubscribing from {channel}",
+                                        logger.debug(
+                                            f"PerpetualPubSub unsubscribing from {channel}",
+                                        )
+                                        await pubsub.unsubscribe(
+                                            channel.encode("utf-8")
+                                        )
+
+                                    try:
+                                        old_send_pipe.send_bytes(b"closed")
+                                    except BrokenPipeError:
+                                        logger.debug(
+                                            f"PerpetualPubSub detected broken pipe for {uid} on {channel} when sending closed message",
+                                        )
+
+                                now = time.time()
+                                permanently_failed_unsubscribes = [
+                                    uid
+                                    for uid, t in failed_unsubscribes
+                                    if t < now - 60
+                                ]
+                                if permanently_failed_unsubscribes:
+                                    failed_unsubscribes = failed_unsubscribes[
+                                        len(permanently_failed_unsubscribes) :
+                                    ]
+
+                                    slack = await itgs.slack()
+                                    await slack.send_web_error_message(
+                                        "PerpetualPubSub received unsubscribe requests for uids that we don't have subscriptions for. Uids: {}".format(
+                                            permanently_failed_unsubscribes
+                                        )
                                     )
-                                    await pubsub.unsubscribe(channel.encode("utf-8"))
 
-                        exit_event_wait_task.result()
-                        if message_task is not None:
-                            message_task.cancel()
-                        shutdown_cleanly()
+                                recently_broken_subscribes = [
+                                    (uid, t)
+                                    for uid, t in recently_broken_subscribes
+                                    if t > now - 60
+                                ]
+
+                                if message_task is None:
+                                    if not subscriptions_by_channel:
+                                        await asyncio.sleep(1)
+                                        continue
+                                    message_task = asyncio.create_task(
+                                        pubsub.get_message(timeout=1)
+                                    )
+
+                                await asyncio.wait(
+                                    [message_task, exit_event_wait_task],
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                )
+                                if exit_event_wait_task.done():
+                                    message_task.cancel()
+                                    break
+                                message = await message_task
+                                message_task = None
+                                if message is None:
+                                    continue
+
+                                if message["type"] != "message":
+                                    continue
+
+                                channel = message["channel"].decode("utf-8")
+                                if channel not in subscriptions_by_channel:
+                                    continue
+
+                                raw_message = message["data"]
+                                broken_uids: List[str] = []
+                                for uid, send_pipe in subscriptions_by_channel[
+                                    channel
+                                ].items():
+                                    try:
+                                        send_pipe.send_bytes(raw_message)
+                                    except BrokenPipeError:
+                                        broken_uids.append(uid)
+
+                                if broken_uids:
+                                    logger.info(
+                                        f"PerpetualPubSub found broken pipes for uids {broken_uids} on channel {channel}. Unsubscribing.",
+                                    )
+                                    for uid in broken_uids:
+                                        recently_broken_subscribes.append(
+                                            (uid, time.time())
+                                        )
+                                        del subscriptions_by_channel[channel][uid]
+
+                                    if not subscriptions_by_channel[channel]:
+                                        del subscriptions_by_channel[channel]
+
+                                        logger.debug(
+                                            f"PerpetualPubSub unsubscribing from {channel}",
+                                        )
+                                        await pubsub.unsubscribe(
+                                            channel.encode("utf-8")
+                                        )
+
+                            exit_event_wait_task.result()
+                            if message_task is not None:
+                                message_task.cancel()
+                            shutdown_cleanly()
+                        finally:
+                            await pubsub.aclose()
                 except Exception as e:
                     await handle_error(e)
 

@@ -31,12 +31,15 @@ async def _listen_forever(stopping_event: threading.Event):
             async with Itgs() as itgs:
                 redis = await itgs.redis()
                 pubsub = redis.pubsub()
-                await pubsub.subscribe("updates:jobs")
-                while msg is None:
-                    msg = await pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=5
-                    )
-                break
+                try:
+                    await pubsub.subscribe("updates:jobs")
+                    while msg is None:
+                        msg = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=5
+                        )
+                    break
+                finally:
+                    await pubsub.aclose()
         except Exception as e:
             await handle_warning("updater:error", "Error in jobs updater loop", e)
             await asyncio.sleep(1)

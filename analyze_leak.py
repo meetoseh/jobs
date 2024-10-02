@@ -1,6 +1,6 @@
 import argparse
 import pickle
-from typing import Dict, List, cast, TypedDict
+from typing import Dict, cast, TypedDict
 
 
 def main():
@@ -22,6 +22,12 @@ class RefInfo(TypedDict):
     largest_size: int
 
 
+class RefData(TypedDict):
+    by_type: Dict[str, RefInfo]
+    rss: int
+    vms: int
+
+
 def _make_bytes_human_readable(size: float) -> str:
     """Converts a size in bytes to a human-readable string."""
     unit = "B"
@@ -34,14 +40,23 @@ def _make_bytes_human_readable(size: float) -> str:
 
 def analyze_leak(number: int):
     with open(f"leak-{number}.pickle", "rb") as f:
-        info = cast(Dict[str, RefInfo], pickle.load(f))
+        data = cast(RefData, pickle.load(f))
 
-    as_tuples = [(k, v) for k, v in info.items()]
+    print("total number of types:", len(data["by_type"]))
+    as_tuples = [(k, v) for k, v in data["by_type"].items()]
+
+    print("All types in ascending order of total size:")
+    sorted_by_ascending_total_size = sorted(as_tuples, key=lambda x: x[1]["total_size"])
+    for type_name, type_info in sorted_by_ascending_total_size:
+        print(
+            f"{type_name}: {type_info['count']} instances, {_make_bytes_human_readable(type_info['total_size'])}"
+        )
+
     sorted_by_descending_total_size = sorted(
         as_tuples, key=lambda x: x[1]["total_size"], reverse=True
     )
 
-    print("Top 10 types by total size:")
+    print("\nTop 10 types by total size:")
     for i in range(min(10, len(sorted_by_descending_total_size))):
         type_name, type_info = sorted_by_descending_total_size[i]
         print(f"{type_name}: {_make_bytes_human_readable(type_info['total_size'])}")
@@ -64,12 +79,19 @@ def analyze_leak(number: int):
 
     cumulative_size = 0
     cumulative_count = 0
-    for _, type_info in info.items():
+    for _, type_info in data["by_type"].items():
         cumulative_size += type_info["total_size"]
         cumulative_count += type_info["count"]
 
     print(f"\nTotal size of all objects: {_make_bytes_human_readable(cumulative_size)}")
     print(f"Total number of objects: {cumulative_count}")
+
+    print(f"\nRSS: {_make_bytes_human_readable(data['rss'])}")
+    print(f"VMS: {_make_bytes_human_readable(data['vms'])}")
+    print()
+    print(
+        f"Unaccounted for memory: {_make_bytes_human_readable(data['vms'] - cumulative_size)} ({100 * (data['vms'] - cumulative_size) / data['vms']:.2f}%)"
+    )
 
 
 if __name__ == "__main__":

@@ -86,7 +86,7 @@ async def create_transcript(
             f"Transcoded audio to {target_filepath} ({original_filesize} bytes -> {target_filesize} bytes)"
         )
         logging.info(
-            f"Producing transcript for {target_filepath} using OpenAI whisper-2"
+            f"Producing transcript for {target_filepath} using OpenAI whisper-1"
         )
         openai_api_key = os.environ["OSEH_OPENAI_API_KEY"]
         openai_client = openai.OpenAI(api_key=openai_api_key)

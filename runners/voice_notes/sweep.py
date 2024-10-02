@@ -51,7 +51,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
             List[Tuple[bytes, float]],
             await redis.zrangebyscore(
                 b"voice_notes:processing",
-                "-inf" if last_score is None else last_score,
+                "-inf" if last_score is None else f"({last_score}",
                 started_at - WARN_STUCK_LONGER_THAN_S,
                 start=0,
                 num=10,

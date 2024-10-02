@@ -4,13 +4,13 @@ import io
 from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
+import psutil
 import pympanim.frame_gen as fg
 import pympanim.worker as pmaw
 from lib.ease import ease
 from lib.transcripts.model import TimeRange, Timestamp, Transcript
 from shareables.journey_audio.settings import TITLE_PAUSE_TIME_SECONDS
 from temp_files import temp_file
-import psutil
 import textwrap
 import cairosvg
 
@@ -276,9 +276,11 @@ class MyFrameGenerator(fg.FrameGenerator):
             self.wordmark.load()
 
     def generate_at(self, time_ms):
-        return fg.img_to_bytes(self.generate_at_pil(time_ms))
+        with self.generate_at_pil(time_ms) as img:
+            return fg.img_to_bytes(img)
 
     def generate_at_pil(self, time_ms: float) -> Image.Image:  # type: ignore
+        """Returned image MUST be disposed."""
         assert self.background_image is not None
         assert self.fonts is not None
         assert self.audio_visualization is not None
@@ -312,6 +314,7 @@ class MyFrameGenerator(fg.FrameGenerator):
     def _generate_title_screen(
         self, opacity: float, background: Image.Image
     ) -> Image.Image:
+        """Will dispose the background OR return the background, mutated. Returned object MUST be disposed manually"""
         assert self.fonts is not None
         assert self.brandmark is not None
 
@@ -366,17 +369,25 @@ class MyFrameGenerator(fg.FrameGenerator):
             font=self.fonts["400 50px italic Open Sans"],
         )
         y += TITLE_INSTRUCTOR_LINE_HEIGHT
+
         if opacity != 1:
             new_result = result.copy()
             new_result.putalpha(0)
-            result = Image.blend(new_result, result, opacity)
-            result = Image.alpha_composite(background, result)
+            blended_result = Image.blend(new_result, result, opacity)
+            result.close()
+            new_result.close()
+
+            composited_result = Image.alpha_composite(background, blended_result)
+            background.close()
+            blended_result.close()
+            result = composited_result
 
         return result
 
     def _generate_closed_captioning_screen(
         self, *, opacity: float, audio_time_ms: float, background: Image.Image
     ) -> Image.Image:
+        """Will dispose the background or return the background, mutated. Returned object MUST be disposed manually"""
         audio_time_seconds = audio_time_ms / 1000
         audio_frame_index = (
             0 if audio_time_ms <= 0 else round((audio_time_ms * self.framerate) / 1000)
@@ -423,6 +434,7 @@ class MyFrameGenerator(fg.FrameGenerator):
         overall_opacity: float,
         background: Image.Image,
     ) -> Image.Image:
+        """Will dispose the background or return the background, mutated. Returned object MUST be disposed manually"""
         assert self.fonts is not None
         assert self.audio_visualization is not None
         assert self.wordmark is not None
@@ -488,9 +500,15 @@ class MyFrameGenerator(fg.FrameGenerator):
         if overall_opacity != 1:
             new_result = result.copy()
             new_result.putalpha(0)
-            result = Image.blend(new_result, result, overall_opacity)
+            blended_result = Image.blend(new_result, result, overall_opacity)
+            new_result.close()
+            result.close()
+            result = blended_result
 
-        return Image.alpha_composite(background, result)
+        composited_result = Image.alpha_composite(background, result)
+        background.close()
+        result.close()
+        return composited_result
 
 
 def adjust_transcript_for_display(

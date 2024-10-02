@@ -45,7 +45,7 @@ openai==1.40.1
 openapi-schema-validator==0.6.2
 packaging==23.2
 pathspec==0.12.1
-pillow==10.2.0
+pillow==10.4.0
 platformdirs==4.2.0
 praw==7.7.1
 prawcore==2.4.0
@@ -54,13 +54,13 @@ pycparser==2.21
 pydantic==2.6.1
 pydantic_core==2.16.2
 PyJWT==2.8.0
-pympanim==0.0.10
+pympanim==0.1.0
 PyPika==0.48.9
 python-dateutil==2.8.2
 pytypeutils==0.0.1
 pytz==2024.1
 PyYAML==6.0.1
-pyzmq==25.1.2
+pyzmq==26.2.0
 redis==5.0.7
 referencing==0.35.1
 requests==2.31.0
