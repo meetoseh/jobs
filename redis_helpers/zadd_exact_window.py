@@ -94,7 +94,7 @@ async def zadd_exact_window(
     res = await redis.evalsha(ZADD_EXACT_WINDOW_LUA_SCRIPT_HASH, 1, key, counter_key, str(event_at).encode("ascii"))  # type: ignore
     if res is redis:
         return None
-    assert res == "OK"
+    assert res == "OK" or res == b"OK"
     return "OK"
 
 
