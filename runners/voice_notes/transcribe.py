@@ -77,10 +77,11 @@ async def execute(
         redis = await itgs.redis()
         (
             user_sub,
-            voice_note_processing_started_at,
+            voice_note_started_at,
             transcribe_job_queued_at,
             old_transcribe_job_finished_at,
             stitched_s3_key,
+            journal_master_key_uid,
         ) = cast(
             List[Optional[bytes]],
             await redis.hmget(
@@ -90,27 +91,31 @@ async def execute(
                 b"transcribe_job_queued_at",  # type: ignore
                 b"transcribe_job_finished_at",  # type: ignore
                 b"stitched_s3_key",  # type: ignore
+                b"journal_master_key_uid",  # type: ignore
             ),
         )
 
         if (
             user_sub is None
-            or voice_note_processing_started_at is None
+            or voice_note_started_at is None
             or transcribe_job_queued_at is None
             or old_transcribe_job_finished_at is None
             or stitched_s3_key is None
-            or voice_note_processing_started_at == b"not_yet"
+            or journal_master_key_uid is None
+            or voice_note_started_at == b"not_yet"
             or transcribe_job_queued_at == b"not_yet"
             or stitched_s3_key == b"not_yet"
+            or journal_master_key_uid == b"not_yet"
         ):
             await handle_warning(
                 f"{__name__}:missing_data",
                 f"Voice note `{voice_note_uid}` is either not in the processing set or missing data:\n"
                 f"- user sub: `{user_sub}`\n"
-                f"- started at: `{voice_note_processing_started_at}`\n"
+                f"- started at: `{voice_note_started_at}`\n"
                 f"- transcribe job queued at: `{transcribe_job_queued_at}`\n"
                 f"- old transcribe job finished at: `{old_transcribe_job_finished_at}`\n"
-                f"- stitched s3 key: `{stitched_s3_key}`",
+                f"- stitched s3 key: `{stitched_s3_key}`"
+                f"- journal master key uid: `{journal_master_key_uid}`",
             )
             raise CustomFailureReasonException("missing data or not in processing set")
 
@@ -128,7 +133,7 @@ async def execute(
             cleanup_tasks.append(
                 asyncio.create_task(
                     slack.send_ops_message(
-                        f"{socket.gethostname()} transcribing voice note `{voice_note_uid}` for `{user_sub}` {transcribe_started_at - float(voice_note_processing_started_at):.3f}s since voice note upload started",
+                        f"{socket.gethostname()} transcribing voice note `{voice_note_uid}` for `{user_sub}` {transcribe_started_at - float(voice_note_started_at):.3f}s since voice note upload started",
                     )
                 )
             )
@@ -228,10 +233,10 @@ async def execute(
                 )
 
                 encryption_started_at = time.time()
-                master_key = await lib.journals.master_keys.get_journal_master_key_for_encryption(
+                master_key = await lib.journals.master_keys.get_journal_master_key_for_decryption(
                     itgs,
                     user_sub=user_sub.decode("utf-8"),
-                    now=time.time(),
+                    journal_master_key_uid=journal_master_key_uid.decode("utf-8"),
                 )
                 if master_key.type != "success":
                     await handle_warning(
@@ -246,7 +251,7 @@ async def execute(
                 encryption_time_taken = time.time() - encryption_started_at
 
                 time_since_voice_note_upload = time.time() - float(
-                    voice_note_processing_started_at
+                    voice_note_started_at
                 )
                 cleanup_tasks.append(
                     asyncio.create_task(
@@ -267,9 +272,6 @@ async def execute(
                     itgs,
                     voice_note_uid=voice_note_uid_bytes,
                     encrypted_transcription_vtt=encrypted_transcription_vtt,
-                    transcription_vtt_journal_master_key_uid=master_key.journal_master_key_uid.encode(
-                        "utf-8"
-                    ),
                     transcription_source=b'{"type": "ai", "model": "whisper-1", "version": "live"}',
                     now_str=str(store_at).encode("ascii"),
                     finalize_job=json.dumps(
@@ -306,7 +308,7 @@ async def execute(
                 )
 
                 if (
-                    store_transcription_result.type != "success_pending_transcode"
+                    store_transcription_result.type != "success_pending_other"
                     and store_transcription_result.type != "success_pending_finalize"
                 ):
                     await handle_warning(

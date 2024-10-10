@@ -5,10 +5,12 @@ import os
 import secrets
 import time
 import aiofiles
+from content import hash_filelike
 from error_middleware import handle_warning
 from file_uploads import StitchFileAbortedException, stitch_file_upload
 from itgs import Itgs
 from graceful_death import GracefulDeath
+import lib.journals.master_keys
 
 from jobs import (
     JobCategory,
@@ -115,6 +117,57 @@ async def execute(
 
             file_size = os.path.getsize(stitched_path)
 
+            async with aiofiles.open(
+                stitched_path, "rb"
+            ) as raw_file, AsyncProgressTrackingReadableBytesIO(
+                itgs,
+                job_progress_uid=job_progress_uid,
+                expected_file_size=file_size,
+                delegate=raw_file,
+                message="hashing",
+            ) as tracking_file:
+                stitched_sha512 = await hash_filelike(tracking_file)
+
+            conn = await itgs.conn()
+            cursor = conn.cursor()
+            response = await cursor.execute(
+                "SELECT 1 FROM content_files WHERE original_sha512=?",
+                (stitched_sha512,),
+            )
+            if response.results:
+                # SECURITY:
+                #   We cannot accept duplicate content files right now being uploaded,
+                #   as when we delete the user we want to ensure we can delete their
+                #   associated voice notes. If they uploaded the original audio file for
+                #   one of our journeys as a voice note, we would not be able to delete
+                #   it without deleting our journey! Which is obviously not what we want.
+                await handle_warning(
+                    f"{__name__}:duplicate",
+                    f"Duplicate voice note upload detected for `{uploaded_by_user_sub}` - "
+                    f"they uploaded sha512 {stitched_sha512}, which we have a content file for already",
+                )
+                jobs = await itgs.jobs()
+                await jobs.enqueue(
+                    "runners.delete_file_upload", file_upload_uid=file_upload_uid
+                )
+                raise CustomFailureReasonException("not unique")
+
+            journal_master_key = (
+                await lib.journals.master_keys.get_journal_master_key_for_encryption(
+                    itgs, user_sub=uploaded_by_user_sub, now=time.time()
+                )
+            )
+            if journal_master_key.type != "success":
+                await handle_warning(
+                    f"{__name__}:master_key:{journal_master_key.type}",
+                    f"failed to get journal master key for `{uploaded_by_user_sub}`",
+                )
+                jobs = await itgs.jobs()
+                await jobs.enqueue(
+                    "runners.delete_file_upload", file_upload_uid=file_upload_uid
+                )
+                raise CustomFailureReasonException("failed to setup encryption")
+
             redis = await itgs.redis()
             await redis.zadd(
                 "files:purgatory", mapping={purgatory_key: time.time() + 3000}
@@ -159,10 +212,14 @@ VALUES (
         mark_stitched_at = time.time()
         transcribe_job_progress_uid = f"oseh_jp_{secrets.token_urlsafe(16)}"
         transcode_job_progress_uid = f"oseh_jp_{secrets.token_urlsafe(16)}"
+        analyze_job_progress_uid = f"oseh_jp_{secrets.token_urlsafe(16)}"
         mark_stitched_response = await safe_voice_notes_upload_success_stitched(
             itgs,
             voice_note_uid=voice_note_uid.encode("ascii"),
             stitched_s3_key=stitched_s3_key.encode("ascii"),
+            journal_master_key_uid=journal_master_key.journal_master_key_uid.encode(
+                "ascii"
+            ),
             transcribe_job=json.dumps(
                 {
                     "name": "runners.voice_notes.transcribe",
@@ -203,6 +260,26 @@ VALUES (
                     occurred_at=mark_stitched_at,
                 )
             ).encode("utf-8"),
+            analyze_job=json.dumps(
+                {
+                    "name": "runners.voice_notes.analyze",
+                    "kwargs": {
+                        "voice_note_uid": voice_note_uid,
+                        "stitched_file_size_bytes": file_size,
+                        "job_progress_uid": analyze_job_progress_uid,
+                    },
+                    "queued_at": mark_stitched_at,
+                }
+            ).encode("utf-8"),
+            analyze_job_progress_uid=analyze_job_progress_uid.encode("ascii"),
+            analyze_job_event=json.dumps(
+                JobProgressSimple(
+                    type="queued",
+                    message="waiting for an available worker",
+                    indicator=JobProgressIndicatorSpinner(type="spinner"),
+                    occurred_at=mark_stitched_at,
+                )
+            ).encode("utf-8"),
             primary_job_spawn_transcode_event=json.dumps(
                 JobProgressSpawned(
                     type="spawned",
@@ -220,6 +297,17 @@ VALUES (
                     message="Queued transcription job",
                     spawned=JobProgressSpawnedInfo(
                         uid=transcribe_job_progress_uid, name="transcribe"
+                    ),
+                    indicator=None,
+                    occurred_at=mark_stitched_at,
+                )
+            ).encode("utf-8"),
+            primary_job_spawn_analyze_event=json.dumps(
+                JobProgressSpawned(
+                    type="spawned",
+                    message="Queued analysis job",
+                    spawned=JobProgressSpawnedInfo(
+                        uid=analyze_job_progress_uid, name="analyze"
                     ),
                     indicator=None,
                     occurred_at=mark_stitched_at,

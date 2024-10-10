@@ -70,7 +70,7 @@ async def execute(
         redis = await itgs.redis()
         (
             user_sub,
-            voice_note_processing_started_at,
+            voice_note_started_at,
             transcode_job_queued_at,
             old_transcode_job_finished_at,
             stitched_s3_key,
@@ -88,21 +88,31 @@ async def execute(
 
         if (
             user_sub is None
-            or voice_note_processing_started_at is None
+            or voice_note_started_at is None
             or transcode_job_queued_at is None
             or old_transcode_job_finished_at is None
             or stitched_s3_key is None
+            or voice_note_started_at == b"not_yet"
+            or transcode_job_queued_at == b"not_yet"
+            or stitched_s3_key == b"not_yet"
         ):
             await handle_warning(
                 f"{__name__}:missing_data",
                 f"Voice note `{voice_note_uid}` is either not in the processing set or missing data:\n"
                 f"• user sub: `{user_sub}`\n"
-                f"• started at: `{voice_note_processing_started_at}`\n"
+                f"• started at: `{voice_note_started_at}`\n"
                 f"• transcode job queued at: `{transcode_job_queued_at}`\n"
                 f"• old transcode job finished at: `{old_transcode_job_finished_at}`\n"
                 f"• stitched s3 key: `{stitched_s3_key}`",
             )
             raise CustomFailureReasonException("missing data or not in processing set")
+
+        if old_transcode_job_finished_at != b"not_yet":
+            await handle_warning(
+                f"{__name__}:already_finished",
+                f"Voice note `{voice_note_uid}` has already been transcoded",
+            )
+            raise CustomFailureReasonException("already transcoded")
 
         cleanup_tasks: List[asyncio.Task] = []
         try:
@@ -111,7 +121,7 @@ async def execute(
             cleanup_tasks.append(
                 asyncio.create_task(
                     slack.send_ops_message(
-                        f"{socket.gethostname()} transcoding voice note `{voice_note_uid}` for `{user_sub}` {transcode_started_at - float(voice_note_processing_started_at):.3f}s since voice note upload started",
+                        f"{socket.gethostname()} transcoding voice note `{voice_note_uid}` for `{user_sub}` {transcode_started_at - float(voice_note_started_at):.3f}s since voice note upload started",
                     )
                 )
             )
@@ -159,7 +169,7 @@ async def execute(
                     f"transcoded {voice_note_uid} to {content.uid} in {time_spent_transcoding:.3f} seconds"
                 )
                 time_since_voice_note_upload = time.time() - float(
-                    voice_note_processing_started_at
+                    voice_note_started_at
                 )
                 cleanup_tasks.append(
                     asyncio.create_task(
@@ -175,7 +185,7 @@ async def execute(
                 store_at = time.time()
                 store_result = await safe_voice_notes_transcoding_finished(
                     itgs,
-                    voice_notes_uid=voice_note_uid_bytes,
+                    voice_note_uid=voice_note_uid_bytes,
                     transcode_content_file_uid=content.uid.encode("utf-8"),
                     now_str=str(time.time()).encode("utf-8"),
                     finalize_job=json.dumps(
@@ -213,7 +223,7 @@ async def execute(
 
                 if (
                     store_result.type != "success_pending_finalize"
-                    and store_result.type != "success_pending_transcribe"
+                    and store_result.type != "success_pending_other"
                 ):
                     await handle_warning(
                         f"{__name__}:store_failed:{store_result.type}",

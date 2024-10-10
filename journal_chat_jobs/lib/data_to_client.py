@@ -1,13 +1,16 @@
 import asyncio
 from dataclasses import dataclass
 import io
-from typing import List, Optional, Set, Union, cast
+import time
+from typing import Dict, List, Literal, Optional, Set, Tuple, Union, cast
+from error_middleware import handle_warning
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import (
     InstructorMemoryCachedData,
     JournalChatJobContext,
     JourneyMemoryCachedData,
     RefMemoryCachedData,
+    VoiceNoteMemoryCachedData,
 )
 from lib.image_files.image_file_ref import ImageFileRef
 from lib.journals.journal_entry_item_data import (
@@ -25,12 +28,22 @@ from lib.journals.journal_entry_item_data import (
     JournalEntryItemTextualPartJourneyClient,
     JournalEntryItemTextualPartJourneyClientDetails,
     JournalEntryItemTextualPartParagraph,
+    JournalEntryItemTextualPartVoiceNote,
+    JournalEntryItemTextualPartVoiceNoteClient,
     MinimalJourneyInstructor,
+)
+from lib.journals.master_keys import (
+    get_journal_master_key_for_decryption,
+    get_journal_master_key_from_s3,
 )
 from lib.journeys.external_journey import ExternalJourney
 from lib.journeys.read_one_external import read_one_external
 import lib.image_files.auth
+from lib.transcripts.model import parse_vtt_transcript
 import lib.users.entitlements
+import lib.voice_notes.auth
+import cryptography.fernet
+import itertools
 
 
 @dataclass
@@ -44,6 +57,8 @@ class DataToClientInspectResult:
     """
     journeys: Set[str]
     """The journey uids which would need to be inspected to convert this data"""
+    voice_notes: Set[str]
+    """The voice note uids which would need to be inspected to convert this data"""
 
 
 async def data_to_client(
@@ -94,10 +109,16 @@ async def bulk_prepare_data_to_client(
     journey_task = asyncio.create_task(
         _bulk_load_journeys(itgs, ctx=ctx, inspect=inspect)
     )
-    await asyncio.wait([pro_task, journey_task], return_when=asyncio.ALL_COMPLETED)
+    voice_note_task = asyncio.create_task(
+        _bulk_load_voice_notes(itgs, ctx=ctx, inspect=inspect)
+    )
+    await asyncio.wait(
+        [pro_task, journey_task, voice_note_task], return_when=asyncio.ALL_COMPLETED
+    )
     # raise exceptions
     await pro_task
     await journey_task
+    await voice_note_task
 
 
 async def _bulk_prepare_pro(
@@ -310,6 +331,330 @@ WHERE
         ctx.memory_cached_journeys[row_uid] = result
 
 
+async def _bulk_load_voice_notes(
+    itgs: Itgs, /, *, ctx: JournalChatJobContext, inspect: DataToClientInspectResult
+) -> None:
+    """Loads the voice notes indicated in the inspect result into the context.
+    In general, we always want to present the transcription we used to the user
+    for clarity, and we keep that transcription encrypted in transit.
+    """
+    uids_for_user = [
+        uid for uid in inspect.voice_notes if uid not in ctx.memory_cached_voice_notes
+    ]
+    if not uids_for_user:
+        return
+
+    none_consistency_rows = await _batch_load_voice_notes_from_db(
+        itgs, ctx=ctx, voice_note_uids=uids_for_user, read_consistency="none"
+    )
+
+    remaining_uids = set(uids_for_user)
+    for row in none_consistency_rows:
+        remaining_uids.remove(row.uid)
+
+    low_latency_rows: List[Union[_VoiceNoteFromDBRow, _VoiceNoteFromRedis]] = []
+    for remaining_uid in list(remaining_uids):
+        low_latency_row = await _low_latency_load_potentially_processing_voice_note(
+            itgs, ctx=ctx, voice_note_uid=remaining_uid
+        )
+        if low_latency_row is not None:
+            remaining_uids.remove(remaining_uid)
+            low_latency_rows.append(low_latency_row)
+
+    journal_master_keys_by_uid: Dict[str, Optional[cryptography.fernet.Fernet]] = dict()
+    journal_master_keys_by_uid[ctx.journal_master_key.journal_master_key_uid] = (
+        ctx.journal_master_key.journal_master_key
+    )
+
+    for row in itertools.chain(none_consistency_rows, low_latency_rows):
+        if row.journal_master_key_uid in journal_master_keys_by_uid:
+            continue
+        if row.master_key_s3_file_key is not None:
+            master_key_result = await get_journal_master_key_from_s3(
+                itgs,
+                user_journal_master_key_uid=row.journal_master_key_uid,
+                user_sub=ctx.user_sub,
+                s3_key=row.master_key_s3_file_key,
+            )
+        else:
+            master_key_result = await get_journal_master_key_for_decryption(
+                itgs,
+                user_sub=ctx.user_sub,
+                journal_master_key_uid=row.journal_master_key_uid,
+            )
+        if master_key_result.type != "success":
+            await handle_warning(
+                f"{__name__}:master_key:{master_key_result.type}",
+                f"Failed to get master key for voice note `{row.uid}`",
+            )
+            journal_master_keys_by_uid[row.journal_master_key_uid] = None
+            continue
+        journal_master_keys_by_uid[row.journal_master_key_uid] = (
+            master_key_result.journal_master_key
+        )
+
+    for row in itertools.chain(none_consistency_rows, low_latency_rows):
+        journal_master_key = journal_master_keys_by_uid[row.journal_master_key_uid]
+        if journal_master_key is None:
+            ctx.memory_cached_voice_notes[row.uid] = None
+            continue
+
+        if row.src == "db":
+            files = await itgs.files()
+            encrypted_transcript_out = io.BytesIO()
+            try:
+                await files.download(
+                    encrypted_transcript_out,
+                    key=row.transcript_s3_file_key,
+                    bucket=files.default_bucket,
+                    sync=True,
+                )
+            except Exception as e:
+                await handle_warning(
+                    f"{__name__}:transcript_download",
+                    f"Failed to download transcript for voice note `{row.uid}` from `{row.transcript_s3_file_key}`",
+                    exc=e,
+                )
+                ctx.memory_cached_voice_notes[row.uid] = None
+                continue
+            encrypted_transcript_vtt = encrypted_transcript_out.getvalue()
+        else:
+            encrypted_transcript_vtt = row.encrypted_vtt_transcript
+
+        try:
+            decrypted_transcript_vtt = journal_master_key.decrypt(
+                encrypted_transcript_vtt
+            )
+            parsed_transcript = parse_vtt_transcript(
+                decrypted_transcript_vtt.decode("utf-8")
+            )
+        except Exception as e:
+            await handle_warning(
+                f"{__name__}:transcript_decrypt",
+                f"Failed to decrypt or parse transcript for voice note `{row.uid}`",
+                exc=e,
+            )
+            ctx.memory_cached_voice_notes[row.uid] = None
+            continue
+
+        ctx.memory_cached_voice_notes[row.uid] = VoiceNoteMemoryCachedData(
+            uid=row.uid, transcript=parsed_transcript
+        )
+
+
+@dataclass
+class _VoiceNoteFromRedis:
+    src: Literal["redis"]
+    uid: str
+    journal_master_key_uid: str
+    master_key_s3_file_key: Literal[None]
+    encrypted_vtt_transcript: str
+
+
+@dataclass
+class _VoiceNoteFromDBRow:
+    src: Literal["db"]
+    uid: str
+    journal_master_key_uid: str
+    master_key_s3_file_key: str
+    transcript_s3_file_key: str
+
+
+async def _low_latency_load_potentially_processing_voice_note(
+    itgs: Itgs, /, *, ctx: JournalChatJobContext, voice_note_uid: str
+) -> Optional[Union[_VoiceNoteFromDBRow, _VoiceNoteFromRedis]]:
+    """A latency-optimized load of a single voice note which may still be processing.
+    This is able to complete before the voice note completes processing
+    """
+    voice_note_uid_bytes = voice_note_uid.encode("utf-8")
+    max_stall_time = 30
+
+    started_at = time.time()
+    redis = await itgs.redis()
+    pubsub = redis.pubsub()
+    try:
+        await pubsub.subscribe(b"ps:voice_notes:transcripts:" + voice_note_uid_bytes)
+
+        message_task = asyncio.create_task(
+            pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
+        )
+
+        while True:
+            (
+                user_sub,
+                encrypted_transcription_vtt,
+                transcription_vtt_journal_master_key_uid,
+            ) = cast(
+                Tuple[Optional[bytes], Optional[bytes], Optional[bytes]],
+                await redis.hmget(
+                    b"voice_notes:processing:" + voice_note_uid_bytes,  # type: ignore
+                    b"user_sub",  # type: ignore
+                    b"encrypted_transcription_vtt",  # type: ignore
+                    b"journal_master_key_uid",  # type: ignore
+                ),
+            )
+
+            if (
+                user_sub is None
+                or encrypted_transcription_vtt is None
+                or transcription_vtt_journal_master_key_uid is None
+            ):
+                # not in redis; either it's in the db at weak consistency or it doesn't exist anywhere
+                # (NOTE: the order we checked is important as we know it can go redis -> db but not db -> redis)
+                await _safe_cancel(message_task)
+                db_load = await _batch_load_voice_notes_from_db(
+                    itgs,
+                    ctx=ctx,
+                    voice_note_uids=[voice_note_uid],
+                    read_consistency="weak",
+                )
+                return db_load[0] if db_load else None
+
+            if user_sub != ctx.user_sub.encode("utf-8"):
+                # weird this voice note isn't for the right user, treat it like it doesn't exist anywhere
+                await _safe_cancel(message_task)
+                return None
+
+            if (
+                encrypted_transcription_vtt != b"not_yet"
+                and transcription_vtt_journal_master_key_uid != b"not_yet"
+            ):
+                # the voice note already has a transcription ready
+                await _safe_cancel(message_task)
+                return _VoiceNoteFromRedis(
+                    src="redis",
+                    uid=voice_note_uid,
+                    journal_master_key_uid=transcription_vtt_journal_master_key_uid.decode(
+                        "utf-8"
+                    ),
+                    master_key_s3_file_key=None,
+                    encrypted_vtt_transcript=encrypted_transcription_vtt.decode(
+                        "utf-8"
+                    ),
+                )
+
+            message = await message_task
+            if message is None:
+                if time.time() - started_at > max_stall_time:
+                    # we've waited too long for the voice note to finish processing
+                    await handle_warning(
+                        f"{__name__}:voice_note_stall",
+                        f"Voice note `{voice_note_uid}` has been processing for too long to retrieve",
+                    )
+                    return None
+                message_task = asyncio.create_task(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=5)
+                )
+                continue
+
+            msg_data = cast(bytes, message.get("data"))
+            assert isinstance(msg_data, bytes), msg_data
+            msg = io.BytesIO(msg_data)
+
+            msg_voice_note_uid_length = int.from_bytes(msg.read(4), "big", signed=False)
+            msg_voice_note_uid_bytes = msg.read(msg_voice_note_uid_length)
+            msg_journal_master_key_uid_length = int.from_bytes(
+                msg.read(4), "big", signed=False
+            )
+            msg_journal_master_key_uid = msg.read(
+                msg_journal_master_key_uid_length
+            ).decode("utf-8")
+            msg_encrypted_vtt_transcript_length = int.from_bytes(
+                msg.read(8), "big", signed=False
+            )
+            msg_encrypted_vtt_transcript = msg.read(
+                msg_encrypted_vtt_transcript_length
+            ).decode("utf-8")
+
+            assert msg_voice_note_uid_bytes == voice_note_uid_bytes, (
+                msg_voice_note_uid_bytes,
+                voice_note_uid_bytes,
+            )
+            return _VoiceNoteFromRedis(
+                src="redis",
+                uid=voice_note_uid,
+                journal_master_key_uid=msg_journal_master_key_uid,
+                master_key_s3_file_key=None,
+                encrypted_vtt_transcript=msg_encrypted_vtt_transcript,
+            )
+    finally:
+        await pubsub.aclose()
+
+
+async def _safe_cancel(task: asyncio.Task) -> None:
+    if not task.cancel():
+        return
+
+    try:
+        await task
+    except asyncio.CancelledError:
+        current_task = asyncio.current_task()
+        if current_task is not None and current_task.cancelled():
+            raise
+
+
+async def _batch_load_voice_notes_from_db(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    voice_note_uids: List[str],
+    read_consistency: Literal["none", "weak", "strong"],
+) -> List[_VoiceNoteFromDBRow]:
+    batch_cte = io.StringIO()
+
+    batch_cte.write("WITH batch(uid) AS (VALUES (?)")
+    for _ in range(1, len(voice_note_uids)):
+        batch_cte.write(", (?)")
+
+    batch_cte.write(")")
+
+    conn = await itgs.conn()
+    cursor = conn.cursor(read_consistency)
+
+    response = await cursor.execute(
+        f"""
+{batch_cte.getvalue()}
+SELECT
+    voice_notes.uid,
+    user_journal_master_keys.uid,
+    master_key_s3_files.key,
+    transcript_s3_files.key
+FROM
+    batch,
+    voice_notes,
+    user_journal_master_keys,
+    s3_files AS master_key_s3_files,
+    s3_files AS transcript_s3_files
+WHERE
+    batch.uid = voice_notes.uid
+    AND voice_notes.user_id = (SELECT users.id FROM users WHERE users.sub=?)
+    AND user_journal_master_keys.id = voice_notes.user_journal_master_key_id
+    AND user_journal_master_keys.user_id = voice_notes.user_id
+    AND master_key_s3_files.id = user_journal_master_keys.s3_file_id
+    AND transcript_s3_files.id = voice_notes.transcript_s3_file_id
+        """,
+        [
+            *voice_note_uids,
+            ctx.user_sub,
+        ],
+    )
+
+    result: List[_VoiceNoteFromDBRow] = []
+    for row in response.results or []:
+        result.append(
+            _VoiceNoteFromDBRow(
+                src="db",
+                uid=row[0],
+                journal_master_key_uid=row[1],
+                master_key_s3_file_key=row[2],
+                transcript_s3_file_key=row[3],
+            )
+        )
+
+    return result
+
+
 async def _data_data_to_client(
     itgs: Itgs, /, *, ctx: JournalChatJobContext, data: JournalEntryItemDataData
 ) -> JournalEntryItemDataDataClient:
@@ -357,6 +702,8 @@ async def _textual_part_to_client(
         return await _textual_part_journey_to_client(itgs, ctx=ctx, part=part)
     if part.type == "paragraph":
         return await _textual_part_paragraph_to_client(itgs, ctx=ctx, part=part)
+    if part.type == "voice_note":
+        return await _textual_part_voice_note_to_client(itgs, ctx=ctx, part=part)
     raise ValueError(f"Unknown textual part type: {part}")
 
 
@@ -367,6 +714,8 @@ def _inspect_textual_part_to_client(
         return _inspect_textual_part_journey_to_client(part, out=out)
     elif part.type == "paragraph":
         return _inspect_textual_part_paragraph_to_client(part, out=out)
+    elif part.type == "voice_note":
+        return _inspect_textual_part_voice_note_to_client(part, out=out)
     raise ValueError(f"Unknown textual part type: {part}")
 
 
@@ -385,9 +734,33 @@ async def get_journal_chat_job_journey_metadata(
     await _bulk_load_journeys(
         itgs,
         ctx=ctx,
-        inspect=DataToClientInspectResult(pro=False, journeys={journey_uid}),
+        inspect=DataToClientInspectResult(
+            pro=False, journeys={journey_uid}, voice_notes=set()
+        ),
     )
     return ctx.memory_cached_journeys[journey_uid]
+
+
+async def get_journal_chat_job_voice_note_metadata(
+    itgs: Itgs, /, *, ctx: JournalChatJobContext, voice_note_uid: str
+) -> Optional[VoiceNoteMemoryCachedData]:
+    """Gets metadata on the voice note with the given uid if it exists and can
+    be seen by the user the job is for, otherwise returns None
+    """
+    cached = ctx.memory_cached_voice_notes.get(voice_note_uid)
+    if cached is not None:
+        return cached
+    if voice_note_uid in ctx.memory_cached_voice_notes:
+        return None
+
+    await _bulk_load_voice_notes(
+        itgs,
+        ctx=ctx,
+        inspect=DataToClientInspectResult(
+            pro=False, journeys=set(), voice_notes={voice_note_uid}
+        ),
+    )
+    return ctx.memory_cached_voice_notes[voice_note_uid]
 
 
 async def _textual_part_journey_to_client(
@@ -471,6 +844,38 @@ def _inspect_textual_part_paragraph_to_client(
     part: JournalEntryItemTextualPartParagraph, /, *, out: DataToClientInspectResult
 ) -> None:
     return None
+
+
+async def _textual_part_voice_note_to_client(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
+    part: JournalEntryItemTextualPartVoiceNote,
+) -> Union[
+    JournalEntryItemTextualPartVoiceNoteClient, JournalEntryItemTextualPartParagraph
+]:
+    voice_note = await get_journal_chat_job_voice_note_metadata(
+        itgs, ctx=ctx, voice_note_uid=part.voice_note_uid
+    )
+    if voice_note is None:
+        return JournalEntryItemTextualPartParagraph(
+            type="paragraph", value="(link to deleted voice note)"
+        )
+    return JournalEntryItemTextualPartVoiceNoteClient(
+        transcription=voice_note.transcript.to_external(uid=""),
+        type="voice_note",
+        voice_note_jwt=await lib.voice_notes.auth.create_jwt(
+            itgs, voice_note_uid=part.voice_note_uid
+        ),
+        voice_note_uid=part.voice_note_uid,
+    )
+
+
+def _inspect_textual_part_voice_note_to_client(
+    part: JournalEntryItemTextualPartVoiceNote, /, *, out: DataToClientInspectResult
+) -> None:
+    out.voice_notes.add(part.voice_note_uid)
 
 
 async def _data_data_ui_to_client(

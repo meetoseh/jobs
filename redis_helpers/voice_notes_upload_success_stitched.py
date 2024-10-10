@@ -14,15 +14,20 @@ if TYPE_CHECKING:
 _SCRIPT = """
 local voice_note_uid = ARGV[1]
 local stitched_s3_key = ARGV[2]
-local transcribe_job = ARGV[3]
-local transcribe_job_progress_uid = ARGV[4]
-local transcribe_job_event = ARGV[5]
-local transcode_job = ARGV[6]
-local transcode_job_progress_uid = ARGV[7]
-local transcode_job_event = ARGV[8]
-local primary_job_spawn_transcode_event = ARGV[9]
-local primary_job_spawn_transcribe_event = ARGV[10]
-local now_str = ARGV[11]
+local journal_master_key_uid = ARGV[3]
+local transcribe_job = ARGV[4]
+local transcribe_job_progress_uid = ARGV[5]
+local transcribe_job_event = ARGV[6]
+local transcode_job = ARGV[7]
+local transcode_job_progress_uid = ARGV[8]
+local transcode_job_event = ARGV[9]
+local analyze_job = ARGV[10]
+local analyze_job_progress_uid = ARGV[11]
+local analyze_job_event = ARGV[12]
+local primary_job_spawn_transcode_event = ARGV[13]
+local primary_job_spawn_transcribe_event = ARGV[14]
+local primary_job_spawn_analyze_event = ARGV[15]
+local now_str = ARGV[16]
 
 local voice_note_key = "voice_notes:processing:" .. voice_note_uid
 local old_stitched_s3_key = redis.call("HGET", voice_note_key, "stitched_s3_key")
@@ -57,14 +62,18 @@ redis.call(
     "HSET",
     voice_note_key, 
     "stitched_s3_key", stitched_s3_key,
+    "journal_master_key_uid", journal_master_key_uid,
     "transcribe_job_queued_at", now_str,
-    "transcode_job_queued_at", now_str
+    "transcode_job_queued_at", now_str,
+    "analyze_job_queued_at", now_str
 )
-redis.call("RPUSH", "jobs:hot", transcribe_job, transcode_job)
+redis.call("RPUSH", "jobs:hot", transcribe_job, transcode_job, analyze_job)
 push_job_progress(transcribe_job_progress_uid, transcribe_job_event)
 push_job_progress(transcode_job_progress_uid, transcode_job_event)
+push_job_progress(analyze_job_progress_uid, analyze_job_event)
 push_job_progress(primary_job_progress_uid, primary_job_spawn_transcribe_event)
 push_job_progress(primary_job_progress_uid, primary_job_spawn_transcode_event)
+push_job_progress(primary_job_progress_uid, primary_job_spawn_analyze_event)
 return 1
 """
 _SCRIPT_HASH = hashlib.sha1(_SCRIPT.encode("utf-8")).hexdigest()
@@ -115,6 +124,8 @@ class VoiceNotesUploadSuccessStitchedParams(TypedDict):
     """The voice note uid"""
     stitched_s3_key: bytes
     """The s3 key which contains the uploaded audio file with the parts all stitched together"""
+    journal_master_key_uid: bytes
+    """The UID of the journal master key to use for encryption related to this voice note"""
     transcribe_job: bytes
     """A utf-8 encoded json object of the form `{"name": name, "kwargs": kwargs, "queued_at": time.time()}`"""
     transcribe_job_progress_uid: bytes
@@ -127,10 +138,18 @@ class VoiceNotesUploadSuccessStitchedParams(TypedDict):
     """The job progress uid assigned to the transcode job"""
     transcode_job_event: bytes
     """The event to push to the job progress uid assigned to the transcode job"""
+    analyze_job: bytes
+    """A utf-8 encoded json object of the form `{"name": name, "kwargs": kwargs, "queued_at": time.time()}`"""
+    analyze_job_progress_uid: bytes
+    """The job progress uid assigned to the analyze job"""
+    analyze_job_event: bytes
+    """The event to push to the job progress uid assigned to the analyze job"""
     primary_job_spawn_transcode_event: bytes
     """The event to push to the primary job progress uid to indicate we are spawning the transcode job"""
     primary_job_spawn_transcribe_event: bytes
     """The event to push to the primary job progress uid to indicate we are spawning the transcribe job"""
+    primary_job_spawn_analyze_event: bytes
+    """The event to push to the primary job progress uid to indicate we are spawning the analyze job"""
     now_str: bytes
     """The current time as a string, e.g., `str(time.time()).encode('ascii')`"""
 
@@ -164,14 +183,19 @@ async def voice_notes_upload_success_stitched(
         0,
         params["voice_note_uid"],  # type: ignore
         params["stitched_s3_key"],  # type: ignore
+        params["journal_master_key_uid"],  # type: ignore
         params["transcribe_job"],  # type: ignore
         params["transcribe_job_progress_uid"],  # type: ignore
         params["transcribe_job_event"],  # type: ignore
         params["transcode_job"],  # type: ignore
         params["transcode_job_progress_uid"],  # type: ignore
         params["transcode_job_event"],  # type: ignore
+        params["analyze_job"],  # type: ignore
+        params["analyze_job_progress_uid"],  # type: ignore
+        params["analyze_job_event"],  # type: ignore
         params["primary_job_spawn_transcode_event"],  # type: ignore
         params["primary_job_spawn_transcribe_event"],  # type: ignore
+        params["primary_job_spawn_analyze_event"],  # type: ignore
         params["now_str"],  # type: ignore
     )
     if result is redis:

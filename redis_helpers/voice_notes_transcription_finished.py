@@ -14,14 +14,13 @@ if TYPE_CHECKING:
 _SCRIPT = """
 local voice_note_uid = ARGV[1]
 local encrypted_transcription_vtt = ARGV[2]
-local transcription_vtt_journal_master_key_uid = ARGV[3]
-local transcription_source = ARGV[4]
-local now_str = ARGV[5]
-local finalize_job = ARGV[6]
-local transcribe_job_progress_uid = ARGV[7]
-local finalize_job_progress_uid = ARGV[8]
-local transcribe_progress_finalize_job_spawn_event = ARGV[9]
-local finalize_job_queued_event = ARGV[10]
+local transcription_source = ARGV[3]
+local now_str = ARGV[4]
+local finalize_job = ARGV[5]
+local transcribe_job_progress_uid = ARGV[6]
+local finalize_job_progress_uid = ARGV[7]
+local transcribe_progress_finalize_job_spawn_event = ARGV[8]
+local finalize_job_queued_event = ARGV[9]
 
 local voice_note_key = "voice_notes:processing:" .. voice_note_uid
 local old_encrypted_transcription_vtt = redis.call("HGET", voice_note_key, "encrypted_transcription_vtt")
@@ -30,17 +29,36 @@ if old_encrypted_transcription_vtt ~= "not_yet" then
     return -2
 end
 
+local journal_master_key_uid = redis.call("HGET", voice_note_key, "journal_master_key_uid")
+if journal_master_key_uid == "not_yet" or journal_master_key_uid == false then
+    return -2
+end
+
 redis.call(
     "HSET",
     voice_note_key,
     "encrypted_transcription_vtt", encrypted_transcription_vtt,
-    "transcription_vtt_journal_master_key_uid", transcription_vtt_journal_master_key_uid,
     "transcription_source", transcription_source,
     "transcribe_job_finished_at", now_str
+)
+redis.call(
+    "PUBLISH", 
+    "ps:voice_notes:transcripts:" .. voice_note_uid,
+    struct.pack('>I4', string.len(voice_note_uid))
+        .. voice_note_uid
+        .. struct.pack('>I4', string.len(journal_master_key_uid))
+        .. journal_master_key_uid
+        .. struct.pack('>I8', string.len(encrypted_transcription_vtt))
+        .. encrypted_transcription_vtt
 )
 
 local transcode_job_finished_at = redis.call("HGET", voice_note_key, "transcode_job_finished_at")
 if transcode_job_finished_at == "not_yet" then
+    return 1
+end
+
+local analyze_job_finished_at = redis.call("HGET", voice_note_key, "analyze_job_finished_at")
+if analyze_job_finished_at == "not_yet" then
     return 1
 end
 
@@ -79,11 +97,11 @@ ensure_voice_notes_transcription_finished_script_exists = (
 
 
 @dataclass
-class VoiceNotesTranscriptionFinishedResultSuccessPendingTranscode:
-    type: Literal["success_pending_transcode"]
+class VoiceNotesTranscriptionFinishedResultSuccessPendingOther:
+    type: Literal["success_pending_other"]
     """
-    - `success_pending_transcode`: the transcription was stored. the transcode
-        job has not yet finished so the finalize job was not queued
+    - `success_pending_other`: the transcription was stored. the other
+        jobs have not yet finished so the finalize job was not queued
     """
 
 
@@ -115,7 +133,7 @@ class VoiceNotesTranscriptionFinishedResultConflict:
 
 
 VoiceNotesTranscriptionFinishedResult = Union[
-    VoiceNotesTranscriptionFinishedResultSuccessPendingTranscode,
+    VoiceNotesTranscriptionFinishedResultSuccessPendingOther,
     VoiceNotesTranscriptionFinishedResultSuccessPendingFinalize,
     VoiceNotesTranscriptionFinishedResultNotFound,
     VoiceNotesTranscriptionFinishedResultConflict,
@@ -127,8 +145,6 @@ class VoiceNotesTranscriptionFinishedParams(TypedDict):
     """The UID of the voice note whose transcription job finished"""
     encrypted_transcription_vtt: bytes
     """The VTT transcription of the voice note, encrypted with the journal master key"""
-    transcription_vtt_journal_master_key_uid: bytes
-    """The UID of the journal master key used to encrypt the transcription VTT"""
     transcription_source: bytes
     """The source of the transcription as a json object"""
     now_str: bytes
@@ -172,7 +188,6 @@ async def voice_notes_transcription_finished(
         0,
         params["voice_note_uid"],  # type: ignore
         params["encrypted_transcription_vtt"],  # type: ignore
-        params["transcription_vtt_journal_master_key_uid"],  # type: ignore
         params["transcription_source"],  # type: ignore
         params["now_str"],  # type: ignore
         params["finalize_job"],  # type: ignore
@@ -221,8 +236,8 @@ def parse_voice_notes_transcription_finished_response(
     """Parses the result of the voice_notes_transcription_finished script into the typed representation"""
     assert isinstance(response, int), f"{response=}"
     if response == 1:
-        return VoiceNotesTranscriptionFinishedResultSuccessPendingTranscode(
-            type="success_pending_transcode"
+        return VoiceNotesTranscriptionFinishedResultSuccessPendingOther(
+            type="success_pending_other"
         )
     if response == 2:
         return VoiceNotesTranscriptionFinishedResultSuccessPendingFinalize(

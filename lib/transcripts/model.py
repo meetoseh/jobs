@@ -1,6 +1,58 @@
+import io
+import json
 from typing import List, Literal, Tuple
 from dataclasses import dataclass
 from typing_extensions import TypedDict
+from pydantic import BaseModel, Field
+
+from lib.journals.encode_float import encode_float
+
+
+class ExternalTranscriptPhrase(BaseModel):
+    """A single phrase within a transcript. Phrases are non-overlapping, but may
+    not partition the content due to periods of silence.
+
+    Only simple, single-speaker transcripts are supported at this time.
+    """
+
+    starts_at: float = Field(
+        description="When this phrase begins, in seconds from the start of the recording"
+    )
+    ends_at: float = Field(
+        description="When this phrase ends, in seconds from the start of the recording"
+    )
+    phrase: str = Field(description="The text of the phrase")
+
+    def model_dump_for_integrity(self, out: io.BytesIO) -> None:
+        out.write(b'{"ends_at": ')
+        out.write(encode_float(self.ends_at).encode("ascii"))
+        out.write(b', "phrase": ')
+        out.write(json.dumps(self.phrase).encode("utf-8"))
+        out.write(b', "starts_at": ')
+        out.write(encode_float(self.starts_at).encode("ascii"))
+        out.write(b"}")
+
+
+class ExternalTranscript(BaseModel):
+    """A transcript of a recording"""
+
+    uid: str = Field(
+        description="The primary stable external identifier for this transcript"
+    )
+    phrases: List[ExternalTranscriptPhrase] = Field(
+        description="The phrases in this transcript, in ascending order of start time"
+    )
+
+    def model_dump_for_integrity(self, out: io.BytesIO) -> None:
+        out.write(b'{"phrases": [')
+        if self.phrases:
+            self.phrases[0].model_dump_for_integrity(out)
+            for i in range(1, len(self.phrases)):
+                out.write(b", ")
+                self.phrases[i].model_dump_for_integrity(out)
+        out.write(b'], "uid": "')
+        out.write(self.uid.encode("ascii"))
+        out.write(b'"}')
 
 
 @dataclass
@@ -169,6 +221,22 @@ class Transcript:
             if tr.end.in_seconds() + margin_late >= time:
                 result.append(idx)
         return result
+
+    def to_external(self, /, *, uid: str) -> ExternalTranscript:
+        """Converts this transcript to the external representation given the
+        external identifier
+        """
+        return ExternalTranscript(
+            uid=uid,
+            phrases=[
+                ExternalTranscriptPhrase(
+                    starts_at=phrase[0].start.in_seconds(),
+                    ends_at=phrase[0].end.in_seconds(),
+                    phrase=phrase[1],
+                )
+                for phrase in self.phrases
+            ],
+        )
 
 
 def parse_vtt_transcript(raw: str) -> Transcript:

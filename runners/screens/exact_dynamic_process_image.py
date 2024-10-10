@@ -997,7 +997,9 @@ def _make_raster_target_sync(
 ):
     with Image.open(job.source) as source:
         if source.width != job.info.width or source.height != job.info.height:
-            source = source.resize((job.info.width, job.info.height), Image.LANCZOS)
+            source = source.resize(
+                (job.info.width, job.info.height), Image.Resampling.LANCZOS
+            )
         source.save(job.output, job.info.format, **job.info.quality_parameters)
     thumbhash_bytes_as_list = image_to_thumb_hash(job.output)
     thumbhash_bytes = bytes(thumbhash_bytes_as_list)

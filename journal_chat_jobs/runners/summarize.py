@@ -41,6 +41,7 @@ async def handle_summarize(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         journal_entry_uid=ctx.journal_entry_uid,
         user_sub=ctx.user_sub,
         pending_moderation="resolve",
+        ctx=ctx,
     )
     await conversation_stream.start()
 
@@ -282,6 +283,8 @@ async def client_item_to_text(
             if part.type == "paragraph":
                 result.write(part.value)
                 result.write("\n\n")
+            elif part.type == "voice_note":
+                result.write(" ".join(p.phrase for p in part.transcription.phrases))
             elif part.type == "journey":
                 result.write(f"[{part.details.title}](journey:{part.details.uid})")
                 result.write("\nAuthor: ")

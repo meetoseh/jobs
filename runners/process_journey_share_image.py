@@ -219,7 +219,7 @@ WHERE
                 raise ShareImageBounceError()
 
         if bknd.width != width or bknd.height != height:
-            bknd = bknd.resize((width, height), Image.LANCZOS)
+            bknd = bknd.resize((width, height), Image.Resampling.LANCZOS)
             if exit_requested.is_set():
                 raise ShareImageBounceError()
 

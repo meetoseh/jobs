@@ -76,6 +76,7 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         journal_entry_uid=ctx.journal_entry_uid,
         user_sub=ctx.user_sub,
         pending_moderation="ignore",
+        ctx=ctx,
     )
     await conversation_stream.start()
     greeting_result = await conversation_stream.load_next_item(timeout=5)
@@ -158,8 +159,10 @@ async def handle_chat(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         )
         await chat_helper.publish_spinner(itgs, ctx=ctx, message="Running prechecks...")
 
-    text_greeting = chat_helper.extract_as_text(greeting)
-    text_user_message = chat_helper.extract_as_text(user_message)
+    text_greeting = await chat_helper.extract_as_text(itgs, ctx=ctx, item=greeting)
+    text_user_message = await chat_helper.extract_as_text(
+        itgs, ctx=ctx, item=user_message
+    )
 
     if (
         user_message.processing_block is not None
@@ -1070,7 +1073,9 @@ WHERE
             of=len(possible_journeys),
         )
 
-    user_message_text = chat_helper.extract_as_text(user_message)
+    user_message_text = await chat_helper.extract_as_text(
+        itgs, ctx=ctx, item=user_message
+    )
 
     if report_progress.is_set():
         await chat_helper.publish_spinner(

@@ -1309,7 +1309,7 @@ def _make_target(
             img = img.crop(_crops_to_pil_box(*crops, img.width, img.height))
 
         if img.width != target.width or img.height != target.height:
-            img = img.resize((target.width, target.height), Image.LANCZOS)
+            img = img.resize((target.width, target.height), Image.Resampling.LANCZOS)
 
         img.save(target_filepath, format=target.format, **target.quality_settings)
         file_size = os.path.getsize(target_filepath)

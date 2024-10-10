@@ -8,6 +8,7 @@ from itgs import Itgs
 from lib.journals.journal_chat_job_stats import JobType, JournalChatJobStats
 from lib.journals.journal_chat_task import JournalChatTask
 from lib.journals.master_keys import GetJournalMasterKeyForEncryptionResultSuccess
+from lib.transcripts.model import Transcript
 
 
 @dataclass
@@ -56,6 +57,18 @@ class JourneyMemoryCachedData:
     """When the user liked the journey"""
     requires_pro: bool
     """True if only pro users can access this journey, False if free and pro users can access this journey"""
+
+
+@dataclass
+class VoiceNoteMemoryCachedData:
+    """Data we have fetched about a voice note in the context of processing this job; primarily
+    used by the `data_to_client` module
+    """
+
+    uid: str
+    """The unique identifier for the voice note"""
+    transcript: Transcript
+    """The transcript for the voice note"""
 
 
 @dataclass
@@ -112,6 +125,13 @@ class JournalChatJobContext:
     or is specific to the user like entitlements)
 
     None if we have already checked and the journey does not exist
+    """
+    memory_cached_voice_notes: Dict[str, Optional[VoiceNoteMemoryCachedData]]
+    """The voice notes we have already loaded while processing this job. These cannot be used
+    across jobs as its time-sensitive (e.g., jwts and information that could have changed
+    or is specific to the user like entitlements)
+
+    None if we have already checked and the voice note does not exist
     """
     stats: JournalChatJobStats
     """The stats we are storing the success or failure of this job in. Stored for you after closing.

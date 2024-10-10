@@ -81,6 +81,7 @@ async def handle_journal_chat_job(
             task=task,
             last_checked_redis=start_time,
             memory_cached_journeys={},
+            memory_cached_voice_notes={},
             has_pro=None,
             stats=stats,
             type=stat_type,

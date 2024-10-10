@@ -6,6 +6,10 @@ from typing import Dict, List, Literal, Optional, Set, Union, cast
 
 from error_middleware import handle_error
 from itgs import Itgs
+from journal_chat_jobs.lib.data_to_client import (
+    get_journal_chat_job_voice_note_metadata,
+)
+from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from lib.journals.get_processing_block_for_text import get_processing_block_for_text
 from lib.journals.journal_entry_item_data import (
     JournalEntryItemData,
@@ -96,6 +100,7 @@ class JournalChatJobConversationStream:
         journal_entry_uid: str,
         user_sub: str,
         pending_moderation: Literal["resolve", "error", "ignore"],
+        ctx: JournalChatJobContext,
     ) -> None:
         self.journal_entry_uid: str = journal_entry_uid
         """The journal entry that we are streaming"""
@@ -152,6 +157,11 @@ class JournalChatJobConversationStream:
         self._finished_event: asyncio.Event = asyncio.Event()
         """An event which is set to ensure no additional tasks are waiting on the
         queue. Set when we load the last item off the queue.
+        """
+
+        self.ctx: JournalChatJobContext = ctx
+        """The journal chat job context for data_to_client, in case we have to load
+        some data for the journal entry items and you want to reuse it later
         """
 
     async def start(self) -> None:
@@ -457,7 +467,9 @@ LIMIT ?
                                 processing_block_handled_item_uids.add(item.uid)
 
                                 try:
-                                    item_as_text = self._item_as_text(item)
+                                    item_as_text = await self._item_as_text(
+                                        itgs, item=item
+                                    )
                                 except Exception as e:
                                     await queue.put(e)
                                     return
@@ -560,16 +572,37 @@ LIMIT ?
             )
             await queue.put(e)
 
-    def _item_as_text(self, item: JournalEntryItem) -> str:
+    async def _item_as_text(self, itgs: Itgs, /, *, item: JournalEntryItem) -> str:
         if item.data.data.type == "summary" and item.data.data.version == "v1":
             return f'{item.data.data.title}\n\n{", ".join(item.data.data.tags)}'
 
-        if item.data.data.type != "textual" or not all(
-            p.type == "paragraph" for p in item.data.data.parts
-        ):
+        if item.data.data.type != "textual":
             raise Exception(
-                "journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it"
+                f"journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it ({item.data.data.type=})"
             )
+
+        parts: List[str] = []
+        for part in item.data.data.parts:
+            if part.type == "paragraph":
+                parts.append(part.value)
+            elif part.type == "voice_note":
+                voice_note_metadata = await get_journal_chat_job_voice_note_metadata(
+                    itgs,
+                    ctx=self.ctx,
+                    voice_note_uid=part.voice_note_uid,
+                )
+                if voice_note_metadata is None:
+                    raise Exception(
+                        f"voice note {part.voice_note_uid} not found while processing journal entry item {item.uid}"
+                    )
+                parts.append(
+                    " ".join(text for _, text in voice_note_metadata.transcript.phrases)
+                )
+            else:
+                raise Exception(
+                    f"journal entry item has a processing block in a non-terminal state, but we do not know how to resolve it ({part.type=})"
+                )
+
         return "\n\n".join(
             p.value for p in item.data.data.parts if p.type == "paragraph"
         )

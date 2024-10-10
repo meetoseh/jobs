@@ -3,7 +3,7 @@
 # and typing/static analysis improvements
 
 import math
-from typing import List, Tuple, Union
+from typing import Any, List, Tuple, Union, cast
 from pathlib import Path
 from itertools import chain
 from PIL import Image, ImageOps
@@ -140,8 +140,9 @@ def image_to_thumb_hash(fp: Union[str, bytes, Path]) -> List[int]:
     img.thumbnail((100, 100))
 
     img = ImageOps.exif_transpose(img)
+    assert img is not None
 
-    rgba_2d = list(img.getdata())
+    rgba_2d = list(cast(Any, img.getdata()))
 
     rgba = list(chain(*rgba_2d))
 

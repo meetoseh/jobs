@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 _SCRIPT = """
-local voice_notes_uid = ARGV[1]
+local voice_note_uid = ARGV[1]
 local transcode_content_file_uid = ARGV[2]
 local now_str = ARGV[3]
 local finalize_job = ARGV[4]
@@ -21,8 +21,8 @@ local finalize_job_progress_uid = ARGV[6]
 local transcode_progress_finalize_job_spawn_event = ARGV[7]
 local finalize_job_queued_event = ARGV[8]
 
-local voice_notes_key = "voice_notes:processing:" .. voice_notes_uid
-local old_transcode_content_file_uid = redis.call("HGET", voice_notes_key, "transcode_content_file_uid")
+local voice_note_key = "voice_notes:processing:" .. voice_note_uid
+local old_transcode_content_file_uid = redis.call("HGET", voice_note_key, "transcode_content_file_uid")
 if old_transcode_content_file_uid ~= "not_yet" then
     if old_transcode_content_file_uid == false then return -1 end
     return -2
@@ -30,13 +30,18 @@ end
 
 redis.call(
     "HSET",
-    voice_notes_key,
+    voice_note_key,
     "transcode_content_file_uid", transcode_content_file_uid,
     "transcode_job_finished_at", now_str
 )
 
-local transcribe_job_finished_at = redis.call("HGET", voice_notes_key, "transcribe_job_finished_at")
+local transcribe_job_finished_at = redis.call("HGET", voice_note_key, "transcribe_job_finished_at")
 if transcribe_job_finished_at == "not_yet" then
+    return 1
+end
+
+local analyze_job_finished_at = redis.call("HGET", voice_note_key, "analyze_job_finished_at")
+if analyze_job_finished_at == "not_yet" then
     return 1
 end
 
@@ -58,7 +63,7 @@ local function push_job_progress(uid, evt)
 end
 
 redis.call("RPUSH", "jobs:hot", finalize_job)
-redis.call("HSET", voice_notes_key, "finalize_job_queued_at", now_str)
+redis.call("HSET", voice_note_key, "finalize_job_queued_at", now_str)
 push_job_progress(transcode_job_progress_uid, transcode_progress_finalize_job_spawn_event)
 push_job_progress(finalize_job_progress_uid, finalize_job_queued_event)
 return 2
@@ -75,11 +80,11 @@ ensure_voice_notes_transcoding_finished_script_exists = (
 
 
 @dataclass
-class VoiceNotesTranscodingFinishedResultSuccessPendingTranscribe:
-    type: Literal["success_pending_transcribe"]
+class VoiceNotesTranscodingFinishedResultSuccessPendingOther:
+    type: Literal["success_pending_other"]
     """
-    - `success_pending_transcribe`: the transcode result was stored,
-        but the transcribe job is not yet finished so we didn't queue the
+    - `success_pending_other`: the transcode result was stored,
+        but the other jobs are not yet finished so we didn't queue the
         finalize job
     """
 
@@ -112,7 +117,7 @@ class VoiceNotesTranscodingFinishedResultConflict:
 
 
 VoiceNotesTranscodingFinishedResult = Union[
-    VoiceNotesTranscodingFinishedResultSuccessPendingTranscribe,
+    VoiceNotesTranscodingFinishedResultSuccessPendingOther,
     VoiceNotesTranscodingFinishedResultSuccessPendingFinalize,
     VoiceNotesTranscodingFinishedResultNotFound,
     VoiceNotesTranscodingFinishedResultConflict,
@@ -120,7 +125,7 @@ VoiceNotesTranscodingFinishedResult = Union[
 
 
 class VoiceNotesTranscodingFinishedParams(TypedDict):
-    voice_notes_uid: bytes
+    voice_note_uid: bytes
     """the uid of the voice note use transcoding job finished"""
     transcode_content_file_uid: bytes
     """the content file containing the transcoded voice note"""
@@ -161,7 +166,7 @@ async def voice_notes_transcoding_finished(
     result = await redis.evalsha(
         _SCRIPT_HASH,
         0,
-        params["voice_notes_uid"],  # type: ignore
+        params["voice_note_uid"],  # type: ignore
         params["transcode_content_file_uid"],  # type: ignore
         params["now_str"],  # type: ignore
         params["finalize_job"],  # type: ignore
@@ -208,8 +213,8 @@ def parse_voice_notes_transcoding_finished_response(
     """Parses the result of the voice_notes_transcoding_finished script into the typed representation"""
     assert isinstance(response, int), f"{response=}"
     if response == 1:
-        return VoiceNotesTranscodingFinishedResultSuccessPendingTranscribe(
-            type="success_pending_transcribe"
+        return VoiceNotesTranscodingFinishedResultSuccessPendingOther(
+            type="success_pending_other"
         )
     elif response == 2:
         return VoiceNotesTranscodingFinishedResultSuccessPendingFinalize(

@@ -14,7 +14,10 @@ from typing import (
 
 from error_middleware import handle_warning
 from itgs import Itgs
-from journal_chat_jobs.lib.data_to_client import get_journal_chat_job_journey_metadata
+from journal_chat_jobs.lib.data_to_client import (
+    get_journal_chat_job_journey_metadata,
+    get_journal_chat_job_voice_note_metadata,
+)
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.lib.openai_ratelimits import (
     OpenAICategory,
@@ -110,19 +113,37 @@ def get_message_from_paragraphs(
     )
 
 
-def extract_as_text(
+async def extract_as_text(
+    itgs: Itgs,
+    /,
+    *,
+    ctx: JournalChatJobContext,
     item: JournalEntryItemData,
 ) -> str:
-    """Assuming that the given journal item contains only paragraphs, returns the
-    text representation of the item.
+    """Assuming that the given journal item contains only text (paragraphs or voice
+    notes), returns the text representation of the item.
     """
     assert item.type == "chat", "unknown item type"
     assert item.data.type == "textual", "unknown item data type"
     assert item.data.parts, "empty item"
 
-    assert all(p.type == "paragraph" for p in item.data.parts), "unknown item part type"
-
-    return "\n\n".join(p.value for p in item.data.parts if p.type == "paragraph")
+    parts: List[str] = []
+    for part in item.data.parts:
+        if part.type == "paragraph":
+            parts.append(part.value)
+        elif part.type == "voice_note":
+            metadata = await get_journal_chat_job_voice_note_metadata(
+                itgs,
+                ctx=ctx,
+                voice_note_uid=part.voice_note_uid,
+            )
+            if metadata is not None:
+                parts.append(" ".join(text for _, text in metadata.transcript.phrases))
+            else:
+                parts.append("(deleted voice note)")
+        else:
+            raise ValueError(f"unknown part type: {part.type}")
+    return "\n\n".join(parts)
 
 
 async def convert_textual_to_markdown(

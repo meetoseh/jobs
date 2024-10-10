@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import secrets
@@ -41,14 +42,17 @@ async def execute(
             started_at,
             upload_success_job_at,
             stitched_s3_key,
+            journal_master_key_uid,
             transcribe_job_queued_at,
             encrypted_transcription_vtt,
-            transcription_vtt_journal_master_key_uid,
             transcription_source,
             transcribe_job_finished_at,
             transcode_job_queued_at,
             transcode_content_file_uid,
             transcode_job_finished_at,
+            analyze_job_queued_at,
+            encrypted_time_vs_intensity,
+            analyze_job_finished_at,
             finalize_job_queued_at,
         ) = cast(
             List[Optional[bytes]],
@@ -58,14 +62,17 @@ async def execute(
                 b"started_at",  # type: ignore
                 b"upload_success_job_at",  # type: ignore
                 b"stitched_s3_key",  # type: ignore
+                b"journal_master_key_uid",  # type: ignore
                 b"transcribe_job_queued_at",  # type: ignore
                 b"encrypted_transcription_vtt",  # type: ignore
-                b"transcription_vtt_journal_master_key_uid",  # type: ignore
                 b"transcription_source",  # type: ignore
                 b"transcribe_job_finished_at",  # type: ignore
                 b"transcode_job_queued_at",  # type: ignore
                 b"transcode_content_file_uid",  # type: ignore
                 b"transcode_job_finished_at",  # type: ignore
+                b"analyze_job_queued_at",  # type: ignore
+                b"encrypted_time_vs_intensity",  # type: ignore
+                b"analyze_job_finished_at",  # type: ignore
                 b"finalize_job_queued_at",  # type: ignore
             ),
         )
@@ -75,20 +82,24 @@ async def execute(
             or started_at is None
             or upload_success_job_at is None
             or stitched_s3_key is None
+            or journal_master_key_uid is None
             or transcribe_job_queued_at is None
             or encrypted_transcription_vtt is None
-            or transcription_vtt_journal_master_key_uid is None
             or transcription_source is None
             or transcribe_job_finished_at is None
             or transcode_job_queued_at is None
             or transcode_content_file_uid is None
             or transcode_job_finished_at is None
+            or analyze_job_queued_at is None
+            or encrypted_time_vs_intensity is None
+            or analyze_job_finished_at is None
             or finalize_job_queued_at is None
             or stitched_s3_key == b"not_yet"
             or encrypted_transcription_vtt == b"not_yet"
-            or transcription_vtt_journal_master_key_uid == b"not_yet"
+            or journal_master_key_uid == b"not_yet"
             or transcription_source == b"not_yet"
             or transcode_content_file_uid == b"not_yet"
+            or encrypted_time_vs_intensity == b"not_yet"
         ):
             await handle_warning(
                 f"{__name__}:not_ready",
@@ -98,14 +109,17 @@ async def execute(
                     f"• started at: `{started_at}`\n"
                     f"• upload success job at: `{upload_success_job_at}`\n"
                     f"• stitched s3 key: `{stitched_s3_key}`\n"
+                    f"• journal master key uid: `{journal_master_key_uid}`\n"
                     f"• transcribe job queued at: `{transcribe_job_queued_at}`\n"
                     f"• encrypted transcription vtt (first 6): `{None if encrypted_transcription_vtt is None else encrypted_transcription_vtt[:6]}`\n"
-                    f"• transcription vtt journal master key uid: `{transcription_vtt_journal_master_key_uid}`\n"
                     f"• transcription source: `{transcription_source}`\n"
                     f"• transcribe job finished at: `{transcribe_job_finished_at}`\n"
                     f"• transcode job queued at: `{transcode_job_queued_at}`\n"
                     f"• transcode content file uid: `{transcode_content_file_uid}`\n"
                     f"• transcode job finished at: `{transcode_job_finished_at}`\n"
+                    f"• analyze job queued at: `{analyze_job_queued_at}`\n"
+                    f"• encrypted time vs intensity (first 6): `{None if encrypted_time_vs_intensity is None else encrypted_time_vs_intensity[:6]}`\n"
+                    f"• analyze job finished at: `{analyze_job_finished_at}`\n"
                     f"• finalize job queued at: `{finalize_job_queued_at}`"
                 ),
             )
@@ -119,21 +133,43 @@ async def execute(
         files = await itgs.files()
         transcript_s3_file_key = f"s3_files/voice_notes/transcripts/{voice_note_uid}/{secrets.token_urlsafe(4)}.vtt.fernet"
         transcript_s3_file_uid = f"oseh_s3f_{secrets.token_urlsafe(16)}"
+        time_vs_intensity_s3_file_key = f"s3_files/voice_notes/time_vs_intensity/{voice_note_uid}/{secrets.token_urlsafe(4)}.jsonlines.fernet"
+        time_vs_intensity_s3_file_uid = f"oseh_s3f_{secrets.token_urlsafe(16)}"
 
-        purgatory_key = json.dumps(
+        transcript_purgatory_key = json.dumps(
             {"key": transcript_s3_file_key, "bucket": files.default_bucket},
             sort_keys=True,
         )
-        await redis.zadd("files:purgatory", mapping={purgatory_key: time.time() + 3000})
+        time_vs_intensity_purgatory_key = json.dumps(
+            {"key": time_vs_intensity_s3_file_key, "bucket": files.default_bucket},
+            sort_keys=True,
+        )
+        await redis.zadd(
+            "files:purgatory",
+            mapping={
+                transcript_purgatory_key: time.time() + 3000,
+                time_vs_intensity_purgatory_key: time.time() + 3000,
+            },
+        )
         await helper.push_progress(
-            "moving encrypted transcript to s3", indicator={"type": "spinner"}
+            "moving encrypted transcript and analysis to s3",
+            indicator={"type": "spinner"},
         )
-        await files.upload(
-            io.BytesIO(encrypted_transcription_vtt),
-            bucket=files.default_bucket,
-            key=transcript_s3_file_key,
-            sync=True,
+        await asyncio.gather(
+            files.upload(
+                io.BytesIO(encrypted_transcription_vtt),
+                bucket=files.default_bucket,
+                key=transcript_s3_file_key,
+                sync=True,
+            ),
+            files.upload(
+                io.BytesIO(encrypted_time_vs_intensity),
+                bucket=files.default_bucket,
+                key=time_vs_intensity_s3_file_key,
+                sync=True,
+            ),
         )
+
         await helper.push_progress("finishing up", indicator={"type": "spinner"})
         user_sub_str = user_sub.decode("utf-8")
         voice_note_created_at = time.time()
@@ -161,7 +197,7 @@ WHERE
     AND user_id = (SELECT users.id FROM users WHERE users.sub = ?)
                     """,
                     (
-                        transcription_vtt_journal_master_key_uid.decode("utf-8"),
+                        journal_master_key_uid.decode("utf-8"),
                         user_sub_str,
                     ),
                 ),
@@ -170,13 +206,18 @@ WHERE
 INSERT INTO s3_files (
     uid, key, file_size, content_type, created_at
 )
-VALUES (?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
                     """,
                     (
                         transcript_s3_file_uid,
                         transcript_s3_file_key,
                         len(encrypted_transcription_vtt),
-                        f"text/vtt; encryption=fernet+{transcription_vtt_journal_master_key_uid.decode('utf-8')}",
+                        f"text/vtt; encryption=fernet+{journal_master_key_uid.decode('utf-8')}",
+                        voice_note_created_at,
+                        time_vs_intensity_s3_file_uid,
+                        time_vs_intensity_s3_file_key,
+                        len(encrypted_time_vs_intensity),
+                        f"application/jsonlines; encryption=fernet+{journal_master_key_uid.decode('utf-8')}",
                         voice_note_created_at,
                     ),
                 ),
@@ -189,16 +230,30 @@ INSERT INTO voice_notes (
     transcript_s3_file_id,
     transcription_source,
     audio_content_file_id,
+    time_vs_avg_signal_intensity_s3_file_id,
     created_at
 )
 SELECT
-    ?, users.id, user_journal_master_keys.id, s3_files.id, ?, content_files.id, ?
-FROM users, user_journal_master_keys, s3_files, content_files
+    ?,
+    users.id,
+    user_journal_master_keys.id,
+    transcript_s3_files.id,
+    ?,
+    content_files.id,
+    time_vs_avg_signal_intensity_s3_files.id,
+    ?
+FROM
+    users,
+    user_journal_master_keys,
+    s3_files AS transcript_s3_files,
+    s3_files AS time_vs_avg_signal_intensity_s3_files,
+    content_files
 WHERE
     users.sub = ?
     AND user_journal_master_keys.uid = ?
     AND user_journal_master_keys.user_id = users.id
-    AND s3_files.key = ?
+    AND transcript_s3_files.key = ?
+    AND time_vs_avg_signal_intensity_s3_files.key = ?
     AND content_files.uid = ?
     AND NOT EXISTS (
         SELECT 1 FROM voice_notes AS vn WHERE vn.uid = ?
@@ -209,8 +264,9 @@ WHERE
                         transcription_source.decode("utf-8"),
                         voice_note_created_at,
                         user_sub_str,
-                        transcription_vtt_journal_master_key_uid.decode("utf-8"),
+                        journal_master_key_uid.decode("utf-8"),
                         transcript_s3_file_key,
+                        time_vs_intensity_s3_file_key,
                         transcode_content_file_uid.decode("utf-8"),
                         voice_note_uid,
                     ),
@@ -233,7 +289,11 @@ WHERE
         if did_insert:
             async with redis.pipeline() as pipe:
                 pipe.multi()
-                await pipe.zrem("files:purgatory", purgatory_key)
+                await pipe.zrem(
+                    "files:purgatory",
+                    transcript_purgatory_key,
+                    time_vs_intensity_purgatory_key,
+                )
                 await pipe.delete(b"voice_notes:processing:" + voice_note_uid_bytes)
                 await pipe.zrem(b"voice_notes:processing", voice_note_uid_bytes)
                 await pipe.execute()
@@ -266,15 +326,15 @@ WHERE
             assert not did_insert, "inserted despite journal key not found"
             await handle_warning(
                 f"{__name__}:journal_key_not_found",
-                f"Cannot finalize voice note `{voice_note_uid}` because the journal key `{transcription_vtt_journal_master_key_uid.decode('utf-8')}` was not found",
+                f"Cannot finalize voice note `{voice_note_uid}` because the journal key `{journal_master_key_uid.decode('utf-8')}` was not found",
             )
             raise CustomFailureReasonException("journal key not found")
 
-        if s3_files_insert_response.rows_affected != 1:
-            assert not did_insert, "inserted despite s3 file not inserted"
+        if s3_files_insert_response.rows_affected != 2:
+            assert not did_insert, "inserted despite s3 files not inserted"
             await handle_warning(
                 f"{__name__}:s3_file_not_inserted",
-                f"Cannot finalize voice note `{voice_note_uid}` because the transcript s3 file `{transcript_s3_file_key}` was not inserted",
+                f"Cannot finalize voice note `{voice_note_uid}` because the s3 file `{transcript_s3_file_key}` or `{time_vs_intensity_s3_file_key}` was not inserted",
             )
             raise CustomFailureReasonException("failed to move transcript to s3")
 

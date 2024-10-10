@@ -114,3 +114,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, uid: str):
             await redis.zrem("files:purgatory", part_uids_to_purgatory_keys[part.uid])
 
     logging.info(f"Deleted content file with {uid=} from S3")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        uid = input("uid: ")
+        async with Itgs() as itgs:
+            jobs = await itgs.jobs()
+            await jobs.enqueue("runners.delete_content_file", uid=uid)
+
+    asyncio.run(main())

@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field, TypeAdapter, validator
 from typing import Literal, List, Optional, Union, cast
 
 from lib.image_files.image_file_ref import ImageFileRef
+from lib.transcripts.model import ExternalTranscript
+from lib.journals.encode_float import encode_float
 
 # small strings:
 # >>> timeit.timeit(stmt='adapter.dump_json(s)', setup='from pydantic import TypeAdapter; adapter = TypeAdapter(str); s="some test string" * 10')
@@ -31,6 +33,29 @@ class JournalEntryItemTextualPartParagraph(BaseModel):
         out.write(b'{"type": "paragraph", "value": ')
         out.write(str_adapter.dump_json(self.value))
         out.write(b"}")
+
+
+class JournalEntryItemTextualPartVoiceNote(BaseModel):
+    type: Literal["voice_note"] = Field(description="A link to a voice note")
+    voice_note_uid: str = Field(description="The UID of the voice note that was linked")
+
+
+class JournalEntryItemTextualPartVoiceNoteClient(BaseModel):
+    transcription: ExternalTranscript = Field(
+        description="The transcription of the voice note with the uid set to an empty string"
+    )
+    type: Literal["voice_note"] = Field(description="A link to a voice note")
+    voice_note_jwt: str = Field(description="A JWT providing access to the voice note")
+    voice_note_uid: str = Field(description="The UID of the voice note that was linked")
+
+    def model_dump_for_integrity(self, out: io.BytesIO) -> None:
+        out.write(b'{"transcription": ')
+        self.transcription.model_dump_for_integrity(out)
+        out.write(b', "type": "voice_note", "voice_note_jwt": "')
+        out.write(self.voice_note_jwt.encode("ascii"))
+        out.write(b'", "voice_note_uid": "')
+        out.write(self.voice_note_uid.encode("ascii"))
+        out.write(b'"}')
 
 
 class JournalEntryItemTextualPartJourney(BaseModel):
@@ -122,11 +147,15 @@ class JournalEntryItemTextualPartJourneyClient(BaseModel):
 
 
 JournalEntryItemTextualPart = Union[
-    JournalEntryItemTextualPartJourney, JournalEntryItemTextualPartParagraph
+    JournalEntryItemTextualPartJourney,
+    JournalEntryItemTextualPartParagraph,
+    JournalEntryItemTextualPartVoiceNote,
 ]
 
 JournalEntryItemTextualPartClient = Union[
-    JournalEntryItemTextualPartJourneyClient, JournalEntryItemTextualPartParagraph
+    JournalEntryItemTextualPartJourneyClient,
+    JournalEntryItemTextualPartParagraph,
+    JournalEntryItemTextualPartVoiceNoteClient,
 ]
 
 
@@ -345,17 +374,3 @@ class JournalEntryItemDataClient(BaseModel):
 
     def repr(self):
         return str(self)
-
-
-def encode_float(v: Union[int, float]) -> str:
-    """Encodes a float as string in a way that can be exactly replicated
-    in javascript via
-
-    return v.toLocaleString('en-US', {
-        minimumFractionDigits: 3,
-        maximumFractionDigits: 3,
-        notation: 'standard',
-        useGrouping: false,
-    });
-    """
-    return f"{v:.3f}"

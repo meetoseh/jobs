@@ -76,6 +76,7 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         journal_entry_uid=ctx.journal_entry_uid,
         user_sub=ctx.user_sub,
         pending_moderation="resolve",
+        ctx=ctx,
     )
     await conversation_stream.start()
 
@@ -130,7 +131,9 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
                 user_message_entry = next_item_result.item
                 continue
 
-    inspect_result = DataToClientInspectResult(pro=False, journeys=set())
+    inspect_result = DataToClientInspectResult(
+        pro=False, journeys=set(), voice_notes=set()
+    )
     for item in server_items:
         inspect_data_to_client(item.data, out=inspect_result)
     await bulk_prepare_data_to_client(itgs, ctx=ctx, inspect=inspect_result)
@@ -154,12 +157,12 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     await chat_helper.publish_spinner(itgs, ctx=ctx, message="Brainstorming options...")
 
     text_greeting = (
-        chat_helper.extract_as_text(greeting_entry.data)
+        await chat_helper.extract_as_text(itgs, ctx=ctx, item=greeting_entry.data)
         if greeting_entry is not None
         else None
     )
     text_user_message = (
-        chat_helper.extract_as_text(user_message_entry.data)
+        await chat_helper.extract_as_text(itgs, ctx=ctx, item=user_message_entry.data)
         if user_message_entry is not None
         else None
     )

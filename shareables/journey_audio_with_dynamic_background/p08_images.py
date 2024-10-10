@@ -701,7 +701,7 @@ class StabilityAIImageGenerator(ImageGenerator):
             )
             img = Image.open(image_path)
             img.load()
-            img = img.resize((self.width, self.height), Image.LANCZOS)
+            img = img.resize((self.width, self.height), Image.Resampling.LANCZOS)
             img.save(image_path)
             img.close()
             img_width = self.width
@@ -902,7 +902,7 @@ class BlurredBackgroundImageResizer(TransformationImageGenerator):
         if res.width == self.width and res.height == self.height:
             return res
 
-        out = res.resize((self.width, self.height), Image.NEAREST)
+        out = res.resize((self.width, self.height), Image.Resampling.NEAREST)
         out = out.filter(ImageFilter.GaussianBlur(15))
 
         out.paste(

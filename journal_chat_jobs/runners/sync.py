@@ -20,6 +20,7 @@ async def handle_sync(itgs: Itgs, ctx: JournalChatJobContext) -> None:
         journal_entry_uid=ctx.journal_entry_uid,
         user_sub=ctx.user_sub,
         pending_moderation="ignore",
+        ctx=ctx,
     )
     await stream.start()
 
