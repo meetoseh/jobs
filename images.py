@@ -1019,7 +1019,6 @@ async def _upload_one_with_idx(
 async def _upload_one(
     local_image_file_export: LocalImageFileExport, itgs: Itgs
 ) -> UploadedImageFileExport:
-    redis = await itgs.redis()
     files = await itgs.files()
     conn = await itgs.conn()
     cursor = conn.cursor("strong")
@@ -1040,7 +1039,8 @@ async def _upload_one(
 
     purgatory_key = json.dumps({"bucket": bucket, "key": key}, sort_keys=True)
 
-    await redis.zadd("files:purgatory", {purgatory_key: times_out_at})
+    await itgs.ensure_redis_liveliness()
+    await (await itgs.redis()).zadd("files:purgatory", {purgatory_key: times_out_at})
 
     for attempt in range(5):
         if attempt > 0:
@@ -1069,7 +1069,8 @@ async def _upload_one(
         """,
         (uid, key, local_image_file_export.file_size, content_type, now),
     )
-    await redis.zrem("files:purgatory", purgatory_key)
+    await itgs.ensure_redis_liveliness()
+    await (await itgs.redis()).zrem("files:purgatory", purgatory_key)
     return UploadedImageFileExport(
         local_image_file_export=local_image_file_export,
         s3_file=S3File(
