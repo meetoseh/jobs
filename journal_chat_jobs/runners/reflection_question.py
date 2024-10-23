@@ -145,7 +145,7 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     chat_state = JournalChat(
         uid=ctx.journal_chat_uid,
         integrity="",
-        data=client_items,
+        data=client_items[:reflection_question_index],
     )
     chat_state.integrity = chat_state.compute_integrity()
     await chat_helper.publish_mutations(
@@ -210,22 +210,41 @@ async def handle_reflection(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     ):
         return
 
-    if reflection_question_index is not None:
-        chat_state.data[reflection_question_index] = data[1]
-    else:
-        chat_state.data.append(data[1])
-        reflection_question_index = len(chat_state.data) - 1
+    chat_state.data.append(data[1])
+    reflection_question_index = len(chat_state.data) - 1
 
     chat_state.integrity = chat_state.compute_integrity()
     await chat_helper.publish_mutations(
         itgs,
         ctx=ctx,
-        final=True,
+        final=len(client_items) == len(chat_state.data),
         mutations=[
             SegmentDataMutation(key=["integrity"], value=chat_state.integrity),
             SegmentDataMutation(key=["data", reflection_question_index], value=data[1]),
         ],
     )
+
+    if len(client_items) != len(chat_state.data):
+        chat_state.data.extend(client_items[reflection_question_index + 1 :])
+        chat_state.integrity = chat_state.compute_integrity()
+
+        await chat_helper.publish_mutations(
+            itgs,
+            ctx=ctx,
+            final=True,
+            mutations=[
+                SegmentDataMutation(key=["integrity"], value=chat_state.integrity),
+                *[
+                    SegmentDataMutation(
+                        key=["data", i + reflection_question_index + 1], value=item
+                    )
+                    for i, item in enumerate(
+                        client_items[reflection_question_index + 1 :]
+                    )
+                ],
+            ],
+        )
+
     ctx.stats.incr_completed(
         requested_at_unix_date=ctx.queued_at_unix_date_in_stats_tz, type=ctx.type
     )
