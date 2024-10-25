@@ -83,7 +83,7 @@ class DescribedUser(BaseModel):
         Literal["Google", "SignInWithApple", "Direct", "Silent", "Passkey", "Dev"]
     ] = Field(
         description="The providers of the identities associated with the user",
-        max_length=4,
+        max_length=6,
     )
     timezone: Optional[str] = Field(
         description="The users timezone as an IANA timezone string, if set"
