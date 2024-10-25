@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import List, Optional, cast
+from typing import List, Optional, Tuple, cast
 
 import openai
 from error_middleware import handle_warning
@@ -20,6 +20,7 @@ import logging
 
 CONTEXT_WINDOW_MAX_WORDS = 100_000
 CONTEXT_WINDOW_MAX_CHARACTERS = 500_000
+CONTEXT_WINDOW_MAX_ENTRIES = 20
 
 # LARGE_MODEL = "o1-preview"
 # BIG_RATELIMIT_CATEGORY = "o1-preview"
@@ -128,6 +129,7 @@ async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[st
     result: List[str] = []
     result_length_words = 0
     result_length_characters = 0
+    result_entries = 0
 
     last_entry_canonical_at: Optional[float] = None
     last_entry_uid: Optional[str] = None
@@ -159,7 +161,7 @@ WHERE
         )
     )
 ORDER BY journal_entries.canonical_at DESC, journal_entries.uid ASC
-LIMIT 5
+LIMIT 10
             """
             ),
             [
@@ -179,21 +181,37 @@ LIMIT 5
         if not response.results:
             return result
 
+        rows_cast: List[Tuple[str, float, int]] = []
         for row in response.results:
             row_uid = cast(str, row[0])
             row_canonical_at = cast(float, row[1])
             row_canonical_unix_date = cast(int, row[2])
+            rows_cast.append((row_uid, row_canonical_at, row_canonical_unix_date))
 
-            last_entry_canonical_at = row_canonical_at
-            last_entry_uid = row_uid
+        last_entry_canonical_at = rows_cast[-1][1]
+        last_entry_uid = rows_cast[-1][0]
 
-            context_item = await get_context_window_item(
-                itgs,
-                ctx,
-                uid=row_uid,
-                canonical_at=row_canonical_at,
-                canonical_unix_date=row_canonical_unix_date,
+        context_item_tasks: List[asyncio.Task[Optional[str]]] = []
+
+        for row_uid, row_canonical_at, row_canonical_unix_date in rows_cast:
+            context_item_tasks.append(
+                asyncio.create_task(
+                    get_context_window_item(
+                        itgs,
+                        ctx,
+                        uid=row_uid,
+                        canonical_at=row_canonical_at,
+                        canonical_unix_date=row_canonical_unix_date,
+                    )
+                )
             )
+
+        for (
+            row_uid,
+            row_canonical_at,
+            row_canonical_unix_date,
+        ), context_item_task in zip(rows_cast, context_item_tasks):
+            context_item = await context_item_task
 
             if context_item is None:
                 logging.info(
@@ -223,6 +241,13 @@ LIMIT 5
             result.append(context_item)
             result_length_words = effective_num_words
             result_length_characters = effective_num_characters
+            result_entries = result_entries + 1
+
+        if result_entries >= CONTEXT_WINDOW_MAX_ENTRIES:
+            logging.info(
+                f"{ctx.log_id}: stopping at {result_entries} entries - reached max entry length"
+            )
+            return result
 
 
 async def get_context_window_item(
