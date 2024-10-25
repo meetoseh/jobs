@@ -101,6 +101,7 @@ class JournalChatJobConversationStream:
         user_sub: str,
         pending_moderation: Literal["resolve", "error", "ignore"],
         ctx: JournalChatJobContext,
+        read_consistency: Literal["none", "weak", "strong"] = "weak",
     ) -> None:
         self.journal_entry_uid: str = journal_entry_uid
         """The journal entry that we are streaming"""
@@ -163,6 +164,9 @@ class JournalChatJobConversationStream:
         """The journal chat job context for data_to_client, in case we have to load
         some data for the journal entry items and you want to reuse it later
         """
+
+        self.read_consistency: Literal["none", "weak", "strong"] = read_consistency
+        """The read consistency level for the database queries"""
 
     async def start(self) -> None:
         """Starts loading items in the background"""
@@ -354,7 +358,7 @@ class JournalChatJobConversationStream:
         try:
             async with Itgs() as itgs:
                 conn = await itgs.conn()
-                cursor = conn.cursor("weak")
+                cursor = conn.cursor(self.read_consistency)
 
                 last_entry_counter: Optional[int] = None
                 master_keys_by_uid: Dict[

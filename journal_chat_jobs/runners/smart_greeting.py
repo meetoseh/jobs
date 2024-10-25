@@ -264,6 +264,7 @@ async def get_context_window_item(
         user_sub=ctx.user_sub,
         pending_moderation="resolve",
         ctx=ctx,
+        read_consistency="none",
     )
     client_items: List[JournalEntryItem] = []
     try:
