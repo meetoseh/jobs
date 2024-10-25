@@ -2,7 +2,9 @@ from typing import Literal
 from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 from journal_chat_jobs.runners.chat_embeddings_rank_and_pluck import handle_chat
-from journal_chat_jobs.runners.greeting import handle_greeting
+from journal_chat_jobs.runners.smart_greeting import (
+    handle_smart_greeting as handle_greeting,
+)
 from journal_chat_jobs.runners.reflection_question import handle_reflection
 from journal_chat_jobs.runners.summarize import handle_summarize
 from journal_chat_jobs.runners.sync import handle_sync

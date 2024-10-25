@@ -30,7 +30,7 @@ class OpenAIRatelimitInfo:
     """How many tokens"""
 
 
-OpenAICategory = Literal["gpt-4o", "gpt-4o-mini"]
+OpenAICategory = Literal["gpt-4o", "gpt-4o-mini", "o1-preview"]
 
 # These are based on the actual ratelimits, but also modified to avoid excessive
 # burstiness (e.g., consuming the entire 1 minute bucket in 5s)
@@ -52,6 +52,18 @@ OPENAI_RATELIMITS_BY_CATEGORY = {
         ],
         tokens=[
             OpenAIRatelimitBucket(4_000_000, 60, 4_000_000),  # actual limit
+            OpenAIRatelimitBucket(
+                100_000, 1, 100_000
+            ),  # don't burst more than 100k tok/s
+        ],
+    ),
+    "o1-preview": OpenAIRatelimitInfo(
+        requests=[
+            OpenAIRatelimitBucket(5_000, 60, 5_000),  # actual limit
+            OpenAIRatelimitBucket(100, 1, 100),  # don't burst more than 100 req/s
+        ],
+        tokens=[
+            OpenAIRatelimitBucket(800_000, 60, 800_000),  # actual limit
             OpenAIRatelimitBucket(
                 100_000, 1, 100_000
             ),  # don't burst more than 100k tok/s

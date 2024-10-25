@@ -123,7 +123,6 @@ async def extract_as_text(
     """Assuming that the given journal item contains only text (paragraphs or voice
     notes), returns the text representation of the item.
     """
-    assert item.type == "chat", "unknown item type"
     assert item.data.type == "textual", "unknown item data type"
     assert item.data.parts, "empty item"
 
@@ -141,6 +140,14 @@ async def extract_as_text(
                 parts.append(" ".join(text for _, text in metadata.transcript.phrases))
             else:
                 parts.append("(deleted voice note)")
+        elif part.type == "journey":
+            metadata = await get_journal_chat_job_journey_metadata(
+                itgs, ctx=ctx, journey_uid=part.uid
+            )
+            if metadata is not None:
+                parts.append(
+                    f"(a link to {metadata.title} by {metadata.instructor.name})"
+                )
         else:
             raise ValueError(f"unknown part type: {part.type}")
     return "\n\n".join(parts)
