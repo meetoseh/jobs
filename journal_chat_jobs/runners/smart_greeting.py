@@ -293,11 +293,14 @@ async def get_context_window_item(
 
     relabel_author = {"self": "user", "other": "assistant"}
     parts: List[str] = []
-    for item in client_items:
+    for idx, item in enumerate(client_items):
         if item.data.processing_block is not None:
             return None
 
         if item.data.data.type != "textual" or not item.data.data.parts:
+            continue
+
+        if item.data.display_author == "other" and item.data.type == "chat" and idx > 0:
             continue
 
         try:
