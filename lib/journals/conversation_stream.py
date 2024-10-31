@@ -529,9 +529,26 @@ LIMIT ?
                                 )
 
                                 response2 = await cursor.execute(
-                                    "UPDATE journal_entry_items SET master_encrypted_data = ? WHERE uid = ? AND master_encrypted_data = ?",
+                                    """
+UPDATE journal_entry_items 
+SET 
+    master_encrypted_data = ?,
+    user_journal_master_key_id = (
+        SELECT user_journal_master_keys.id
+        FROM user_journal_master_keys, users
+        WHERE
+            user_journal_master_keys.uid = ?
+            AND user_journal_master_keys.user_id = users.id
+            AND users.sub = ?
+    )
+WHERE 
+    uid = ? 
+    AND master_encrypted_data = ?
+                                    """,
                                     (
                                         new_row_master_encrypted_data_base64url,
+                                        master_key_for_encryption.journal_master_key_uid,
+                                        self.user_sub,
                                         row_uid,
                                         row_master_encrypted_data_base64url,
                                     ),
@@ -549,6 +566,9 @@ LIMIT ?
 
                                 row_master_encrypted_data_base64url = (
                                     new_row_master_encrypted_data_base64url
+                                )
+                                row_master_key_uid = (
+                                    master_key_for_encryption.journal_master_key_uid
                                 )
                                 del new_row_master_encrypted_data_base64url
                             else:
