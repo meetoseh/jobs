@@ -1,24 +1,26 @@
 import asyncio
 import os
-from typing import List, Optional, Tuple, cast
+from typing import List, Optional, cast
 
 import openai
 from error_middleware import handle_warning
 from itgs import Itgs
+from journal_chat_jobs.lib.history.db import (
+    CorruptedJournalEntryItem,
+    JournalEntryItem,
+    JournalEntryMetadata,
+    load_user_journal_history,
+)
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 
 import journal_chat_jobs.lib.chat_helper as chat_helper
 from journal_chat_jobs.runners.greeting import handle_greeting
-from lib.journals.conversation_stream import (
-    JournalChatJobConversationStream,
-    JournalEntryItem,
-)
+from lib.journals.user_master_keys_memory_cache import UserMasterKeysMemoryCache
 from lib.users.time_of_day import get_time_of_day
 import unix_dates
 import logging
 
 
-CONTEXT_WINDOW_MAX_WORDS = 100_000
 CONTEXT_WINDOW_MAX_CHARACTERS = 500_000
 CONTEXT_WINDOW_MAX_ENTRIES = 20
 
@@ -121,207 +123,125 @@ async def handle_smart_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     )
 
 
-async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[str]:
-    """Creates a context window for the user, including all their previous messages."""
-    conn = await itgs.conn()
-    cursor = conn.cursor("weak")
+class _ContextWindowProcessor:
+    def __init__(self, itgs: Itgs, ctx: JournalChatJobContext, canceler: asyncio.Event):
+        self.itgs = itgs
+        self.parts: List[str] = []
+        self.entry_parts: Optional[List[str]] = None
+        self.entry_is_useful = False
+        self.ctx = ctx
+        self.canceler = canceler
+        self.character_length = 0
+        self.last_self_part = 0
 
-    result: List[str] = []
-    result_length_words = 0
-    result_length_characters = 0
-    result_entries = 0
+    async def start_entry(self, entry: JournalEntryMetadata) -> None:
+        date_for_user = unix_dates.unix_date_to_date(
+            entry.canonical_unix_date
+        ).strftime("%A, %b %d, %Y")
+        time_of_day_for_user = get_time_of_day(
+            entry.canonical_at, self.ctx.user_tz
+        ).value
+        self.entry_parts = [
+            f'<conversation date="{date_for_user}" time_of_day="{time_of_day_for_user}">'
+        ]
+        self.entry_is_useful = False
+        self.last_self_part = 0
 
-    last_entry_canonical_at: Optional[float] = None
-    last_entry_uid: Optional[str] = None
-    while True:
-        response = await cursor.execute(
-            """
-SELECT
-    journal_entries.uid,
-    journal_entries.canonical_at,
-    journal_entries.canonical_unix_date
-FROM journal_entries
-WHERE
-    journal_entries.user_id = (SELECT users.id FROM users WHERE users.sub=?)
-    AND EXISTS (
-        SELECT 1 FROM journal_entry_items 
-        WHERE 
-            journal_entry_items.journal_entry_id = journal_entries.id
-            AND journal_entry_items.entry_counter > 1
-    )"""
-            + (
-                ""
-                if last_entry_uid is None
-                else """
-    AND (
-        journal_entries.canonical_at < ?
-        OR (
-            journal_entries.canonical_at = ?
-            AND journal_entries.uid > ?
-        )
-    )
-ORDER BY journal_entries.canonical_at DESC, journal_entries.uid ASC
-LIMIT 10
-            """
-            ),
-            [
-                ctx.user_sub,
-                *(
-                    []
-                    if last_entry_uid is None
-                    else [
-                        last_entry_canonical_at,
-                        last_entry_canonical_at,
-                        last_entry_uid,
-                    ]
-                ),
-            ],
-        )
-
-        if not response.results:
-            return result
-
-        rows_cast: List[Tuple[str, float, int]] = []
-        for row in response.results:
-            row_uid = cast(str, row[0])
-            row_canonical_at = cast(float, row[1])
-            row_canonical_unix_date = cast(int, row[2])
-            rows_cast.append((row_uid, row_canonical_at, row_canonical_unix_date))
-
-        last_entry_canonical_at = rows_cast[-1][1]
-        last_entry_uid = rows_cast[-1][0]
-
-        context_item_tasks: List[asyncio.Task[Optional[str]]] = []
-
-        for row_uid, row_canonical_at, row_canonical_unix_date in rows_cast:
-            context_item_tasks.append(
-                asyncio.create_task(
-                    get_context_window_item(
-                        itgs,
-                        ctx,
-                        uid=row_uid,
-                        canonical_at=row_canonical_at,
-                        canonical_unix_date=row_canonical_unix_date,
-                    )
-                )
-            )
-
-        for (
-            row_uid,
-            row_canonical_at,
-            row_canonical_unix_date,
-        ), context_item_task in zip(rows_cast, context_item_tasks):
-            context_item = await context_item_task
-
-            if context_item is None:
-                logging.info(
-                    f"{ctx.log_id}: skipping journal entry {row_uid} - get_context_window_item result is None"
-                )
-                continue
-
-            context_item_num_characters = len(context_item)
-
-            effective_num_characters = (
-                result_length_characters + context_item_num_characters
-            )
-            if effective_num_characters > CONTEXT_WINDOW_MAX_CHARACTERS:
-                logging.info(
-                    f"{ctx.log_id}: skipping journal entry {row_uid} - reached max character length (would put us at {effective_num_characters} characters)"
-                )
-                return result
-
-            num_new_words = len(context_item.split())
-            effective_num_words = result_length_words + num_new_words
-            if effective_num_words > CONTEXT_WINDOW_MAX_WORDS:
-                logging.info(
-                    f"{ctx.log_id}: skipping journal entry {row_uid} - reached max word length (would put us at {effective_num_words} words)"
-                )
-                return result
-
-            result.append(context_item)
-            result_length_words = effective_num_words
-            result_length_characters = effective_num_characters
-            result_entries = result_entries + 1
-
-        if result_entries >= CONTEXT_WINDOW_MAX_ENTRIES:
-            logging.info(
-                f"{ctx.log_id}: stopping at {result_entries} entries - reached max entry length"
-            )
-            return result
-
-
-async def get_context_window_item(
-    itgs: Itgs,
-    ctx: JournalChatJobContext,
-    /,
-    *,
-    uid: str,
-    canonical_at: float,
-    canonical_unix_date: int,
-) -> Optional[str]:
-    conversation_stream = JournalChatJobConversationStream(
-        journal_entry_uid=uid,
-        user_sub=ctx.user_sub,
-        pending_moderation="resolve",
-        ctx=ctx,
-        read_consistency="none",
-    )
-    client_items: List[JournalEntryItem] = []
-    try:
-        await conversation_stream.start()
-        while True:
-            item = await conversation_stream.load_next_item(timeout=5)
-            if item.type == "finished":
-                break
-            if item.type != "item":
-                logging.info(
-                    f"{ctx.log_id}: not producing for {uid=} - type is {item.type}"
-                )
-                return None
-
-            client_items.append(item.item)
-    finally:
-        await conversation_stream.cancel()
-
-    if not client_items:
-        logging.info(f"{ctx.log_id}: not producing for {uid=} - no client items")
-        return None
-
-    if not any(item.data.display_author == "self" for item in client_items):
-        logging.info(f"{ctx.log_id}: not producing for {uid=} - no self items")
-        return None
-
-    relabel_author = {"self": "user", "other": "assistant"}
-    parts: List[str] = []
-    for idx, item in enumerate(client_items):
-        if item.data.processing_block is not None:
-            return None
+    async def process_item(
+        self, entry: JournalEntryMetadata, item: JournalEntryItem
+    ) -> None:
+        if self.entry_parts is None:
+            return
 
         if item.data.data.type != "textual" or not item.data.data.parts:
-            continue
+            return
 
-        if item.data.display_author == "other" and item.data.type == "chat" and idx > 0:
-            continue
+        if (
+            item.data.display_author == "other"
+            and item.data.type == "chat"
+            and item.entry_counter > 1
+        ):
+            return
+
+        if item.data.processing_block is not None:
+            self.entry_parts = None
+            return
 
         try:
-            textual = await chat_helper.extract_as_text(itgs, ctx=ctx, item=item.data)
+            textual = await chat_helper.extract_as_text(
+                self.itgs, ctx=self.ctx, item=item.data
+            )
         except Exception as e:
             await handle_warning(
                 f"{__name__}:extract_as_text",
                 f"Failed to extract text from item {item.uid}",
                 e,
             )
-            return None
-        parts.append(
-            f'<message type="{item.data.type}" author="{relabel_author[item.data.display_author]}">{textual}</message>'
+            self.entry_parts = None
+            return
+
+        if item.data.display_author == "self":
+            self.entry_is_useful = True
+            self.last_self_part = len(self.entry_parts)
+
+        author = "user" if item.data.display_author == "self" else "assistant"
+        self.entry_parts.append(
+            f'<message type="{item.data.type}" author="{author}">{textual}</message>'
         )
 
-    date_for_user = unix_dates.unix_date_to_date(canonical_unix_date).strftime(
-        "%A, %b %d, %Y"
-    )
-    time_of_day_for_user = get_time_of_day(canonical_at, ctx.user_tz).value
-    joined_parts = "".join(parts)
-    return f'<conversation date="{date_for_user}" time_of_day="{time_of_day_for_user}">{joined_parts}</conversation>'
+    async def process_corrupted_item(
+        self, entry: JournalEntryMetadata, item: CorruptedJournalEntryItem
+    ) -> None: ...
+
+    async def end_entry(self, entry: JournalEntryMetadata) -> None:
+        if self.entry_parts is None:
+            return
+        if not self.entry_is_useful:
+            self.entry_parts = None
+            return
+        if self.canceler.is_set():
+            self.entry_parts = None
+            return
+
+        if len(self.entry_parts) > self.last_self_part + 1:
+            self.entry_parts = self.entry_parts[: self.last_self_part + 1]
+
+        self.entry_parts.append("</conversation>")
+        entry_part = "".join(self.entry_parts)
+        entry_part_length = len(entry_part)
+        if self.character_length + entry_part_length > CONTEXT_WINDOW_MAX_CHARACTERS:
+            self.entry_parts = None
+            self.canceler.set()
+            return
+        self.parts.append("".join(self.entry_parts))
+        self.character_length += entry_part_length
+        self.entry_parts = None
+
+        if len(self.parts) >= CONTEXT_WINDOW_MAX_ENTRIES:
+            self.canceler.set()
+
+
+async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[str]:
+    """Creates a context window for the user, including all their previous messages."""
+    canceler = asyncio.Event()
+    processor = _ContextWindowProcessor(itgs, ctx, canceler)
+    async with UserMasterKeysMemoryCache(user_sub=ctx.user_sub) as master_keys:
+        load_task = asyncio.create_task(
+            load_user_journal_history(
+                itgs,
+                user_sub=ctx.user_sub,
+                master_keys=master_keys,
+                processor=processor,
+                read_consistency="weak",
+            )
+        )
+        wait_task = asyncio.create_task(canceler.wait())
+        await asyncio.wait([load_task, wait_task], return_when=asyncio.FIRST_COMPLETED)
+        if not load_task.cancel():
+            await load_task
+        if not wait_task.cancel():
+            await wait_task
+    return processor.parts
 
 
 async def _get_smart_greeting(
@@ -349,7 +269,8 @@ async def _get_smart_greeting(
                 f"You're a friendly colleague coming up with a good way to ask your friend{name} how they feel based on what you remember of your previous conversations.\n"
                 "Format your response as a short plain text question, like 'How are you feeling today?'\n"
                 "You can and should reference specific details, but make the question general enough "
-                "that they can take it where ever they want",
+                "that they can take it where ever they want.\n"
+                "Pay attention to the dates involved.",
             },
             {"role": "user", "content": "".join(content_window)},
         ],

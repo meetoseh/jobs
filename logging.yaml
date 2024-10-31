@@ -26,6 +26,7 @@ handlers:
     when: midnight
     interval: 1
     backupCount: 5
+    encoding: utf-8
 loggers:
   '':
     level: DEBUG
