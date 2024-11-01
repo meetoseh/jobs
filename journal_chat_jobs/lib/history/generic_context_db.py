@@ -80,7 +80,7 @@ class StandardStreamingUserLLMContextProcessor:
         """The event to set to cancel the load"""
 
     async def process_generic_context(self, item: UserLLMContextItem) -> None:
-        if self.canceler.set():
+        if self.canceler.is_set():
             return
 
         date_for_user = unix_dates.unix_date_to_date(item.created_unix_date).strftime(
