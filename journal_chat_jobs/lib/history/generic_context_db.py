@@ -91,7 +91,7 @@ class StandardStreamingUserLLMContextProcessor:
         )
 
         wrapped_item = f'<interaction date="{date_for_user}" time_of_day="{time_of_day_for_user}">{item.unstructured_data}</interaction>'
-        if self.max_characters + len(wrapped_item) > self.max_characters:
+        if self.characters + len(wrapped_item) > self.max_characters:
             self.canceler.set()
             return
 

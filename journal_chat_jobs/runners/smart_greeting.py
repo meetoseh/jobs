@@ -281,20 +281,32 @@ async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[st
 
                 if not generic_done:
                     if wait_generic_task.done():
+                        logging.debug(
+                            f"{ctx.log_id}: load user llm context processor requested cancel"
+                        )
                         generic_done = True
                         if not load_generic_task.cancel():
                             await load_generic_task
                     elif load_generic_task.done():
+                        logging.debug(
+                            f"{ctx.log_id}: load user llm context reached end"
+                        )
                         generic_done = True
                         if not wait_generic_task.cancel():
                             await wait_generic_task
 
                 if not journal_done:
                     if wait_journal_task.done():
+                        logging.debug(
+                            f"{ctx.log_id}: load user journal history processor requested cancel"
+                        )
                         journal_done = True
                         if not load_journal_task.cancel():
                             await load_journal_task
                     elif load_journal_task.done():
+                        logging.debug(
+                            f"{ctx.log_id}: load user journal history reached end"
+                        )
                         journal_done = True
                         if not wait_journal_task.cancel():
                             await wait_journal_task
@@ -307,6 +319,9 @@ async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[st
             load_journal_task.cancel()
             load_generic_task.cancel()
 
+    logging.debug(
+        f"{ctx.log_id} loaded {len(journal_processor.parts)} journal parts, {len(generic_processor.items)} generic items"
+    )
     journal_processor.parts.reverse()
     generic_processor.items.reverse()
     return generic_processor.items + journal_processor.parts
