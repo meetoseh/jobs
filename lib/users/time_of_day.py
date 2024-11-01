@@ -14,14 +14,17 @@ class TimeOfDay(str, Enum):
     """Between 5pm and 3am"""
 
 
-def get_time_of_day(at: float, tz: pytz.BaseTzInfo) -> TimeOfDay:
-    """Determines the time of day in the given timezone"""
-    dt = datetime.datetime.fromtimestamp(at, pytz.utc).astimezone(tz)
-
-    hour = dt.hour
+def get_time_of_day_from_hour(hour: int) -> TimeOfDay:
+    """Determines the time of day from the hour"""
     if 3 <= hour < 12:
         return TimeOfDay.morning
     elif 12 <= hour < 17:
         return TimeOfDay.afternoon
     else:
         return TimeOfDay.evening
+
+
+def get_time_of_day(at: float, tz: pytz.BaseTzInfo) -> TimeOfDay:
+    """Determines the time of day in the given timezone"""
+    dt = datetime.datetime.fromtimestamp(at, pytz.utc).astimezone(tz)
+    return get_time_of_day_from_hour(dt.hour)

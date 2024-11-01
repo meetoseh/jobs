@@ -11,6 +11,10 @@ from journal_chat_jobs.lib.history.db import (
     JournalEntryMetadata,
     load_user_journal_history,
 )
+from journal_chat_jobs.lib.history.generic_context_db import (
+    StandardStreamingUserLLMContextProcessor,
+    load_user_llm_context,
+)
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 
 import journal_chat_jobs.lib.chat_helper as chat_helper
@@ -21,8 +25,11 @@ import unix_dates
 import logging
 
 
-CONTEXT_WINDOW_MAX_CHARACTERS = 500_000
-CONTEXT_WINDOW_MAX_ENTRIES = 20
+JOURNAL_CONTEXT_WINDOW_MAX_CHARACTERS = 400_000
+JOURNAL_CONTEXT_WINDOW_MAX_ENTRIES = 20
+
+GENERIC_CONTEXT_WINDOW_MAX_CHARACTERS = 100_000
+GENERIC_CONTEXT_WINDOW_MAX_ENTRIES = 20
 
 # LARGE_MODEL = "o1-preview"
 # BIG_RATELIMIT_CATEGORY = "o1-preview"
@@ -45,8 +52,6 @@ async def handle_smart_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     if not context_window:
         logging.info(f"{ctx.log_id}: nothing in context window, using simple greeting")
         return await handle_greeting(itgs, ctx)
-
-    context_window.reverse()
 
     if os.environ["ENVIRONMENT"] == "dev":
         logging.info(f"Context window: {''.join(context_window)}")
@@ -209,7 +214,10 @@ class _ContextWindowProcessor:
         self.entry_parts.append("</conversation>")
         entry_part = "".join(self.entry_parts)
         entry_part_length = len(entry_part)
-        if self.character_length + entry_part_length > CONTEXT_WINDOW_MAX_CHARACTERS:
+        if (
+            self.character_length + entry_part_length
+            > JOURNAL_CONTEXT_WINDOW_MAX_CHARACTERS
+        ):
             self.entry_parts = None
             self.canceler.set()
             return
@@ -217,31 +225,91 @@ class _ContextWindowProcessor:
         self.character_length += entry_part_length
         self.entry_parts = None
 
-        if len(self.parts) >= CONTEXT_WINDOW_MAX_ENTRIES:
+        if len(self.parts) >= JOURNAL_CONTEXT_WINDOW_MAX_ENTRIES:
             self.canceler.set()
 
 
 async def make_context_window(itgs: Itgs, ctx: JournalChatJobContext) -> List[str]:
     """Creates a context window for the user, including all their previous messages."""
-    canceler = asyncio.Event()
-    processor = _ContextWindowProcessor(itgs, ctx, canceler)
+    load_journal_canceler = asyncio.Event()
+    load_generic_canceler = asyncio.Event()
+    journal_processor = _ContextWindowProcessor(itgs, ctx, load_journal_canceler)
+    generic_processor = StandardStreamingUserLLMContextProcessor(
+        max_items=GENERIC_CONTEXT_WINDOW_MAX_ENTRIES,
+        max_characters=GENERIC_CONTEXT_WINDOW_MAX_CHARACTERS,
+        canceler=load_generic_canceler,
+    )
     async with UserMasterKeysMemoryCache(user_sub=ctx.user_sub) as master_keys:
-        load_task = asyncio.create_task(
+        load_generic_task = asyncio.create_task(
+            load_user_llm_context(
+                itgs,
+                user_sub=ctx.user_sub,
+                master_keys=master_keys,
+                processor=generic_processor,
+                read_consistency="weak",
+                per_query_limit=min(100, GENERIC_CONTEXT_WINDOW_MAX_ENTRIES),
+            )
+        )
+        load_journal_task = asyncio.create_task(
             load_user_journal_history(
                 itgs,
                 user_sub=ctx.user_sub,
                 master_keys=master_keys,
-                processor=processor,
+                processor=journal_processor,
                 read_consistency="weak",
+                # some of these can be not helpful so we will leave per_query_limit
+                # at the default
             )
         )
-        wait_task = asyncio.create_task(canceler.wait())
-        await asyncio.wait([load_task, wait_task], return_when=asyncio.FIRST_COMPLETED)
-        if not load_task.cancel():
-            await load_task
-        if not wait_task.cancel():
-            await wait_task
-    return processor.parts
+        wait_generic_task = asyncio.create_task(load_generic_canceler.wait())
+        wait_journal_task = asyncio.create_task(load_journal_canceler.wait())
+
+        generic_done = False
+        journal_done = False
+        try:
+            while True:
+                tasks = []
+                if not generic_done:
+                    tasks.append(wait_generic_task)
+                    tasks.append(load_generic_task)
+
+                if not journal_done:
+                    tasks.append(wait_journal_task)
+                    tasks.append(load_journal_task)
+
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                if not generic_done:
+                    if wait_generic_task.done():
+                        generic_done = True
+                        if not load_generic_task.cancel():
+                            await load_generic_task
+                    elif load_generic_task.done():
+                        generic_done = True
+                        if not wait_generic_task.cancel():
+                            await wait_generic_task
+
+                if not journal_done:
+                    if wait_journal_task.done():
+                        journal_done = True
+                        if not load_journal_task.cancel():
+                            await load_journal_task
+                    elif load_journal_task.done():
+                        journal_done = True
+                        if not wait_journal_task.cancel():
+                            await wait_journal_task
+
+                if generic_done and journal_done:
+                    break
+        except:
+            wait_journal_task.cancel()
+            wait_generic_task.cancel()
+            load_journal_task.cancel()
+            load_generic_task.cancel()
+
+    journal_processor.parts.reverse()
+    generic_processor.items.reverse()
+    return generic_processor.items + journal_processor.parts
 
 
 async def _get_smart_greeting(

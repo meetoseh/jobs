@@ -3,8 +3,6 @@ from itgs import Itgs
 from journal_chat_jobs.lib.journal_chat_job_context import JournalChatJobContext
 
 import journal_chat_jobs.lib.chat_helper as chat_helper
-from lib.users.time_of_day import get_time_of_day
-import unix_dates
 
 
 async def handle_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
@@ -13,15 +11,6 @@ async def handle_greeting(itgs: Itgs, ctx: JournalChatJobContext) -> None:
     """
     conn = await itgs.conn()
     cursor = conn.cursor("weak")
-
-    unix_date_for_user = unix_dates.unix_timestamp_to_unix_date(
-        ctx.queued_at, tz=ctx.user_tz
-    )
-    # day_of_week_for_user = unix_dates.unix_date_to_date(unix_date_for_user).strftime(
-    #     "%A"
-    # )
-
-    # time_of_day_for_user = get_time_of_day(ctx.queued_at, ctx.user_tz).value
 
     response = await cursor.execute(
         "SELECT given_name FROM users WHERE sub=?", [ctx.user_sub]

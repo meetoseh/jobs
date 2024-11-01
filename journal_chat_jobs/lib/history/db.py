@@ -125,6 +125,7 @@ async def load_user_journal_history(
     master_keys: UserMasterKeysMemoryCache,
     processor: StreamingUserJournalHistoryProcessor,
     read_consistency: Literal["none", "weak", "strong"] = "weak",
+    per_query_limit: int = 100,
 ) -> None:
     """Iterates through the users history from newest to oldest, with items from
     oldest (lowest entry counter) to newest (highest entry counter), via the
@@ -197,7 +198,7 @@ ORDER BY
     journal_entries.canonical_at DESC,
     journal_entries.uid DESC,
     journal_entry_items.entry_counter ASC
-LIMIT 100
+LIMIT ?
             """,
             (
                 user_sub,
@@ -208,6 +209,7 @@ LIMIT 100
                 iter_info.entry_uid,
                 iter_info.item_entry_counter,
                 iter_info.item_entry_counter,
+                per_query_limit,
             ),
         )
 
@@ -287,6 +289,9 @@ LIMIT 100
                     created_unix_date=row_item_created_unix_date,
                 )
                 await processor.process_item(current_entry, item)
+
+        if len(response.results) < per_query_limit:
+            break
 
     if current_entry is not None:
         await processor.end_entry(current_entry)
