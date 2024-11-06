@@ -240,16 +240,24 @@ WHERE
             if creds.expired:
                 logging.info("Refreshng credentials...")
                 creds.refresh(google.auth.transport.requests.Request())
+                assert creds.token is not None
+                assert creds.refresh_token is not None
                 logging.info(
                     "Refreshed credentials, storing updated access token and refresh token"
+                )
+
+                enc_refresh_token = (
+                    creds.refresh_token.encode("utf-8")
+                    if isinstance(creds.refresh_token, str)
+                    else cast(bytes, creds.refresh_token)
                 )
                 await itgs.ensure_redis_liveliness()
                 redis = await itgs.redis()
                 await redis.hset(
                     b"youtube:authorization",  # type: ignore
                     mapping={
-                        "access_token": creds.token,
-                        "refresh_token": creds.refresh_token,
+                        b"access_token": creds.token.encode("utf-8"),
+                        b"refresh_token": enc_refresh_token,
                     },
                 )
 
