@@ -70,7 +70,7 @@ SELECT
     ?,
     journeys.id,
     journeys.video_content_file_id,
-    journeys.title,
+    concat(journeys.title, ' | ', instructors.name),
     journeys.description,
     json_array(
         'oseh',
