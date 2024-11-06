@@ -231,8 +231,8 @@ WHERE
                 )
                 return
 
-            access_token = response[1].decode("utf-8")
-            refresh_token = response[2].decode("utf-8")
+            access_token = response[0].decode("utf-8")
+            refresh_token = response[1].decode("utf-8")
 
             creds = google.oauth2.credentials.Credentials(
                 access_token, refresh_token=refresh_token
