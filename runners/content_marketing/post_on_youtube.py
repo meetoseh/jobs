@@ -256,6 +256,11 @@ WHERE
             logging.info(
                 f"Token info response status code: {token_info_response.status_code}"
             )
+            if token_info_response.ok:
+                data = token_info_response.json()
+                logging.info(
+                    "Token information:\n" + json.dumps(data, indent=2, sort_keys=True)
+                )
 
             if token_info_response.status_code == 401:
                 logging.info("Refreshing credentials...")
@@ -264,6 +269,7 @@ WHERE
                     refresh_token=refresh_token,
                     client_id=os.environ["OSEH_GOOGLE_CLIENT_ID"],
                     client_secret=os.environ["OSEH_GOOGLE_CLIENT_SECRET"],
+                    token_uri="https://www.googleapis.com/oauth2/v3/token",
                 )
                 creds.refresh(google.auth.transport.requests.Request())
                 assert creds.token is not None
