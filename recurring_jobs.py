@@ -989,6 +989,13 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, minutes=(0, 30), seconds=(0,)),
     ),
+    Job(
+        name="runners.content_marketing.post_next_on_youtube",
+        kwargs=tuple(),
+        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+        # ~500 videos to go through
+        # 500 / 4 = 125 hours; 5 days, 5 hours
+    ),
 )
 """The jobs that should be run."""
 

@@ -227,6 +227,13 @@ WHERE
             if not all(response) or not all(
                 isinstance(token, bytes) for token in response
             ):
+                if dry_run:
+                    logging.info(
+                        "DRY RUN: found and verified a journey, but no auth tokens to verify are valid. "
+                        "Exiting without warning due to dry run"
+                    )
+                    return
+
                 await handle_warning(
                     f"{__name__}:youtube_auth_missing",
                     f"Missing one or more YouTube authorization tokens",
