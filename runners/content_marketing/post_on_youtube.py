@@ -237,7 +237,7 @@ WHERE
             refresh_token = response[1].decode("utf-8")
 
             logging.info(
-                "Checking if credentials are expried using tokeninfo endpoint..."
+                "Checking if credentials are expired using tokeninfo endpoint..."
             )
 
             try:
@@ -256,11 +256,6 @@ WHERE
             logging.info(
                 f"Token info response status code: {token_info_response.status_code}"
             )
-            if token_info_response.ok:
-                data = token_info_response.json()
-                logging.info(
-                    "Token information:\n" + json.dumps(data, indent=2, sort_keys=True)
-                )
 
             if token_info_response.status_code == 401:
                 logging.info("Refreshing credentials...")
@@ -294,7 +289,7 @@ WHERE
                 )
                 slack = await itgs.slack()
                 await slack.send_ops_message(
-                    "Successfully refreshed YouTube account credentials"
+                    f"{socket.gethostname()} successfully refreshed YouTube account credentials"
                 )
 
                 access_token = creds.token
@@ -323,6 +318,7 @@ WHERE
 
             insert_request = youtube.videos().insert(
                 part=",".join(body.keys()),
+                notifySubscribers=False,
                 body=body,
                 media_body=apiclient.http.MediaFileUpload(
                     source_file, chunksize=-1, resumable=True
