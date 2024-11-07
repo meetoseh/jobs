@@ -16,6 +16,8 @@ import google.oauth2.credentials
 import google.auth.transport.requests
 import requests
 from temp_files import temp_file
+import asyncio
+import argparse
 
 
 category = JobCategory.LOW_RESOURCE_COST
@@ -357,8 +359,6 @@ WHERE
 
 
 if __name__ == "__main__":
-    import asyncio
-    import argparse
 
     async def main():
         parser = argparse.ArgumentParser()
