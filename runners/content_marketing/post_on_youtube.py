@@ -14,7 +14,7 @@ import os
 import apiclient
 import google.oauth2.credentials
 import google.auth.transport.requests
-
+import requests
 from temp_files import temp_file
 
 
@@ -234,11 +234,35 @@ WHERE
             access_token = response[0].decode("utf-8")
             refresh_token = response[1].decode("utf-8")
 
-            creds = google.oauth2.credentials.Credentials(
-                access_token, refresh_token=refresh_token
+            logging.info(
+                "Checking if credentials are expried using tokeninfo endpoint..."
             )
-            if creds.expired:
-                logging.info("Refreshng credentials...")
+
+            try:
+                token_info_response = await asyncio.to_thread(
+                    requests.get,
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            except Exception as e:
+                await handle_error(
+                    e,
+                    extra_info="An error occurred while checking if the credentials are expired",
+                )
+                return
+
+            logging.info(
+                f"Token info response status code: {token_info_response.status_code}"
+            )
+
+            if token_info_response.status_code == 401:
+                logging.info("Refreshing credentials...")
+                creds = google.oauth2.credentials.Credentials(
+                    access_token,
+                    refresh_token=refresh_token,
+                    client_id=os.environ["OSEH_GOOGLE_CLIENT_ID"],
+                    client_secret=os.environ["OSEH_GOOGLE_CLIENT_SECRET"],
+                )
                 creds.refresh(google.auth.transport.requests.Request())
                 assert creds.token is not None
                 assert creds.refresh_token is not None
@@ -260,7 +284,16 @@ WHERE
                         b"refresh_token": enc_refresh_token,
                     },
                 )
+                slack = await itgs.slack()
+                await slack.send_ops_message(
+                    "Successfully refreshed YouTube account credentials"
+                )
 
+                access_token = creds.token
+
+            del refresh_token  # may not be valid from here (we just refreshed it)
+
+            creds = google.oauth2.credentials.Credentials(access_token)
             youtube = apiclient.discovery.build("youtube", "v3", credentials=creds)
             body = {
                 "snippet": {
