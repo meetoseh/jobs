@@ -78,7 +78,7 @@ referencing==0.35.1
 requests==2.31.0
 rfc3339-validator==0.1.4
 rpds-py==0.18.1
-rqdb==1.6.0
+rqdb==1.6.1
 rsa==4.9
 s3transfer==0.10.0
 scipy==1.12.0
