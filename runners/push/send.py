@@ -1,4 +1,5 @@
 """Our "Send Job", which converts message attempts into push tickets"""
+
 import gzip
 import json
 import os

@@ -1,4 +1,5 @@
 """Reconciles email events with the receipt pending set"""
+
 from typing import Optional, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath

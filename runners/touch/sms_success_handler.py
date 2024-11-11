@@ -1,4 +1,5 @@
 """The SMS success handler for the touch system"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

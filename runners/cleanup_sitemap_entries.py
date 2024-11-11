@@ -1,4 +1,5 @@
 """Cleans up rows in sitemap_entries that are no longer in the sitemap"""
+
 import json
 from error_middleware import handle_warning
 from itgs import Itgs

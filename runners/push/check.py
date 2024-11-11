@@ -1,4 +1,5 @@
 """Push Receipt Check Job"""
+
 import gzip
 import json
 import os

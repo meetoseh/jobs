@@ -1,4 +1,5 @@
 """SMS Send Job"""
+
 import logging
 import time
 from typing import Optional, Union
@@ -324,15 +325,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                         )
 
                     date_updated_str: str = message_resource_obj["date_updated"]
-                    error_code_raw: Optional[
-                        Union[str, int]
-                    ] = message_resource_obj.get("error_code")
+                    error_code_raw: Optional[Union[str, int]] = (
+                        message_resource_obj.get("error_code")
+                    )
                     message_resource = MessageResource(
                         sid=message_resource_obj["sid"],
                         status=message_resource_obj["status"],
-                        error_code=str(error_code_raw)
-                        if error_code_raw is not None
-                        else None,
+                        error_code=(
+                            str(error_code_raw) if error_code_raw is not None else None
+                        ),
                         date_updated=email.utils.parsedate_to_datetime(
                             date_updated_str
                         ).timestamp(),

@@ -1,4 +1,5 @@
 """A barebones success handler for sms"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

@@ -88,13 +88,16 @@ class DailyRemindersSwap:
     # we always include unsubscribe_url for the email channel
 
 
-CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(Optional[DailyRemindersSwap], DailyRemindersSwap(
-    touch_point_event_slug="where_the_love_rests_announce",
-    start_unix_date=19972,
-    end_unix_date=19972,
-    slug="where_the_love_rests_announce",
-    max_created_at=1725551426,
-))
+CURRENT_SWAP: Optional[DailyRemindersSwap] = cast(
+    Optional[DailyRemindersSwap],
+    DailyRemindersSwap(
+        touch_point_event_slug="where_the_love_rests_announce",
+        start_unix_date=19972,
+        end_unix_date=19972,
+        slug="where_the_love_rests_announce",
+        max_created_at=1725551426,
+    ),
+)
 
 
 async def execute(itgs: Itgs, gd: GracefulDeath):

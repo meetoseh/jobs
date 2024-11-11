@@ -10,6 +10,7 @@ provides an easy mechanism to implement retries and tracking. Furthermore, an
 explanation plus statistics for the entire flow are available in
 /admin/notifs_dashboard
 """
+
 from typing import Optional
 from itgs import Itgs
 from lib.shared.job_callback import JobCallback

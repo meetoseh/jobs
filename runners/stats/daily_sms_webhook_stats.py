@@ -1,4 +1,5 @@
 """Deletes old SMS webhook stats"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

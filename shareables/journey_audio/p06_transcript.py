@@ -2,6 +2,7 @@
 the relevant portion of the audio file. Note that this is labeled
 as step 6, since the first 5 steps are the same as in journey_audio.
 """
+
 import logging
 from typing import Optional, cast
 from itgs import Itgs

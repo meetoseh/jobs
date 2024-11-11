@@ -1,4 +1,5 @@
 """Queues a job to create missing journey share images"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 

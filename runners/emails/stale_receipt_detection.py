@@ -1,4 +1,5 @@
 """Removes stale receipts from the receipt pending set"""
+
 from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath

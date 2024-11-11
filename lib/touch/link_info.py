@@ -41,13 +41,13 @@ class TouchLink(BaseModel):
             uid=args[0] if isinstance(args[0], str) else str(args[0], "utf-8"),
             code=args[1] if isinstance(args[1], str) else str(args[1], "utf-8"),
             touch_uid=args[2] if isinstance(args[2], str) else str(args[2], "utf-8"),
-            page_identifier=args[3]
-            if isinstance(args[3], str)
-            else str(args[3], "utf-8"),
+            page_identifier=(
+                args[3] if isinstance(args[3], str) else str(args[3], "utf-8")
+            ),
             page_extra=json.loads(args[4]),
-            preview_identifier=args[5]
-            if isinstance(args[5], str)
-            else str(args[5], "utf-8"),
+            preview_identifier=(
+                args[5] if isinstance(args[5], str) else str(args[5], "utf-8")
+            ),
             preview_extra=json.loads(args[6]),
             created_at=float(args[7]),
         )
@@ -201,15 +201,17 @@ class TouchLinkDelayedClick(BaseModel):
             b"uid": self.uid.encode("utf-8"),
             b"link_code": self.link_code.encode("utf-8"),
             b"track_type": self.track_type.encode("utf-8"),
-            b"parent_uid": self.parent_uid.encode("utf-8")
-            if self.parent_uid is not None
-            else b"",
-            b"user_sub": self.user_sub.encode("utf-8")
-            if self.user_sub is not None
-            else b"",
-            b"visitor_uid": self.visitor_uid.encode("utf-8")
-            if self.visitor_uid is not None
-            else b"",
+            b"parent_uid": (
+                self.parent_uid.encode("utf-8") if self.parent_uid is not None else b""
+            ),
+            b"user_sub": (
+                self.user_sub.encode("utf-8") if self.user_sub is not None else b""
+            ),
+            b"visitor_uid": (
+                self.visitor_uid.encode("utf-8")
+                if self.visitor_uid is not None
+                else b""
+            ),
             b"clicked_at": str(self.clicked_at).encode("utf-8"),
         }
 

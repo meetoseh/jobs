@@ -1,4 +1,5 @@
 """Rolls over monthly active users to rqlite"""
+
 import asyncio
 from error_middleware import handle_warning
 from itgs import Itgs

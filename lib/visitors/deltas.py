@@ -51,7 +51,6 @@ with arbitrarily many signups so long as that same device was used to create
 all those users.
 """
 
-
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Tuple
 from itgs import Itgs

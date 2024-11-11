@@ -1,4 +1,5 @@
 """a very simple job"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

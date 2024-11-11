@@ -10,6 +10,7 @@ A side effect of this system is that when the frontend exchanges the code we can
 track that the user took the call-to-action, which is often an important metric
 for determining if the notification was useful.
 """
+
 import json
 from itgs import Itgs
 from typing import Any, Dict, Literal, Optional
@@ -351,9 +352,11 @@ async def click_link(
             if buffer_result.tracked:
                 stats.incr_touch_links(
                     unix_date=click_unix_date,
-                    event="clicks_buffered"
-                    if buffer_result.tracked_in_buffer
-                    else "clicks_delayed",
+                    event=(
+                        "clicks_buffered"
+                        if buffer_result.tracked_in_buffer
+                        else "clicks_delayed"
+                    ),
                     event_extra=f"{track_type}:{buffer_result.link.page_identifier}:vis={visitor_uid is not None}:user={user_sub is not None}".encode(
                         "utf-8"
                     ),

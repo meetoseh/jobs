@@ -1,4 +1,5 @@
 """Touch Delayed Click Persist Job"""
+
 from typing import Awaitable, Callable, Dict, List, Optional, cast
 from error_middleware import handle_warning
 from itgs import Itgs

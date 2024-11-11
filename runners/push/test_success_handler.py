@@ -1,4 +1,5 @@
 """A barebones success handler for a push notification"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

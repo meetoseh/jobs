@@ -1,4 +1,5 @@
 """Daily Reminders Assign Time Job"""
+
 import json
 import random
 import time
@@ -245,9 +246,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                 b"sms_queued": str(stats.sms_queued).encode("ascii"),
                 b"push_queued": str(stats.push_queued).encode("ascii"),
                 b"email_queued": str(stats.email_queued).encode("ascii"),
-                b"stop_reason": stopper.reason.encode("ascii")
-                if stopper.reason is not None
-                else "none",
+                b"stop_reason": (
+                    stopper.reason.encode("ascii")
+                    if stopper.reason is not None
+                    else "none"
+                ),
             },
         )
 

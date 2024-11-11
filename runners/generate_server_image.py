@@ -1,6 +1,7 @@
 """Called by frontend-web in order to generate server images which don't require
 authentication
 """
+
 from typing import List, Tuple
 from images import process_image, ImageTarget, ProcessImageAbortedException
 from itgs import Itgs

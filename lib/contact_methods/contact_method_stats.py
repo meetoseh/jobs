@@ -1,4 +1,5 @@
 """Helper module for writing to contact method stats in redis"""
+
 from typing import Literal, Optional
 from itgs import Itgs
 from lib.redis_stats_preparer import RedisStatsPreparer

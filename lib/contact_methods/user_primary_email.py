@@ -5,6 +5,7 @@ term.
 
 SEE ALSO: `user_primary_phone` for the phone number equivalent.
 """
+
 from typing import Optional
 from pypika import Query, Table, Criterion, Not
 from pypika.terms import ExistsCriterion

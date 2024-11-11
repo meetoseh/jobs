@@ -1,4 +1,5 @@
 """Processes the journey share links raced confirmations hash"""
+
 from typing import Literal, Optional
 from error_middleware import handle_warning
 from itgs import Itgs
@@ -74,9 +75,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         scan_cursor: Optional[int] = None
 
         stats = _RunStats()
-        stop_reason: Optional[
-            Literal["list_exhausted", "time_exhausted", "signal"]
-        ] = None
+        stop_reason: Optional[Literal["list_exhausted", "time_exhausted", "signal"]] = (
+            None
+        )
 
         while stop_reason is None:
             loop_at = time.time()
@@ -138,9 +139,11 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                             (
                                 view_to_confirm.user_sub is not None,
                                 view_to_confirm.visitor is not None,
-                                None
-                                if view_to_confirm.visitor_was_unique is None
-                                else int(view_to_confirm.visitor_was_unique),
+                                (
+                                    None
+                                    if view_to_confirm.visitor_was_unique is None
+                                    else int(view_to_confirm.visitor_was_unique)
+                                ),
                                 view_to_confirm.confirmed_at,
                                 view_to_confirm.user_sub,
                                 view_to_confirm.visitor,

@@ -2,6 +2,7 @@
 the logging configuration. Built to closely mirror uvicorn's system to have
 consistency across setups.
 """
+
 import logging
 import click
 from typing import Literal, Optional

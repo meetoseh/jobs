@@ -1,6 +1,7 @@
 """Sends a slack message to the channel identified, augmenting the message with
 data about the user specified.
 """
+
 import json
 from typing import Literal
 from error_middleware import handle_warning

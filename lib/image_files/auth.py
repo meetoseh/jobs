@@ -1,6 +1,5 @@
 """Provides utility functions for working with image file jwts"""
 
-
 from itgs import Itgs
 import time
 import jwt

@@ -2,6 +2,7 @@
 This is typically queued by the file with the plural name, which will queue this
 job for each journey background image which still has an original file available
 """
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from error_middleware import handle_warning

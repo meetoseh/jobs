@@ -1,4 +1,5 @@
 """Ensures all targets are built on journey background images"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

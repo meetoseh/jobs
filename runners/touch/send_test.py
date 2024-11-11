@@ -4,6 +4,7 @@ be more responsive (since you need to incremented queued at the same time).
 
 Primarily this is for fast prototyping or running manually.
 """
+
 import json
 from typing import Literal
 from itgs import Itgs

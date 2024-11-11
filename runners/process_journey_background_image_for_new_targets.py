@@ -1,4 +1,5 @@
 """Primarily called by process_new_journey_background_image_targets"""
+
 import os
 from typing import cast
 from content import hash_content

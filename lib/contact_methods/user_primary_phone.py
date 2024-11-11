@@ -4,6 +4,7 @@ number. This cannot be set directly but is consistent over the short term.
 
 SEE ALSO: `user_primary_email` for the email address equivalent.
 """
+
 import asyncio
 from itgs import Itgs
 from typing import Optional

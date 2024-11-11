@@ -1,4 +1,5 @@
 """Rotates journey share link stats to the database"""
+
 import json
 import time
 from typing import Dict, List

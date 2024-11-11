@@ -231,9 +231,11 @@ async def execute(
                 )
                 await pipe.hincrby(
                     get_counts_key(last_click_removed.utm),  # type: ignore
-                    b"holdover_last_click_signups"  # type: ignore
-                    if is_holdover
-                    else b"last_click_signups",
+                    (
+                        b"holdover_last_click_signups"  # type: ignore
+                        if is_holdover
+                        else b"last_click_signups"
+                    ),
                     -1,
                 )
 
@@ -246,9 +248,11 @@ async def execute(
                 )
                 await pipe.hincrby(
                     get_counts_key(last_click_added.utm),  # type: ignore
-                    b"holdover_last_click_signups"  # type: ignore
-                    if is_holdover
-                    else b"last_click_signups",
+                    (
+                        b"holdover_last_click_signups"  # type: ignore
+                        if is_holdover
+                        else b"last_click_signups"
+                    ),
                     1,
                 )
 
@@ -261,9 +265,11 @@ async def execute(
                 )
                 await pipe.hincrby(
                     get_counts_key(any_click_added.utm),  # type: ignore
-                    b"holdover_any_click_signups"  # type: ignore
-                    if is_holdover
-                    else b"any_click_signups",
+                    (
+                        b"holdover_any_click_signups"  # type: ignore
+                        if is_holdover
+                        else b"any_click_signups"
+                    ),
                     1,
                 )
 

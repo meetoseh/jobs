@@ -1,6 +1,7 @@
 """Helper functions for success/failure callbacks within the touch subsystem to
 interact with the touch:pending sorted set
 """
+
 from itgs import Itgs
 from redis_helpers.run_with_prep import run_with_prep
 from redis_helpers.touch_send_destination_success import (

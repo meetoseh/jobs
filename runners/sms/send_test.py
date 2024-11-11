@@ -1,6 +1,7 @@
 """Sends a test SMS. This tests the lowest level, which does not include tracking
 to whom or why the SMS was sent, nor does it keep a history
 """
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

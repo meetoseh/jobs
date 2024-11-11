@@ -1,4 +1,5 @@
 """Helper job to persist links by code, usually used as a success callback for a touch"""
+
 import time
 from typing import List
 from error_middleware import handle_error

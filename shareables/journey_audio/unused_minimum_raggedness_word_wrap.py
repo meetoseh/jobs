@@ -4,6 +4,7 @@ the frequency space into bins of roughly equal width
 This is effectively the minimum raggedness word wrap problem with floating point
 word lengths
 """
+
 from typing import Callable, List
 import numpy as np
 

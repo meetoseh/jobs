@@ -1,6 +1,7 @@
 """This module helps process m3u8 files
 https://en.wikipedia.org/wiki/M3U
 """
+
 import asyncio
 from dataclasses import dataclass
 import os
@@ -408,9 +409,9 @@ async def parse_m3u_playlist(local_filepath: str, *, parallel=10) -> M3UPlaylist
     while tasks_to_vod_refs or pending_vod_refs:
         while len(tasks_to_vod_refs) < parallel and pending_vod_refs:
             vod_ref = pending_vod_refs.pop()
-            tasks_to_vod_refs[
-                asyncio.create_task(parse_m3u_vod(vod_ref.path))
-            ] = vod_ref
+            tasks_to_vod_refs[asyncio.create_task(parse_m3u_vod(vod_ref.path))] = (
+                vod_ref
+            )
 
         done, _ = await asyncio.wait(
             tasks_to_vod_refs.keys(), return_when=asyncio.FIRST_COMPLETED

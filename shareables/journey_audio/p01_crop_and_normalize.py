@@ -2,6 +2,7 @@
 downmix to a single audio channel, add a fade out, and export in wav LPCM format
 using ffmpeg
 """
+
 from typing import Optional
 from shareables.journey_audio.settings import standard_audio_fade
 from shareables.shareable_pipeline_exception import ShareablePipelineException

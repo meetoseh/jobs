@@ -2,6 +2,7 @@
 Note that the journey is useful information compared to just the content file itself,
 as the name of the instructor can be used to assist the model in transcribing the file.
 """
+
 from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath

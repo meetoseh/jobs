@@ -120,17 +120,21 @@ class PendingSMS(BaseModel):
             b"message_resource_last_updated_at": self.message_resource_last_updated_at,
             b"message_resource_sid": self.message_resource.sid.encode("utf-8"),
             b"message_resource_status": self.message_resource.status.encode("utf-8"),
-            b"message_resource_error_code": self.message_resource.error_code.encode(
-                "utf-8"
-            )
-            if self.message_resource.error_code is not None
-            else b"",
-            b"message_resource_date_updated": self.message_resource.date_updated
-            if self.message_resource.date_updated is not None
-            else b"",
-            b"failure_job_last_called_at": self.failure_job_last_called_at
-            if self.failure_job_last_called_at is not None
-            else b"",
+            b"message_resource_error_code": (
+                self.message_resource.error_code.encode("utf-8")
+                if self.message_resource.error_code is not None
+                else b""
+            ),
+            b"message_resource_date_updated": (
+                self.message_resource.date_updated
+                if self.message_resource.date_updated is not None
+                else b""
+            ),
+            b"failure_job_last_called_at": (
+                self.failure_job_last_called_at
+                if self.failure_job_last_called_at is not None
+                else b""
+            ),
             b"num_failures": self.num_failures,
             b"num_changes": self.num_changes,
             b"phone_number": self.phone_number.encode("utf-8"),

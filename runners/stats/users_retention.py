@@ -1,4 +1,5 @@
 """Hanldes moving user retention info from redis to rqlite once it's immutable"""
+
 import asyncio
 from error_middleware import handle_warning
 from itgs import Itgs

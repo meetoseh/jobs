@@ -1,5 +1,6 @@
 """Assists with updating statistics related to managing expo push tickets
 """
+
 from typing import Literal
 from redis_helpers.run_with_prep import run_with_prep
 from redis_helpers.set_if_lower import set_if_lower, ensure_set_if_lower_script_exists

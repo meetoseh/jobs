@@ -1,4 +1,5 @@
 """Touch system email notification success handler"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

@@ -1,4 +1,5 @@
 """Deletes no longer needed instructor monthly counts from redis to save memory"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

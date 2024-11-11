@@ -1,4 +1,5 @@
 """Rolls over daily active users to rqlite"""
+
 import asyncio
 
 import pytz

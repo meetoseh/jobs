@@ -1,6 +1,7 @@
 """Produces a giant TXT file containing all the transcripts of undeleted classes,
 for manual analysis/searching to find classes
 """
+
 from typing import List, Optional, Tuple, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath

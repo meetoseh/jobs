@@ -1,4 +1,5 @@
 """Sign in with Oseh Send Delayed Email Verification Job"""
+
 from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath

@@ -1,4 +1,5 @@
 """Updates the vip_chat_request_image_uid in redis to match a local file"""
+
 from images import ImageTarget
 from itgs import Itgs
 from graceful_death import GracefulDeath

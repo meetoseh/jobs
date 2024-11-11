@@ -253,7 +253,7 @@ async def process_audio_into(
     name: str,
     ffmpeg: str,
     job_progress_uid: Optional[str],
-    audio_bitrates: Sequence[int]
+    audio_bitrates: Sequence[int],
 ) -> ContentFile:
     """Processes the audio file at the given local filepath into the standard
     exports, using the specified temporary folder. The produced content file is
@@ -1031,7 +1031,7 @@ def produce_m3u8(
     target_folder: str,
     *,
     ffmpeg: str,
-    audio_bitrates: Sequence[int]
+    audio_bitrates: Sequence[int],
 ) -> str:
     """Attempts to produce an m3u8 file from the given audio file. An exception
     is raised if the process fails. This produces multiple files; additional
@@ -1105,7 +1105,7 @@ async def produce_m3u8_async(
     ffmpeg: str,
     pool: multiprocessing.pool.Pool,
     job_progress_uid: Optional[str],
-    audio_bitrates: Sequence[int]
+    audio_bitrates: Sequence[int],
 ) -> str:
     """Async version of produce_m3u8, using the given multiprocessing pool to
     produce the m3u8 file.

@@ -1,4 +1,5 @@
 """SMS Receipt Reconciliation Job"""
+
 import json
 import time
 from typing import Any, Dict, List, Literal, Optional
@@ -56,9 +57,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         )
 
         stats = RunStats()
-        stop_reason: Optional[
-            Literal["list_exhausted", "time_exhausted", "signal"]
-        ] = None
+        stop_reason: Optional[Literal["list_exhausted", "time_exhausted", "signal"]] = (
+            None
+        )
 
         while True:
             if gd.received_term_signal:
@@ -275,9 +276,11 @@ async def reconcile_event(
                 b"num_changes": str(pending_info.num_changes + 1).encode("ascii"),
                 b"message_resource_last_updated_at": str(now).encode("ascii"),
                 b"message_resource_status": event.status.encode("utf-8"),
-                b"message_resource_date_updated": b""
-                if event.date_updated is None
-                else str(event.date_updated).encode("ascii"),
+                b"message_resource_date_updated": (
+                    b""
+                    if event.date_updated is None
+                    else str(event.date_updated).encode("ascii")
+                ),
             },
         )
         if not success:
@@ -353,9 +356,11 @@ async def reconcile_event(
                         failure_info=SMSFailureInfo(
                             action="pending",
                             identifier="ApplicationErrorOther",
-                            subidentifier=event.error_code
-                            if event.error_code is not None
-                            else "failure_status_without_error_code",
+                            subidentifier=(
+                                event.error_code
+                                if event.error_code is not None
+                                else "failure_status_without_error_code"
+                            ),
                             retryable=False,
                             extra=None,
                         ),

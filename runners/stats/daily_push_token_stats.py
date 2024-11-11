@@ -1,4 +1,5 @@
 """Rotates push token stats from redis to the database"""
+
 import time
 from error_middleware import handle_error
 from itgs import Itgs

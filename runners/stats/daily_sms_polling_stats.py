@@ -1,4 +1,5 @@
 """Rotates sms polling stats from redis to the database"""
+
 import json
 import time
 from typing import Dict, List

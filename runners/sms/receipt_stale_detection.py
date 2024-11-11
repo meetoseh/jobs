@@ -1,4 +1,5 @@
 """SMS Receipt Stale Detection Job"""
+
 import time
 from typing import Literal, Optional
 from error_middleware import handle_error
@@ -45,9 +46,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         )
 
         callbacks_queued: int = 0
-        stop_reason: Optional[
-            Literal["list_exhausted", "time_exhausted", "signal"]
-        ] = None
+        stop_reason: Optional[Literal["list_exhausted", "time_exhausted", "signal"]] = (
+            None
+        )
         jobs = await itgs.jobs()
 
         while True:

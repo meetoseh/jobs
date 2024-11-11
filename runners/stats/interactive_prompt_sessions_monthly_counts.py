@@ -1,4 +1,5 @@
 """Handles deleting old monthly journey session statistics"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

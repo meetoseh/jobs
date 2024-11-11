@@ -11,6 +11,7 @@ required to represent the positive frequencies, and each sample is 4 bytes:
 
 60 frames/second * 15 seconds * 8192 samples/frame * 8 bytes/sample = 58,982,400 bytes
 """
+
 import numpy as np
 import scipy.fft
 

@@ -1,4 +1,5 @@
 """Rotates daily reminder stats to the database"""
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 from jobs import JobCategory

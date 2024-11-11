@@ -1,4 +1,5 @@
 """SMS failure handler for the touch system"""
+
 import time
 from typing import Union
 from itgs import Itgs

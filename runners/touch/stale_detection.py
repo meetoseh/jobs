@@ -1,4 +1,5 @@
 """Touch Stale Detection Job"""
+
 import time
 from typing import Optional
 from error_middleware import handle_warning

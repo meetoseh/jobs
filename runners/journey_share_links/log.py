@@ -1,4 +1,5 @@
 """Persists entries from the View To Log Queue"""
+
 import io
 import logging
 import time

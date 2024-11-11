@@ -1,4 +1,5 @@
 """Helper job to abandon links by code, usually used as a failure callback for a touch"""
+
 from typing import List
 from error_middleware import handle_error
 from itgs import Itgs

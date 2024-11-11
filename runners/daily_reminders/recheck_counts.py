@@ -1,4 +1,5 @@
 """Double checks the daily reminder counts are still accurate"""
+
 from typing import Dict, Optional
 from error_middleware import handle_warning
 from itgs import Itgs

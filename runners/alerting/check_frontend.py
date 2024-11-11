@@ -1,4 +1,5 @@
 """Checks the frontend is still responding to index.html requests with 200 OK"""
+
 import json
 from typing import Union
 from error_middleware import handle_warning

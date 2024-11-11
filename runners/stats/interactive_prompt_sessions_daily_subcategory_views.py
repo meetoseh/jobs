@@ -1,4 +1,5 @@
 """Rotates the completed daily by-subcategory totals into the total by-subcategory totals"""
+
 from typing import List, Set
 from error_middleware import handle_warning
 from itgs import Itgs

@@ -1,4 +1,5 @@
 """RQLite database backups"""
+
 from typing import Optional
 from itgs import Itgs
 from graceful_death import GracefulDeath

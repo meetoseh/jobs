@@ -1,6 +1,7 @@
 """Deletes a single s3 file. Usually used as part of a larger task,
 e.g., deleting a user.
 """
+
 from typing import Optional, cast
 from itgs import Itgs
 from graceful_death import GracefulDeath

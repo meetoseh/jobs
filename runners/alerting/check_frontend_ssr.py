@@ -1,4 +1,5 @@
 """Checks that frontend-ssr-web is still responding to /shared/management/hello_world requests with 200 OK"""
+
 import json
 from typing import Union
 from error_middleware import handle_warning

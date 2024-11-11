@@ -1,4 +1,5 @@
 """SMS Receipt Recovery Job"""
+
 import base64
 import os
 import time
@@ -90,9 +91,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
         lost: int = 0
         permanent_error: int = 0
         transient_error: int = 0
-        stop_reason: Optional[
-            Literal["list_exhausted", "time_exhausted", "signal"]
-        ] = None
+        stop_reason: Optional[Literal["list_exhausted", "time_exhausted", "signal"]] = (
+            None
+        )
 
         num_failures = 0
         last_requires_sleep = False
@@ -253,12 +254,16 @@ async def execute(itgs: Itgs, gd: GracefulDeath):
                     response_parsed = MessageResourceEvent(
                         sid=message_resource_obj["sid"],
                         status=message_resource_obj["status"],
-                        error_code=str(message_resource_obj["error_code"])
-                        if message_resource_obj.get("error_code") is not None
-                        else None,
-                        error_message=str(message_resource_obj["error_message"])
-                        if message_resource_obj.get("error_message") is not None
-                        else None,
+                        error_code=(
+                            str(message_resource_obj["error_code"])
+                            if message_resource_obj.get("error_code") is not None
+                            else None
+                        ),
+                        error_message=(
+                            str(message_resource_obj["error_message"])
+                            if message_resource_obj.get("error_message") is not None
+                            else None
+                        ),
                         date_updated=email.utils.parsedate_to_datetime(
                             date_updated_str
                         ).timestamp(),

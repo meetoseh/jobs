@@ -1,4 +1,5 @@
 """Touch Persist Link Job"""
+
 import json
 from typing import Awaitable, Callable, List, Optional, cast
 from error_middleware import handle_warning
@@ -479,9 +480,11 @@ async def form_batch(
         lost=lost,
         persisting=persisting,
         links=SqlQuery(links_sql.getvalue(), link_params) if persisting else None,
-        clicks=SqlQuery(clicks_sql.getvalue(), click_params)
-        if num_clicks_to_persist > 0
-        else None,
+        clicks=(
+            SqlQuery(clicks_sql.getvalue(), click_params)
+            if num_clicks_to_persist > 0
+            else None
+        ),
         num_clicks_to_persist=num_clicks_to_persist,
         redis_cleanup=cleanup_batches,
     )
@@ -626,21 +629,21 @@ async def execute_batch(itgs: Itgs, batch: Batch, batch_at: float) -> RunStats:
         lost=batch.lost,
         integrity_error=len(batch.persisting) - num_links_persisted,
         persisted=num_links_persisted,
-        persisted_without_clicks=sum(
-            len(touch.clicks) == 0 for touch in batch.persisting
-        )
-        if links_batch_succeeded and clicks_batch_succeeded
-        else -1,
-        persisted_with_one_click=sum(
-            len(touch.clicks) == 1 for touch in batch.persisting
-        )
-        if links_batch_succeeded and clicks_batch_succeeded
-        else -1,
-        persisted_with_multiple_clicks=sum(
-            len(touch.clicks) > 1 for touch in batch.persisting
-        )
-        if links_batch_succeeded and clicks_batch_succeeded
-        else -1,
+        persisted_without_clicks=(
+            sum(len(touch.clicks) == 0 for touch in batch.persisting)
+            if links_batch_succeeded and clicks_batch_succeeded
+            else -1
+        ),
+        persisted_with_one_click=(
+            sum(len(touch.clicks) == 1 for touch in batch.persisting)
+            if links_batch_succeeded and clicks_batch_succeeded
+            else -1
+        ),
+        persisted_with_multiple_clicks=(
+            sum(len(touch.clicks) > 1 for touch in batch.persisting)
+            if links_batch_succeeded and clicks_batch_succeeded
+            else -1
+        ),
     )
 
 

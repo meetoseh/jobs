@@ -1,4 +1,5 @@
 """Sweeps unconfirmed journey share link views and either removes or persists stale ones"""
+
 import time
 from typing import Literal, Optional
 from error_middleware import handle_warning

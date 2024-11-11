@@ -2,6 +2,7 @@
 level, which does not include tracking to whom or why the notification was sent, nor does
 it keep a history
 """
+
 from itgs import Itgs
 from graceful_death import GracefulDeath
 import logging

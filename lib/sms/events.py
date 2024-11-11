@@ -41,9 +41,9 @@ class MessageResourceEvent(BaseModel):
         return MessageResourceEvent(
             sid=data["MessageSid"],
             status=data["MessageStatus"],
-            error_code=str(data["ErrorCode"])
-            if data.get("ErrorCode") is not None
-            else None,
+            error_code=(
+                str(data["ErrorCode"]) if data.get("ErrorCode") is not None else None
+            ),
             error_message=None,
             date_updated=None,
             information_received_at=request_at,

@@ -1,6 +1,7 @@
 """The fourth step in the process, where we calculate the average participation for
 each frequency.
 """
+
 import numpy as np
 
 

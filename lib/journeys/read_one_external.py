@@ -131,9 +131,7 @@ async def read_one_external(
     return journey
 
 
-async def read_local_cache(
-    itgs: Itgs, journey_uid: str
-) -> Optional[bytes]:
+async def read_local_cache(itgs: Itgs, journey_uid: str) -> Optional[bytes]:
     """Reads the raw data available in the local cache for the journey with the
     given UID. If data is available, it's returned either completely in memory or via
     a file-like object, depending on its size and hardware characteristics. If

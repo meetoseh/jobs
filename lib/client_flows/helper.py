@@ -56,7 +56,7 @@ def check_oas_30_schema(
     ]
     while stack:
         subschema, path, state = stack.pop()
-        
+
         if "$ref" in schema:
             raise jsonschema.exceptions.ValidationError(
                 f"at {pretty_path(path)}: cannot have '$ref'"
@@ -1037,7 +1037,7 @@ def deep_set(
     original: Union[dict, list],
     path: Union[List[Union[str, int]], List[str], List[int]],
     value: Any,
-    auto_extend_lists: bool = False
+    auto_extend_lists: bool = False,
 ) -> None:
     assert path, f"_deep_set empty path on {original}, value {value}, path {path}"
     src = original

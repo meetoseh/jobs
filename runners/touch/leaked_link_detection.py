@@ -1,4 +1,5 @@
 """Touch Leaked Link Detection"""
+
 from typing import Literal, Optional
 from error_middleware import handle_warning
 from itgs import Itgs

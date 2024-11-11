@@ -1,4 +1,5 @@
 """Rotates touch stale stats to the database"""
+
 import time
 from itgs import Itgs
 from graceful_death import GracefulDeath

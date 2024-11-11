@@ -1,6 +1,7 @@
 """Provides insight into what emotions users are selecting within the app, and
 how that relates to what content we have, then posts that information to slack
 """
+
 import os
 from typing import Dict, List, Set, Tuple, cast
 from error_middleware import handle_error
