@@ -805,16 +805,16 @@ JOBS: Tuple[Job, ...] = (
         kwargs=tuple(),
         interval=JobInterval(pst, hours=(2,), minutes=(0,), seconds=(0,)),
     ),
-    Job(
-        name="runners.daily_reminders.assign_time",
-        kwargs=tuple(),
-        interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
-    ),
-    Job(
-        name="runners.daily_reminders.send",
-        kwargs=tuple(),
-        interval=JobInterval(pst, seconds=(5, 20, 35, 50)),
-    ),
+    # Job(
+    #     name="runners.daily_reminders.assign_time",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(pst, minutes=(0, 15, 30, 45), seconds=(0,)),
+    # ),
+    # Job(
+    #     name="runners.daily_reminders.send",
+    #     kwargs=tuple(),
+    #     interval=JobInterval(pst, seconds=(5, 20, 35, 50)),
+    # ),
     Job(
         name="runners.stats.daily_daily_reminder_registration_stats",
         kwargs=tuple(),
