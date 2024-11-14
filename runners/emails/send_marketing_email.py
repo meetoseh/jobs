@@ -54,7 +54,7 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, touch_point_event_slug: str)
     while True:
         response = await cursor.execute(
             "SELECT "
-            " users.sub "
+            " users.sub, users.given_name "
             "FROM users "
             "WHERE"
             " EXISTS ("
@@ -85,6 +85,15 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, touch_point_event_slug: str)
         try:
             for row in response.results:
                 user_sub = cast(str, row[0])
+                user_given_name = cast(Optional[str], row[1])
+
+                if (
+                    user_given_name is None
+                    or user_given_name == ""
+                    or user_given_name.lower() == "none"
+                    or user_given_name.lower().startswith("anon")
+                ):
+                    user_given_name = "user"
 
                 logging.info(f"Sending touch to {user_sub}")
                 success_callback_codes = []
@@ -93,7 +102,9 @@ async def execute(itgs: Itgs, gd: GracefulDeath, *, touch_point_event_slug: str)
                     user_sub=user_sub,
                     touch_point_event_slug=touch_point_event_slug,
                     channel="email",
-                    event_parameters={},
+                    event_parameters={
+                        "name": user_given_name,
+                    },
                     success_callback=JobCallback(
                         name="runners.touch.persist_links",
                         kwargs={"codes": success_callback_codes},
