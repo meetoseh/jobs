@@ -992,10 +992,7 @@ JOBS: Tuple[Job, ...] = (
     Job(
         name="runners.content_marketing.post_next_on_youtube",
         kwargs=tuple(),
-        interval=JobInterval(pst, hours=(7, 8), minutes=(0, 15, 30, 45), seconds=(0,)),
-        # ~500 videos to go through
-        # 500 / 4 = 125 hours; 5 days, 5 hours
-        # default quota is 6 per day
+        interval=JobInterval(pst, minutes=(0, 10, 20, 30, 40, 50), seconds=(0,)),
     ),
 )
 """The jobs that should be run."""
