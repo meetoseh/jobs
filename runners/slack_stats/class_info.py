@@ -207,7 +207,7 @@ LIMIT 100
 
         slack = await itgs.slack()
         await slack.send_oseh_bot_message(
-            f"{socket.gethostname()} produced class info CSV ({num_classes} classes) at {upload_presigned_url}"
+            f"{socket.gethostname()} produced class info CSV ({num_classes} classes) <{upload_presigned_url}|here>"
         )
 
 
